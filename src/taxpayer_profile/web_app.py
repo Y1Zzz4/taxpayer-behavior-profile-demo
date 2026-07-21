@@ -1,4 +1,4 @@
-"""Small localhost-only HTTP application for the simulated inbound-call demo."""
+"""Local HTTP application for the simulated 12366 inbound-call demo."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import cached_property
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import ceil
 from pathlib import Path
@@ -16,11 +17,15 @@ from urllib.parse import urlparse
 
 from sqlalchemy import func, select
 
+from taxpayer_profile.auth import AuthService, user_payload
 from taxpayer_profile.config import PROJECT_ROOT, Settings
-from taxpayer_profile.database import make_engine, make_session_factory
+from taxpayer_profile.database import create_schema, make_engine, make_session_factory
 from taxpayer_profile.llm_client import OpenAICompatibleClient
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
-from taxpayer_profile.profiling import build_service_strategy, classify_service_profile
+from taxpayer_profile.profiling import (
+    RECEPTION_MODE_CATALOG,
+    classify_reception_mode,
+)
 from taxpayer_profile.query import query_profile
 from taxpayer_profile.realtime_advice import (
     AdviceClient,
@@ -32,189 +37,82 @@ from taxpayer_profile.security import PhoneProtector
 WEB_ROOT = PROJECT_ROOT / "web"
 MAX_REQUEST_BYTES = 16_384
 REALTIME_ADVICE_TIMEOUT_SECONDS = 25.0
+SESSION_COOKIE = "tp_session"
+
 SHOWCASE_SCENARIOS = (
     {
         "id": "baseline",
-        "label": "当前画像",
-        "description": "只展示现有历史证据，不增加模拟记录。",
+        "label": "当前结果",
+        "description": "只回放现有近五个工作日证据。",
     },
     {
-        "id": "repeat_unresolved",
-        "label": "同类事项再次未解决",
-        "description": "模拟同一问题再次来电，且本通仍未直接解决。",
+        "id": "followup_signal",
+        "label": "新增跟进信号",
+        "description": "模拟新增一通联系相关部门后仍未解决的来电。",
     },
     {
-        "id": "resolved_closure",
-        "label": "历史事项完成闭环",
-        "description": "模拟来电核验进度后，将一项历史待办确认解决。",
+        "id": "professional_stable",
+        "label": "专业且平稳",
+        "description": "模拟近期表达呈现专业、平稳且没有高优先级历史信号。",
     },
     {
         "id": "service_dissatisfaction",
-        "label": "新增服务不满信号",
-        "description": "模拟来电人对等待或转交过程表达不满。",
+        "label": "新增不满信号",
+        "description": "模拟来电人表达明确不满。",
     },
 )
 
 PROFILE_DIMENSION_TAXONOMY = (
     {
-        "id": "subject",
-        "name": "咨询主体",
-        "description": "识别最近一次来电代表的主体及企业细化角色，用于调整核验内容，不用于身份定性。",
+        "id": "proficiency",
+        "name": "业务熟悉度",
+        "description": "根据业务表达、术语理解和办理节点认知，调整解释深度。",
+        "categories": ("专业", "了解", "小白"),
+        "unknown": "暂无法判断",
+    },
+    {
+        "id": "emotion",
+        "name": "近期情绪状态",
+        "description": "只描述文本中可观察到的近期表达，不评价性格或心理。",
+        "categories": ("平稳", "焦虑", "不满"),
+        "unknown": "暂无法判断",
+    },
+    {
+        "id": "facts",
+        "name": "历史服务事实",
+        "description": "按该号码最近五个工作日的明确字段组合形成，可同时命中多项。",
         "categories": (
-            "个人",
-            "企业·法定代表人",
-            "企业·财务负责人",
-            "企业·办税人员",
-            "企业·其他",
-            "企业·细化主体待识别",
-            "主体待识别",
+            "等待推诿",
+            "历史工单",
+            "异常中断",
+            "联系后未解决",
+            "对坐席不满",
         ),
-    },
-    {
-        "id": "demand",
-        "name": "诉求形态",
-        "description": "复用单通来电需求类别，可同时保留两个彼此独立的诉求标签。",
-        "categories": (
-            "政策咨询类",
-            "操作辅导类",
-            "工单/拉起类",
-            "涉税查询类",
-            "系统异常类",
-            "投诉举报类",
-            "意见建议类",
-            "其他类",
-        ),
-    },
-    {
-        "id": "continuity",
-        "name": "互动连续性",
-        "description": "区分首次接触、一般复访、持续咨询和已经核实的同题重复。",
-        "categories": ("初次接触", "常规复访", "持续咨询", "同题重复"),
-    },
-    {
-        "id": "progress",
-        "name": "事项进展",
-        "description": "描述最近事项是否闭环、待跟进或已经进入工单流转。",
-        "categories": ("最近已闭环", "事项待跟进", "工单推进", "状态待确认"),
-    },
-    {
-        "id": "capability",
-        "name": "业务认知",
-        "description": "依据历史表达和问答证据调整术语密度及步骤粒度。",
-        "categories": ("引导辅助", "常规理解", "熟练自主", "证据不足"),
-    },
-    {
-        "id": "experience",
-        "name": "服务体验",
-        "description": "只评价历史服务过程信号，用于判断是否需要提高节点透明度。",
-        "categories": ("服务平稳", "过程关注", "信任修复"),
+        "unknown": "近五个工作日未命中",
     },
 )
 
-SERVICE_ACTION_CATALOG = (
-    {"id": "clarify", "label": "诉求开放式确认", "description": "先确认本次实际诉求，不把历史事项直接当成本次问题。"},
-    {"id": "history", "label": "历史节点衔接", "description": "经来电人确认后，从已知处理节点继续，减少重复复述。"},
-    {"id": "progress", "label": "进度与责任透明", "description": "说明当前状态、下一责任方、预计时间和查询入口。"},
-    {"id": "difference", "label": "新旧差异核对", "description": "重点核对材料、系统提示、处理进度或理解上的新增变化。"},
-    {"id": "conclusion", "label": "结论条件优先", "description": "先给结论框架、适用条件和例外，再补充必要步骤。"},
-    {"id": "guided", "label": "通俗分步引导", "description": "降低术语密度，一次给出少量步骤并等待操作结果。"},
-    {"id": "confirm", "label": "关键节点复述确认", "description": "在材料、页面或办理节点处确认理解和当前结果。"},
-    {"id": "transfer", "label": "等待与转交说明", "description": "发生等待或转交时主动说明原因、责任边界和预计时长。"},
-    {"id": "closure", "label": "闭环与查询方式", "description": "结束前确认是否解决，并说明仍待处理事项及后续查询方式。"},
-    {"id": "separate", "label": "新旧事项分流", "description": "明确区分延续事项和本次新问题，避免误归为重复咨询。"},
-)
-
-SERVICE_MODE_CATALOG = (
+HISTORICAL_FACT_DEFINITIONS = (
     {
-        "id": "trust",
-        "label": "信任修复与节点透明型",
-        "definition": "用于出现服务体验风险的情形，优先复述诉求，并透明说明等待、转交和责任节点。",
-        "rule": "主画像为服务关注型，或任一画像同时出现潜在推诿、两次及以上异常结束。",
-        "profiles": ("服务关注型", "事项跟进型", "持续咨询型", "常规服务型"),
-        "actions": ("clarify", "progress", "transfer", "closure"),
+        "id": "wait_pushback",
+        "label": "等待推诿",
+        "rule": "存在让纳税人等待表述 = 是，且坐席存在潜在推诿行为 = 是",
+    },
+    {"id": "work_order", "label": "历史工单", "rule": "是否工单 = 是"},
+    {
+        "id": "abnormal_end",
+        "label": "异常中断",
+        "rule": "采用原始分析的最终非正常中断字段；新增数据按同口径分析",
     },
     {
-        "id": "progress",
-        "label": "事项进度核验与闭环型",
-        "definition": "用于未直接解决、工单或多次未闭环事项，先核验当前节点，再明确下一责任方和时间点。",
-        "rule": "主画像为事项跟进型，即未直接解决次数大于0或历史工单次数大于0。",
-        "profiles": ("事项跟进型",),
-        "actions": ("clarify", "history", "progress", "closure", "separate"),
+        "id": "contact_unresolved",
+        "label": "联系后未解决",
+        "rule": "联系相关人员或部门 = 是，且坐席是否解决纳税人问题 = 否",
     },
     {
-        "id": "difference",
-        "label": "重复问题差异核对型",
-        "definition": "用于同题重复咨询，重点确认本次相较前次新增的材料、状态、提示或理解差异。",
-        "rule": "主画像为持续咨询型，且已确认同类重复诉求次数大于0。",
-        "profiles": ("持续咨询型",),
-        "actions": ("clarify", "history", "difference", "closure", "separate"),
-    },
-    {
-        "id": "history",
-        "label": "历史上下文衔接型",
-        "definition": "用于一般复访或多次来电，先判断是否延续历史事项，再从已确认节点继续。",
-        "rule": "主画像为持续咨询型或常规服务型，且没有更优先事项，熟练度处于常规区间或证据不足。",
-        "profiles": ("持续咨询型", "常规服务型"),
-        "actions": ("clarify", "history", "separate", "closure"),
-    },
-    {
-        "id": "conclusion",
-        "label": "结论条件优先型",
-        "definition": "用于业务认知较高的来电人，先给结论、适用条件与例外，再补充关键操作节点。",
-        "rule": "主画像为持续咨询型或常规服务型，且历史业务熟练度大于等于8分。",
-        "profiles": ("持续咨询型", "常规服务型"),
-        "actions": ("clarify", "conclusion", "confirm", "closure"),
-    },
-    {
-        "id": "guided",
-        "label": "分步操作陪伴确认型",
-        "definition": "用于业务认知较低的来电人，降低术语密度，分段给出操作并逐节点确认。",
-        "rule": "主画像为持续咨询型或常规服务型，且历史业务熟练度小于等于4分。",
-        "profiles": ("持续咨询型", "常规服务型"),
-        "actions": ("clarify", "guided", "confirm", "closure"),
-    },
-    {
-        "id": "initial",
-        "label": "首次诉求澄清与标准引导型",
-        "definition": "用于历史证据较少或认知程度待判断的情形，先完整澄清诉求，再按标准流程引导。",
-        "rule": "主画像为常规服务型，且无稳定历史衔接关系和明确熟练度分层。",
-        "profiles": ("常规服务型",),
-        "actions": ("clarify", "confirm", "closure"),
-    },
-)
-
-COMPOSITE_PROFILE_CATALOG = (
-    {
-        "type": "服务关注型",
-        "priority": 1,
-        "definition": "历史服务体验需要优先修复，接待时首先保证等待、转交和责任节点透明。",
-        "rule": "历史对本通热线服务不满次数 > 0",
-        "dimensions": ("experience", "progress", "continuity"),
-        "modes": ("trust",),
-    },
-    {
-        "type": "事项跟进型",
-        "priority": 2,
-        "definition": "历史存在未直接解决事项或工单，应优先核对进度并形成可追踪的后续闭环。",
-        "rule": "未直接解决次数 > 0，或历史工单次数 > 0",
-        "dimensions": ("progress", "continuity", "demand"),
-        "modes": ("trust", "progress"),
-    },
-    {
-        "type": "持续咨询型",
-        "priority": 3,
-        "definition": "存在稳定复访或同题重复特征，应复用历史上下文并重点核对本次新增变化。",
-        "rule": "同类重复诉求次数 > 0，或累计来电次数 ≥ 3",
-        "dimensions": ("continuity", "progress", "demand"),
-        "modes": ("trust", "difference", "history", "conclusion", "guided"),
-    },
-    {
-        "type": "常规服务型",
-        "priority": 4,
-        "definition": "未出现更高优先级服务信号；具体采用结论优先、分步陪伴或首次引导，由业务认知与互动连续性共同决定。",
-        "rule": "P1—P3均未命中时作为兜底分类",
-        "dimensions": ("continuity", "progress", "capability"),
-        "modes": ("trust", "history", "conclusion", "guided", "initial"),
+        "id": "dissatisfaction",
+        "label": "对坐席不满",
+        "rule": "纳税人是否对当前坐席或本通热线存在不满 = 是",
     },
 )
 
@@ -223,217 +121,140 @@ def _showcase_key(phone_hash: str) -> str:
     return hashlib.sha256(f"profile-showcase:{phone_hash}".encode()).hexdigest()[:18]
 
 
-def _strategy_payload(
-    *,
-    profile: CallerProfile,
-    trajectories: list[CallTrajectory],
-    state: dict[str, int],
-    latest_resolved: bool | None,
-) -> dict[str, object]:
-    question = profile.latest_question or "最近咨询事项"
-    unresolved_questions = [
-        item.core_question or item.topic_category or "历史未解决事项"
-        for item in trajectories
-        if item.resolved_status is False
+def _abnormal(item: CallTrajectory) -> bool:
+    return item.rule_abnormal_end is True or item.model_abnormal_end is True
+
+
+def _wait_pushback(item: CallTrajectory) -> bool:
+    return item.waiting_expression is True and item.potential_pushback is True
+
+
+def _contact_unresolved(item: CallTrajectory) -> bool:
+    return item.contacted_other_department is True and item.resolved_status is False
+
+
+def _counter_rows(counter: Counter[str], limit: int | None = None) -> list[dict[str, object]]:
+    return [{"label": label, "value": value} for label, value in counter.most_common(limit)]
+
+
+def _segmented_rows(
+    counter: Counter[str], resolution: dict[str, Counter[str]], *, limit: int = 5
+) -> list[dict[str, object]]:
+    return [
+        {
+            "label": label,
+            "value": value,
+            "resolved": resolution[label]["resolved"],
+            "unresolved": resolution[label]["unresolved"],
+            "unknown": resolution[label]["unknown"],
+            "share": round(value * 100 / sum(counter.values()), 1) if counter else 0,
+        }
+        for label, value in counter.most_common(limit)
     ]
-    classification = classify_service_profile(
-        total_calls=state["total_calls"],
-        repeated_issues=state["repeated_issues"],
-        unresolved=state["unresolved"],
-        work_orders=state["work_orders"],
-        dissatisfaction=state["dissatisfaction"],
-        proficiency_score=profile.proficiency_score,
-    )
-    strategy = build_service_strategy(
-        total_calls=state["total_calls"],
-        repeated_issues=state["repeated_issues"],
-        unresolved=state["unresolved"],
-        work_orders=state["work_orders"],
-        abnormal_ends=state["abnormal_ends"],
-        dissatisfaction=state["dissatisfaction"],
-        has_pushback=any(item.potential_pushback is True for item in trajectories),
-        latest_resolved=latest_resolved,
-        proficiency_score=profile.proficiency_score,
-        latest_question=question,
-        recent_questions=[
-            item.core_question
-            for item in reversed(trajectories)
-            if item.core_question
-        ][:3],
-        unresolved_questions=unresolved_questions[:3],
-    )
+
+
+def _mask_phone(phone: str) -> str:
+    if len(phone) >= 8:
+        return f"{phone[:3]}{'*' * (len(phone) - 7)}{phone[-4:]}"
+    if len(phone) >= 5:
+        return f"{phone[:2]}{'*' * (len(phone) - 4)}{phone[-2:]}"
+    if len(phone) >= 3:
+        return f"{phone[0]}{'*' * (len(phone) - 2)}{phone[-1:]}"
+    return "*" * len(phone)
+
+
+def _fact_counts(items: list[CallTrajectory]) -> dict[str, int]:
     return {
-        "profile_type": classification.profile_type,
-        "profile_basis": classification.basis,
-        "attention_level": strategy.attention_level,
-        "service_mode": strategy.recommended_mode,
-        "strategy_reason": strategy.reason,
-        "service_suggestion": strategy.suggestion,
+        "wait_pushback": sum(_wait_pushback(item) for item in items),
+        "work_order": sum(item.work_order is True for item in items),
+        "abnormal_end": sum(_abnormal(item) for item in items),
+        "contact_unresolved": sum(_contact_unresolved(item) for item in items),
+        "dissatisfaction": sum(item.taxpayer_dissatisfied is True for item in items),
     }
 
 
-def _profile_dimension_snapshot(
-    *,
-    profile: CallerProfile,
-    trajectories: list[CallTrajectory],
-    state: dict[str, int],
-    latest_resolved: bool | None,
-) -> dict[str, object]:
-    """Build concurrent, explainable profile dimensions from stored facts."""
+def _recent_five_workday_items(
+    items: list[CallTrajectory],
+) -> list[CallTrajectory]:
+    if not items:
+        return []
+    anchor = max(item.call_time.date() for item in items)
+    workdays = set()
+    current = anchor
+    while len(workdays) < 5:
+        if current.weekday() < 5:
+            workdays.add(current)
+        current -= timedelta(days=1)
+    return [item for item in items if item.call_time.date() in workdays]
 
-    if profile.caller_type == "企业":
-        identity = profile.enterprise_identity
-        subject_value = (
-            f"企业·{identity}"
-            if identity in {"法定代表人", "财务负责人", "办税人员", "其他"}
-            else "企业·细化主体待识别"
-        )
-        subject_basis = f"最近咨询主体为企业，细化主体为{identity or '无法判断'}。"
-    elif profile.caller_type == "个人":
-        subject_value = "个人"
-        subject_basis = "最近咨询主体识别为个人。"
-    else:
-        subject_value = "主体待识别"
-        subject_basis = "现有记录不足以稳定判断最近咨询主体。"
 
-    demand_values = [
-        item.strip()
-        for item in (profile.latest_demand_category or "").replace("，", ",").split(",")
-        if item.strip()
-    ][:2]
-    demand_basis = (
-        f"最近一通来电的需求类别为{'、'.join(demand_values)}。"
-        if demand_values
-        else "最近一通来电尚未形成稳定需求类别。"
+def _mode_from_state(state: dict[str, object]):
+    return classify_reception_mode(
+        proficiency_level=str(state.get("proficiency_level") or "暂无法判断"),
+        emotion_state=str(state.get("emotion_state") or "暂无法判断"),
+        wait_pushback_count=int(state.get("wait_pushback") or 0),
+        work_order_count=int(state.get("work_order") or 0),
+        abnormal_end_count=int(state.get("abnormal_end") or 0),
+        contact_unresolved_count=int(state.get("contact_unresolved") or 0),
+        dissatisfaction_count=int(state.get("dissatisfaction") or 0),
     )
 
-    if state["repeated_issues"] > 0:
-        continuity_value = "同题重复"
-        continuity_basis = (
-            f"累计来电{state['total_calls']}次，其中已确认同一问题重复咨询"
-            f"{state['repeated_issues']}次。"
-        )
-    elif state["total_calls"] >= 3:
-        continuity_value = "持续咨询"
-        continuity_basis = f"累计来电{state['total_calls']}次，已形成持续复访特征。"
-    elif state["total_calls"] <= 1:
-        continuity_value = "初次接触"
-        continuity_basis = "当前仅有一次历史来电，连续性证据仍较少。"
-    else:
-        continuity_value = "常规复访"
-        continuity_basis = (
-            f"累计来电{state['total_calls']}次，但尚未确认同一问题重复咨询。"
-        )
 
-    if state["work_orders"] > 0:
-        progress_value = "工单推进"
-        progress_basis = f"历史存在{state['work_orders']}次工单记录，需要核验承办节点。"
-    elif state["unresolved"] > 0 or latest_resolved is False:
-        progress_value = "事项待跟进"
-        progress_basis = f"历史存在{state['unresolved']}次未直接解决记录。"
-    elif latest_resolved is True:
-        progress_value = "最近已闭环"
-        progress_basis = "最近一次来电记录显示事项已直接解决。"
-    else:
-        progress_value = "状态待确认"
-        progress_basis = "最近事项的解决状态尚无充分证据。"
-
-    score = profile.proficiency_score
-    if score is None:
-        capability_value = "证据不足"
-        capability_basis = "历史表达与问答证据不足，暂不预设理解程度。"
-    elif score < 5:
-        capability_value = "引导辅助"
-        capability_basis = f"历史业务熟练度为{score:.1f}/10，适合通俗分步引导。"
-    elif score >= 8:
-        capability_value = "熟练自主"
-        capability_basis = f"历史业务熟练度为{score:.1f}/10，可压缩基础概念铺垫。"
-    else:
-        capability_value = "常规理解"
-        capability_basis = f"历史业务熟练度为{score:.1f}/10，建议按反馈调整解释深度。"
-
-    has_pushback = any(item.potential_pushback is True for item in trajectories)
-    if state["dissatisfaction"] > 0:
-        experience_value = "信任修复"
-        experience_basis = (
-            f"历史存在{state['dissatisfaction']}次对本通热线服务不满记录，"
-            "应提高等待与转交透明度。"
-        )
-    elif state["abnormal_ends"] > 0 or has_pushback:
-        experience_value = "过程关注"
-        signals = []
-        if state["abnormal_ends"] > 0:
-            signals.append(f"{state['abnormal_ends']}次异常结束")
-        if has_pushback:
-            signals.append("潜在推诿信号")
-        experience_basis = f"历史存在{'、'.join(signals)}，需要加强过程确认。"
-    else:
-        experience_value = "服务平稳"
-        experience_basis = "历史暂未出现明确服务不满、推诿或异常结束信号。"
-
-    values_by_id: dict[str, tuple[list[str], str]] = {
-        "subject": ([subject_value], subject_basis),
-        "demand": (demand_values or ["需求待识别"], demand_basis),
-        "continuity": ([continuity_value], continuity_basis),
-        "progress": ([progress_value], progress_basis),
-        "capability": ([capability_value], capability_basis),
-        "experience": ([experience_value], experience_basis),
+def _mode_payload(state: dict[str, object]) -> dict[str, object]:
+    mode = _mode_from_state(state)
+    return {
+        "service_mode": mode.mode,
+        "mode_id": mode.mode_id,
+        "strategy_reason": mode.basis,
+        "service_suggestion": mode.focus,
+        "communication": mode.communication,
+        "avoid": mode.avoid,
+        "matched_facts": list(mode.matched_facts),
     }
-    items = []
-    for dimension in PROFILE_DIMENSION_TAXONOMY:
-        values, basis = values_by_id[str(dimension["id"])]
-        items.append(
-            {
-                "id": dimension["id"],
-                "name": dimension["name"],
-                "values": values,
-                "value": "、".join(values),
-                "basis": basis,
-            }
-        )
 
-    unresolved_questions = [
-        item.core_question or item.topic_category or "历史未解决事项"
-        for item in trajectories
-        if item.resolved_status is False
+
+def _profile_snapshot(state: dict[str, object]) -> dict[str, object]:
+    facts = []
+    fact_keys = (
+        ("wait_pushback", "等待推诿"),
+        ("work_order", "历史工单"),
+        ("abnormal_end", "异常中断"),
+        ("contact_unresolved", "联系后未解决"),
+        ("dissatisfaction", "对坐席不满"),
+    )
+    for key, label in fact_keys:
+        if int(state.get(key) or 0):
+            facts.append(label)
+    items = [
+        {
+            "id": "proficiency",
+            "name": "业务熟悉度",
+            "value": str(state.get("proficiency_level") or "暂无法判断"),
+            "values": [str(state.get("proficiency_level") or "暂无法判断")],
+            "basis": str(state.get("proficiency_basis") or "可用证据不足。"),
+        },
+        {
+            "id": "emotion",
+            "name": "近期情绪状态",
+            "value": str(state.get("emotion_state") or "暂无法判断"),
+            "values": [str(state.get("emotion_state") or "暂无法判断")],
+            "basis": str(state.get("emotion_basis") or "可用证据不足。"),
+        },
+        {
+            "id": "facts",
+            "name": "历史服务事实",
+            "value": "、".join(facts) if facts else "近五个工作日未命中",
+            "values": facts or ["近五个工作日未命中"],
+            "basis": "历史事实按最近五个工作日的明确字段组合计算。",
+        },
     ]
-    strategy = build_service_strategy(
-        total_calls=state["total_calls"],
-        repeated_issues=state["repeated_issues"],
-        unresolved=state["unresolved"],
-        work_orders=state["work_orders"],
-        abnormal_ends=state["abnormal_ends"],
-        dissatisfaction=state["dissatisfaction"],
-        has_pushback=has_pushback,
-        latest_resolved=latest_resolved,
-        proficiency_score=profile.proficiency_score,
-        latest_question=profile.latest_question,
-        recent_questions=[
-            item.core_question for item in reversed(trajectories) if item.core_question
-        ][:3],
-        unresolved_questions=unresolved_questions[:3],
-    )
-    selected_mode = next(
-        (
-            item
-            for item in SERVICE_MODE_CATALOG
-            if item["label"] == strategy.recommended_mode
-        ),
-        None,
-    )
-    unique_action_ids = (
-        list(selected_mode["actions"])
-        if selected_mode
-        else ["clarify", "confirm", "closure"]
-    )
-    action_by_id = {str(item["id"]): item for item in SERVICE_ACTION_CATALOG}
-
+    mode = _mode_payload(state)
     return {
         "items": items,
-        "signature": " / ".join(item["value"] for item in items),
+        "signature": " / ".join(str(item["value"]) for item in items),
         "active_category_count": sum(len(item["values"]) for item in items),
-        "service_mode": strategy.recommended_mode,
-        "service_actions": [action_by_id[action_id] for action_id in unique_action_ids],
+        "service_mode": mode["service_mode"],
+        "service_actions": [],
     }
 
 
@@ -446,7 +267,21 @@ class DemoService:
 
     @cached_property
     def _sessions(self):  # type: ignore[no-untyped-def]
-        return make_session_factory(make_engine(self.database_path))
+        engine = make_engine(self.database_path)
+        create_schema(engine)
+        return make_session_factory(engine)
+
+    @cached_property
+    def auth(self) -> AuthService:
+        return AuthService(self._sessions)
+
+    def initialize_auth(self) -> None:
+        self.auth.ensure_default_users(
+            admin_username=self.settings.default_admin_username,
+            admin_password=self.settings.default_admin_password,
+            agent_username=self.settings.default_agent_username,
+            agent_password=self.settings.default_agent_password,
+        )
 
     def lookup_profile(self, phone: object) -> dict[str, object] | None:
         return query_profile(
@@ -473,9 +308,12 @@ class DemoService:
         if profile is None:
             empty_context = {
                 "profile_summary": "该号码暂无历史来电记录。",
-                "proficiency_score": None,
-                "proficiency_summary": "无法判断",
+                "proficiency_level": "暂无法判断",
+                "emotion_state": "暂无法判断",
+                "recommended_mode": "通俗引导",
+                "mode_basis": "暂无历史信息，采用通俗引导作为保守起点。",
                 "statistics": {},
+                "recent_five_workdays": {},
                 "recent_trajectories": [],
             }
             return {
@@ -493,8 +331,6 @@ class DemoService:
         }
 
     def dashboard_summary(self) -> dict[str, object]:
-        """Return aggregate, non-identifying statistics for the overview page."""
-
         with self._sessions() as session:
             profiles = session.scalars(select(CallerProfile)).all()
             trajectories = session.scalars(select(CallTrajectory)).all()
@@ -502,11 +338,6 @@ class DemoService:
                 select(UpdateLog).order_by(UpdateLog.started_at.desc()).limit(1)
             )
 
-        proficiency = [
-            item.proficiency_score
-            for item in profiles
-            if item.proficiency_score is not None
-        ]
         known_resolution = [
             item.resolved_status
             for item in trajectories
@@ -514,45 +345,6 @@ class DemoService:
         ]
         daily_calls = Counter(item.call_time.date().isoformat() for item in trajectories)
         caller_types = Counter(item.caller_type or "暂未识别" for item in profiles)
-        service_profile_types = Counter(
-            classify_service_profile(
-                total_calls=item.total_call_count,
-                repeated_issues=item.repeated_issue_count,
-                unresolved=item.unresolved_count,
-                work_orders=item.work_order_count,
-                dissatisfaction=item.dissatisfaction_count,
-                proficiency_score=item.proficiency_score,
-            ).profile_type
-            for item in profiles
-        )
-        service_ratings = Counter(
-            item.service_rating or "暂未评价" for item in trajectories
-        )
-        question_categories: Counter[str] = Counter()
-        demand_categories: Counter[str] = Counter()
-        question_resolution: dict[str, Counter[str]] = {}
-        demand_resolution: dict[str, Counter[str]] = {}
-        for item in trajectories:
-            resolution_key = (
-                "resolved"
-                if item.resolved_status is True
-                else "unresolved"
-                if item.resolved_status is False
-                else "unknown"
-            )
-            topic_label = item.topic_category or "暂未分类"
-            question_categories[topic_label] += 1
-            question_resolution.setdefault(topic_label, Counter())[resolution_key] += 1
-            labels = (
-                [part.strip() for part in item.demand_category.split(",")]
-                if item.demand_category
-                else ["暂未分类"]
-            )
-            for label in labels:
-                if not label:
-                    continue
-                demand_categories[label] += 1
-                demand_resolution.setdefault(label, Counter())[resolution_key] += 1
         resolution_status = Counter(
             "已直接解决"
             if item.resolved_status is True
@@ -561,46 +353,50 @@ class DemoService:
             else "状态待判定"
             for item in trajectories
         )
-        proficiency_bands = Counter(
-            "较熟练（8-10分）"
-            if item.proficiency_score is not None and item.proficiency_score >= 8
-            else "一般（5-7.9分）"
-            if item.proficiency_score is not None and item.proficiency_score >= 5
-            else "需更多引导（0-4.9分）"
-            if item.proficiency_score is not None
-            else "暂未评估"
-            for item in profiles
-        )
-        if daily_calls:
-            latest_date = max(item.call_time.date() for item in trajectories)
-            first_date = min(item.call_time.date() for item in trajectories)
-            trend_start = latest_date - timedelta(days=13)
-            trend_dates = [
-                trend_start + timedelta(days=offset)
-                for offset in range((latest_date - trend_start).days + 1)
+        topics: Counter[str] = Counter()
+        demands: Counter[str] = Counter()
+        topic_resolution: dict[str, Counter[str]] = {}
+        demand_resolution: dict[str, Counter[str]] = {}
+        for item in trajectories:
+            state = (
+                "resolved"
+                if item.resolved_status is True
+                else "unresolved"
+                if item.resolved_status is False
+                else "unknown"
+            )
+            topic = item.topic_category or "暂未分类"
+            topics[topic] += 1
+            topic_resolution.setdefault(topic, Counter())[state] += 1
+            labels = [
+                part.strip()
+                for part in (item.demand_category or "暂未分类")
+                .replace("，", ",")
+                .split(",")
+                if part.strip()
             ]
-        else:
-            first_date = latest_date = None
-            trend_dates = []
+            for label in labels:
+                demands[label] += 1
+                demand_resolution.setdefault(label, Counter())[state] += 1
 
+        sorted_dates = sorted(daily_calls)
+        trend_dates = []
+        if sorted_dates:
+            latest_date = max(item.call_time.date() for item in trajectories)
+            trend_dates = [latest_date - timedelta(days=offset) for offset in range(13, -1, -1)]
+        facts = _fact_counts(trajectories)
+        fact_rows = [
+            {
+                **definition,
+                "value": facts[str(definition["id"])],
+            }
+            for definition in HISTORICAL_FACT_DEFINITIONS
+        ]
         return {
             "overview": {
                 "total_profiles": len(profiles),
                 "total_calls": len(trajectories),
-                "unresolved_calls": sum(
-                    item.resolved_status is False for item in trajectories
-                ),
-                "work_orders": sum(item.work_order is True for item in trajectories),
-                "repeated_calls": sum(item.is_repeated_call for item in trajectories),
-                "repeated_issues": sum(
-                    item.is_repeated_issue is True for item in trajectories
-                ),
-                "profiles_with_proficiency": len(proficiency),
-                "average_proficiency": (
-                    round(sum(proficiency) / len(proficiency), 1)
-                    if proficiency
-                    else None
-                ),
+                "work_orders": facts["work_order"],
                 "resolved_rate": (
                     round(
                         100
@@ -611,64 +407,30 @@ class DemoService:
                     if known_resolution
                     else None
                 ),
-                "average_calls_per_profile": (
-                    round(len(trajectories) / len(profiles), 1) if profiles else 0
-                ),
-                "question_category_count": len(question_categories),
                 "data_date_range": (
-                    f"{first_date.isoformat()} 至 {latest_date.isoformat()}"
-                    if first_date is not None and latest_date is not None
-                    else None
+                    f"{sorted_dates[0]} 至 {sorted_dates[-1]}" if sorted_dates else None
                 ),
             },
             "daily_calls": [
                 {
-                    "date": date.isoformat(),
-                    "label": date.strftime("%m-%d"),
-                    "value": daily_calls.get(date.isoformat(), 0),
+                    "date": value.isoformat(),
+                    "label": value.strftime("%m-%d"),
+                    "value": daily_calls[value.isoformat()],
                 }
-                for date in trend_dates
+                for value in trend_dates
             ],
             "caller_types": _counter_rows(caller_types),
-            "service_profile_types": _counter_rows(service_profile_types),
             "resolution_status": _counter_rows(resolution_status),
-            "service_ratings": _counter_rows(service_ratings),
-            "question_categories": _segmented_counter_rows(
-                question_categories, question_resolution, limit=8
+            "question_categories": _segmented_rows(
+                topics, topic_resolution, limit=5
             ),
-            "demand_categories": _segmented_counter_rows(
-                demand_categories, demand_resolution
+            "demand_categories": _segmented_rows(
+                demands, demand_resolution, limit=5
             ),
-            "proficiency_bands": _counter_rows(proficiency_bands),
+            "historical_facts": fact_rows,
+            # Compatibility keys retained while the page moves to the simpler layout.
             "service_signals": [
-                {
-                    "label": "未直接解决",
-                    "value": sum(
-                        item.resolved_status is False for item in trajectories
-                    ),
-                },
-                {
-                    "label": "已形成工单",
-                    "value": sum(item.work_order is True for item in trajectories),
-                },
-                {
-                    "label": "重复来电",
-                    "value": sum(item.is_repeated_call for item in trajectories),
-                },
-                {
-                    "label": "重复事项",
-                    "value": sum(
-                        item.is_repeated_issue is True for item in trajectories
-                    ),
-                },
-                {
-                    "label": "服务需关注",
-                    "value": sum(
-                        item.taxpayer_dissatisfied is True
-                        or item.service_rating == "需关注"
-                        for item in trajectories
-                    ),
-                },
+                {"label": row["label"], "value": row["value"]} for row in fact_rows
             ],
             "latest_update": (
                 {
@@ -687,404 +449,271 @@ class DemoService:
         }
 
     def profile_showcase_catalog(self) -> dict[str, object]:
-        """List masked example profiles for the read-only profile showcase."""
-
         with self._sessions() as session:
             profiles = session.scalars(
                 select(CallerProfile).order_by(CallerProfile.latest_call_time.desc())
             ).all()
-
+            trajectories_by_phone: dict[str, list[CallTrajectory]] = {}
+            for item in session.scalars(select(CallTrajectory)).all():
+                trajectories_by_phone.setdefault(item.phone_hash, []).append(item)
         items: list[dict[str, object]] = []
+        mode_counts: Counter[str] = Counter()
         for profile in profiles:
-            classification = classify_service_profile(
-                total_calls=profile.total_call_count,
-                repeated_issues=profile.repeated_issue_count,
-                unresolved=profile.unresolved_count,
-                work_orders=profile.work_order_count,
-                dissatisfaction=profile.dissatisfaction_count,
-                proficiency_score=profile.proficiency_score,
-            )
             try:
-                masked_phone = _mask_phone(
-                    self.protector.decrypt_phone(profile.phone_encrypted)
-                )
+                masked = _mask_phone(self.protector.decrypt_phone(profile.phone_encrypted))
             except (ValueError, TypeError):
-                masked_phone = "号码信息不可用"
+                masked = "号码不可用"
+            # Catalog labels are intentionally short; detail remains in the result panel.
+            recent_facts = _fact_counts(
+                _recent_five_workday_items(
+                    trajectories_by_phone.get(profile.phone_hash, [])
+                )
+            )
+            mode = classify_reception_mode(
+                proficiency_level=profile.proficiency_level,
+                emotion_state=profile.emotion_state,
+                wait_pushback_count=recent_facts["wait_pushback"],
+                work_order_count=recent_facts["work_order"],
+                abnormal_end_count=recent_facts["abnormal_end"],
+                contact_unresolved_count=recent_facts["contact_unresolved"],
+                dissatisfaction_count=recent_facts["dissatisfaction"],
+            ).mode
+            mode_counts[mode] += 1
             items.append(
                 {
                     "profile_key": _showcase_key(profile.phone_hash),
-                    "masked_phone": masked_phone,
-                    "profile_type": classification.profile_type,
-                    "latest_question": profile.latest_question or "最近咨询事项未记录",
-                    "total_calls": profile.total_call_count,
-                    "repeated_issues": profile.repeated_issue_count,
-                    "unresolved": profile.unresolved_count,
-                    "dissatisfaction": profile.dissatisfaction_count,
+                    "label": f"{masked} · {mode}",
+                    "masked_phone": masked,
+                    "recommended_mode": mode,
+                    "proficiency_level": profile.proficiency_level,
+                    "emotion_state": profile.emotion_state,
                     "latest_call_time": profile.latest_call_time,
-                    "presentation_priority": (
-                        100
-                        if not any(
-                            (
-                                profile.dissatisfaction_count,
-                                profile.unresolved_count,
-                                profile.repeated_issue_count,
-                            )
-                        )
-                        else 60
-                        if profile.unresolved_count and not profile.dissatisfaction_count
-                        else 30
-                    )
-                    + int(bool(profile.latest_question)),
                 }
             )
-        items.sort(
-            key=lambda item: (
-                -int(item["presentation_priority"]),
-                str(item["latest_call_time"]),
-            )
-        )
-        for item in items:
-            item.pop("presentation_priority", None)
-        profile_counts = Counter(str(item["profile_type"]) for item in items)
-        composite_profiles = [
+        modes = [
             {
-                **item,
-                "current_count": profile_counts.get(str(item["type"]), 0),
+                **mode,
+                "current_count": mode_counts[str(mode["label"])],
             }
-            for item in COMPOSITE_PROFILE_CATALOG
+            for mode in RECEPTION_MODE_CATALOG
         ]
-        dimension_category_count = sum(
-            len(item["categories"]) for item in PROFILE_DIMENSION_TAXONOMY
-        )
+        relations = [
+            {"source": "不满/等待推诿/对坐席不满", "target": "耐心安抚", "priority": 1},
+            {"source": "工单/异常中断/联系后未解决", "target": "问题跟进", "priority": 2},
+            {"source": "专业或了解", "target": "结论直给", "priority": 3},
+            {"source": "小白或证据不足", "target": "通俗引导", "priority": 4},
+        ]
         return {
             "items": items,
             "scenarios": list(SHOWCASE_SCENARIOS),
             "taxonomy": {
-                "version": "multidimensional-profile-v1",
-                "dimension_count": len(PROFILE_DIMENSION_TAXONOMY),
-                "dimension_category_count": dimension_category_count,
-                "composite_profile_count": len(COMPOSITE_PROFILE_CATALOG),
-                "service_mode_count": len(SERVICE_MODE_CATALOG),
-                "service_action_count": len(SERVICE_ACTION_CATALOG),
                 "dimensions": list(PROFILE_DIMENSION_TAXONOMY),
-                "composite_profiles": composite_profiles,
-                "service_modes": list(SERVICE_MODE_CATALOG),
-                "service_actions": list(SERVICE_ACTION_CATALOG),
+                "historical_facts": list(HISTORICAL_FACT_DEFINITIONS),
+                "service_modes": modes,
+                "relations": relations,
+            },
+            "summary": {
+                "dimension_count": 3,
+                "fact_count": 5,
+                "mode_count": 4,
+                "profile_count": len(items),
             },
             "methodology": [
-                "先区分重复来电和同一问题重复咨询，避免仅凭号码频次下结论。",
-                "核心问题保持具体到业务场景和实际诉求，再结合历史语义关系判断。",
-                "同一号码同时保留咨询主体、诉求形态、互动连续性、事项进展、业务认知和服务体验六个维度。",
-                "综合服务画像按服务关注、事项跟进、持续咨询、常规服务四级优先规则归类，不覆盖其他并存标签。",
-                "坐席接待模式在主画像之后，继续结合互动连续性和业务认知细分，因此不是简单的一类画像对应一种话术。",
-                "画像按新增来电逐次更新，每个结论均保留到单通来电的证据入口。",
+                {
+                    "title": "单通提取",
+                    "description": "提取业务熟悉度和近期情绪；既有分析字段优先复用。",
+                },
+                {
+                    "title": "五日聚合",
+                    "description": "按号码汇总最近五个工作日的五项历史服务事实。",
+                },
+                {
+                    "title": "接待方式匹配",
+                    "description": "结合近期状态与历史服务事实，匹配更合适的坐席接待模式。",
+                },
             ],
         }
 
-    def profile_showcase(
-        self, *, profile_key: object, scenario: object = "baseline"
-    ) -> dict[str, object]:
-        """Return evidence, profile and a non-persistent incremental simulation."""
-
+    def profile_showcase(self, *, profile_key: object, scenario: object = "baseline") -> dict[str, object]:
         key = str(profile_key or "").strip()
         scenario_id = str(scenario or "baseline").strip()
-        scenario_map = {item["id"]: item for item in SHOWCASE_SCENARIOS}
-        if not key:
-            raise ValueError("缺少画像标识")
+        scenario_map = {str(item["id"]): item for item in SHOWCASE_SCENARIOS}
         if scenario_id not in scenario_map:
             raise ValueError("不支持该推演场景")
-
         with self._sessions() as session:
-            profiles = session.scalars(select(CallerProfile)).all()
             profile = next(
-                (item for item in profiles if _showcase_key(item.phone_hash) == key),
+                (
+                    item
+                    for item in session.scalars(select(CallerProfile)).all()
+                    if _showcase_key(item.phone_hash) == key
+                ),
                 None,
             )
             if profile is None:
                 raise ValueError("未找到对应画像")
-            trajectories = list(
-                session.scalars(
-                    select(CallTrajectory)
-                    .where(CallTrajectory.phone_hash == profile.phone_hash)
-                    .order_by(
-                        CallTrajectory.call_time.asc(),
-                        CallTrajectory.business_id.asc(),
-                    )
-                )
-            )
-
+            trajectories = session.scalars(
+                select(CallTrajectory)
+                .where(CallTrajectory.phone_hash == profile.phone_hash)
+                .order_by(CallTrajectory.call_time.asc())
+            ).all()
         try:
-            masked_phone = _mask_phone(
-                self.protector.decrypt_phone(profile.phone_encrypted)
-            )
+            masked = _mask_phone(self.protector.decrypt_phone(profile.phone_encrypted))
         except (ValueError, TypeError):
-            masked_phone = "号码信息不可用"
-
-        state = {
-            "total_calls": profile.total_call_count,
-            "repeated_calls": profile.repeated_call_count,
-            "repeated_issues": profile.repeated_issue_count,
-            "unresolved": profile.unresolved_count,
-            "work_orders": profile.work_order_count,
-            "abnormal_ends": profile.abnormal_end_count,
-            "dissatisfaction": profile.dissatisfaction_count,
+            masked = "号码不可用"
+        # The database profile already aggregates the recent labels. Facts here are
+        # intentionally transparent counts for the demonstration.
+        facts = _fact_counts(_recent_five_workday_items(trajectories))
+        before_state: dict[str, object] = {
+            "proficiency_level": profile.proficiency_level or "暂无法判断",
+            "proficiency_basis": profile.proficiency_basis,
+            "emotion_state": profile.emotion_state or "暂无法判断",
+            "emotion_basis": profile.emotion_basis,
+            **facts,
         }
-        before = _strategy_payload(
-            profile=profile,
-            trajectories=trajectories,
-            state=state,
-            latest_resolved=profile.latest_resolved,
-        )
-        before_profile_model = _profile_dimension_snapshot(
-            profile=profile,
-            trajectories=trajectories,
-            state=state,
-            latest_resolved=profile.latest_resolved,
-        )
-        after_state = state.copy()
-        after_resolved = profile.latest_resolved
-        scenario_event = "当前仅回放数据库中的历史事实。"
-        if scenario_id == "repeat_unresolved":
-            after_state["total_calls"] += 1
-            after_state["repeated_calls"] += 1
-            after_state["repeated_issues"] += 1
-            after_state["unresolved"] += 1
-            after_resolved = False
-            scenario_event = "新增一通同类事项来电，经核对仍未直接解决。"
-        elif scenario_id == "resolved_closure":
-            after_state["total_calls"] += 1
-            after_state["repeated_calls"] += 1
-            after_state["repeated_issues"] += int(bool(trajectories))
-            after_state["unresolved"] = max(0, after_state["unresolved"] - 1)
-            after_resolved = True
-            scenario_event = "新增一通进度核验来电，并确认一项历史待办已完成闭环。"
-        elif scenario_id == "service_dissatisfaction":
-            after_state["total_calls"] += 1
-            after_state["repeated_calls"] += 1
-            after_state["dissatisfaction"] += 1
-            after_resolved = None
-            scenario_event = "新增一通来电，来电人对等待或转交过程表达不满。"
-        after = _strategy_payload(
-            profile=profile,
-            trajectories=trajectories,
-            state=after_state,
-            latest_resolved=after_resolved,
-        )
-        after_profile_model = _profile_dimension_snapshot(
-            profile=profile,
-            trajectories=trajectories,
-            state=after_state,
-            latest_resolved=after_resolved,
-        )
-
-        daily_counts = Counter(item.call_time.date() for item in trajectories)
-        max_single_day = max(daily_counts.values(), default=0)
-        rolling_three_day = 0
-        if daily_counts:
-            first_day = min(daily_counts)
-            last_day = max(daily_counts)
-            current = first_day
-            ordered_days = []
-            while current <= last_day:
-                ordered_days.append(daily_counts.get(current, 0))
-                current += timedelta(days=1)
-            rolling_three_day = max(
-                sum(ordered_days[max(0, index - 2) : index + 1])
-                for index in range(len(ordered_days))
-            )
-
-        timeline = []
-        for index, item in enumerate(reversed(trajectories), 1):
-            contributions = []
-            if item.caller_type:
-                contributions.append(f"主体识别：{item.caller_type}")
-            if item.core_question:
-                contributions.append("形成具体咨询主题")
-            if item.proficiency_score is not None:
-                contributions.append(f"熟练度证据：{item.proficiency_score:.1f}/10")
-            if item.resolved_status is False:
-                contributions.append("进入未解决事项池")
-            if item.is_repeated_issue is True:
-                contributions.append("确认同一问题重复咨询")
-            elif item.repeat_review_status == "pending_review":
-                contributions.append("进入重复问题候选核对")
-            if item.taxpayer_dissatisfied is True:
-                contributions.append("形成服务关注信号")
-            timeline.append(
+        after_state = dict(before_state)
+        event = "当前仅回放数据库中的画像字段和历史事实。"
+        if scenario_id == "followup_signal":
+            after_state["contact_unresolved"] = int(after_state["contact_unresolved"]) + 1
+            event = "新增一通联系相关人员或部门后仍未解决的来电。"
+        elif scenario_id == "professional_stable":
+            after_state.update(
                 {
-                    "index": len(trajectories) - index + 1,
-                    "business_id": item.business_id,
-                    "call_time": item.call_time,
-                    "question": item.core_question or "咨询事项未形成明确记录",
-                    "topic_category": item.topic_category,
-                    "demand_category": item.demand_category,
-                    "resolved": item.resolved_status,
-                    "unresolved_reason": item.unresolved_reason,
-                    "is_repeated_issue": item.is_repeated_issue,
-                    "repeat_status": item.repeat_review_status,
-                    "repeat_summary": item.repeat_summary,
-                    "service_rating": item.service_rating,
-                    "contributions": contributions or ["保留为基础来电事实"],
+                    "proficiency_level": "专业",
+                    "proficiency_basis": "能够准确描述业务条件和办理节点。",
+                    "emotion_state": "平稳",
+                    "emotion_basis": "表达有序，没有明显担忧或负面评价。",
+                    "wait_pushback": 0,
+                    "work_order": 0,
+                    "abnormal_end": 0,
+                    "contact_unresolved": 0,
+                    "dissatisfaction": 0,
                 }
             )
-
-        metric_labels = {
-            "total_calls": "累计来电",
-            "repeated_issues": "同一问题重复咨询",
-            "unresolved": "未直接解决",
-            "work_orders": "历史工单",
-            "dissatisfaction": "服务不满",
-        }
+            event = "模拟近期窗口只保留专业、平稳表达，且高优先级事实均已移出窗口。"
+        elif scenario_id == "service_dissatisfaction":
+            after_state["emotion_state"] = "不满"
+            after_state["emotion_basis"] = "表达中出现明确负面评价。"
+            after_state["dissatisfaction"] = int(after_state["dissatisfaction"]) + 1
+            event = "新增一通对本通服务表达明确不满的来电。"
+        before = _mode_payload(before_state)
+        after = _mode_payload(after_state)
+        before_model = _profile_snapshot(before_state)
+        after_model = _profile_snapshot(after_state)
+        fields = (
+            ("proficiency_level", "业务熟悉度"),
+            ("emotion_state", "近期情绪状态"),
+            ("wait_pushback", "等待推诿"),
+            ("work_order", "历史工单"),
+            ("abnormal_end", "异常中断"),
+            ("contact_unresolved", "联系后未解决"),
+            ("dissatisfaction", "对坐席不满"),
+        )
         changes = [
             {
                 "field": label,
-                "before": state[field],
-                "after": after_state[field],
-                "changed": state[field] != after_state[field],
+                "before": before_state[key],
+                "after": after_state[key],
+                "changed": before_state[key] != after_state[key],
             }
-            for field, label in metric_labels.items()
+            for key, label in fields
         ]
-        before_dimensions = {
-            str(item["id"]): item
-            for item in before_profile_model["items"]  # type: ignore[union-attr]
-        }
-        after_dimensions = {
-            str(item["id"]): item
-            for item in after_profile_model["items"]  # type: ignore[union-attr]
-        }
-        for dimension in PROFILE_DIMENSION_TAXONOMY:
-            dimension_id = str(dimension["id"])
-            before_value = str(before_dimensions[dimension_id]["value"])
-            after_value = str(after_dimensions[dimension_id]["value"])
-            changes.append(
-                {
-                    "field": dimension["name"],
-                    "before": before_value,
-                    "after": after_value,
-                    "changed": before_value != after_value,
-                }
-            )
-        changes.extend(
-            [
-                {
-                    "field": "服务画像",
-                    "before": before["profile_type"],
-                    "after": after["profile_type"],
-                    "changed": before["profile_type"] != after["profile_type"],
-                },
-                {
-                    "field": "推荐服务方式",
-                    "before": before["service_mode"],
-                    "after": after["service_mode"],
-                    "changed": before["service_mode"] != after["service_mode"],
-                },
-            ]
+        changes.append(
+            {
+                "field": "推荐接待模式",
+                "before": before["service_mode"],
+                "after": after["service_mode"],
+                "changed": before["service_mode"] != after["service_mode"],
+            }
         )
-
+        timeline = [
+            {
+                "index": index,
+                "business_id": item.business_id,
+                "call_time": item.call_time,
+                "question": item.core_question or "咨询事项未形成明确记录",
+                "resolved": item.resolved_status,
+                "contributions": [
+                    text
+                    for condition, text in (
+                        (item.proficiency_level is not None, f"熟悉度：{item.proficiency_level}"),
+                        (item.emotion_state is not None, f"情绪：{item.emotion_state}"),
+                        (_wait_pushback(item), "等待推诿"),
+                        (item.work_order is True, "历史工单"),
+                        (_abnormal(item), "异常中断"),
+                        (_contact_unresolved(item), "联系后未解决"),
+                        (item.taxpayer_dissatisfied is True, "对坐席不满"),
+                    )
+                    if condition
+                ]
+                or ["保留为基础来电事实"],
+            }
+            for index, item in enumerate(trajectories, 1)
+        ]
         return {
             "profile_key": key,
-            "masked_phone": masked_phone,
-            "scenario": {**scenario_map[scenario_id], "event": scenario_event},
+            "masked_phone": masked,
+            "scenario": {**scenario_map[scenario_id], "event": event},
             "profile": {
                 "caller_type": profile.caller_type,
                 "enterprise_identity": profile.enterprise_identity,
                 "latest_question": profile.latest_question,
                 "topic_category": profile.latest_topic_category,
                 "demand_category": profile.latest_demand_category,
-                "registration_unit": profile.latest_registration_unit,
-                "proficiency_score": profile.proficiency_score,
-                "proficiency_summary": profile.proficiency_summary,
-                "latest_service_rating": profile.latest_service_rating,
+                "proficiency_level": profile.proficiency_level,
+                "proficiency_basis": profile.proficiency_basis,
+                "emotion_state": profile.emotion_state,
+                "emotion_basis": profile.emotion_basis,
                 "first_call_time": profile.first_call_time,
                 "latest_call_time": profile.latest_call_time,
             },
-            "rolling_signals": {
-                "total_calls": profile.total_call_count,
-                "same_direction_count": (
-                    min(profile.total_call_count, profile.repeated_issue_count + 1)
-                    if profile.repeated_issue_count
-                    else 0
-                ),
-                "repeat_candidates": sum(
-                    item.repeat_review_status == "pending_review"
-                    for item in trajectories
-                ),
-                "max_single_day": max_single_day,
-                "max_three_days": rolling_three_day,
-            },
             "timeline": timeline,
-            "before": {
-                "state": state,
-                "result": before,
-                "profile_model": before_profile_model,
-            },
-            "after": {
-                "state": after_state,
-                "result": after,
-                "profile_model": after_profile_model,
-            },
+            "before": {"state": before_state, "result": before, "profile_model": before_model},
+            "after": {"state": after_state, "result": after, "profile_model": after_model},
             "changes": changes,
-            "disclaimer": "该页面用于演示画像增量逻辑。模拟事件仅在本次页面请求中计算，不写入画像库或来电轨迹。",
+            "disclaimer": "本次为情景推演，结果不写入正式画像或来电记录，仅供演示参考。",
         }
 
-    def history_page(
-        self, *, page: object = 1, page_size: object = 10, phone: object | None = None
-    ) -> dict[str, object]:
-        """Return one newest-first page of call trajectories with masked numbers."""
-
+    def history_page(self, *, page: object = 1, page_size: object = 10, phone: object | None = None) -> dict[str, object]:
         try:
             page_number = int(page)
             size = int(page_size)
         except (TypeError, ValueError) as exc:
             raise ValueError("分页参数必须是整数") from exc
-        if page_number < 1:
-            raise ValueError("页码必须大于等于 1")
-        if not 1 <= size <= 50:
-            raise ValueError("每页条数必须在 1 至 50 之间")
-
-        phone_hash: str | None = None
+        if page_number < 1 or not 1 <= size <= 50:
+            raise ValueError("分页参数超出允许范围")
+        phone_hash = None
         if phone is not None and str(phone).strip():
             phone_hash = self.protector.hash_phone(phone)
-
-        filters = (
-            (CallTrajectory.phone_hash == phone_hash,) if phone_hash is not None else ()
-        )
+        filters = ((CallTrajectory.phone_hash == phone_hash,) if phone_hash else ())
         with self._sessions() as session:
-            total = session.scalar(
-                select(func.count()).select_from(CallTrajectory).where(*filters)
-            ) or 0
+            total = session.scalar(select(func.count()).select_from(CallTrajectory).where(*filters)) or 0
             trajectories = session.scalars(
                 select(CallTrajectory)
                 .where(*filters)
-                .order_by(
-                    CallTrajectory.call_time.desc(),
-                    CallTrajectory.business_id.desc(),
-                )
+                .order_by(CallTrajectory.call_time.desc(), CallTrajectory.business_id.desc())
                 .offset((page_number - 1) * size)
                 .limit(size)
             ).all()
-            hashes = {item.phone_hash for item in trajectories}
             profiles = {
                 item.phone_hash: item
                 for item in session.scalars(
-                    select(CallerProfile).where(CallerProfile.phone_hash.in_(hashes))
+                    select(CallerProfile).where(
+                        CallerProfile.phone_hash.in_({item.phone_hash for item in trajectories})
+                    )
                 ).all()
             }
-
-        items: list[dict[str, object]] = []
+        items = []
         for item in trajectories:
+            masked = "号码不可用"
             profile = profiles.get(item.phone_hash)
-            masked_phone = "号码信息不可用"
             if profile is not None:
                 try:
-                    masked_phone = _mask_phone(
-                        self.protector.decrypt_phone(profile.phone_encrypted)
-                    )
+                    masked = _mask_phone(self.protector.decrypt_phone(profile.phone_encrypted))
                 except (ValueError, TypeError):
                     pass
             items.append(
                 {
-                    "masked_phone": masked_phone,
+                    "masked_phone": masked,
                     "business_id": item.business_id,
                     "call_time": item.call_time,
                     "caller_type": item.caller_type,
@@ -1096,9 +725,10 @@ class DemoService:
                     "resolved": item.resolved_status,
                     "unresolved_reason": item.unresolved_reason,
                     "work_order": item.work_order,
-                    "is_repeated_call": item.is_repeated_call,
                     "is_repeated_issue": item.is_repeated_issue,
-                    "service_rating": item.service_rating,
+                    "wait_pushback": _wait_pushback(item),
+                    "taxpayer_dissatisfied": item.taxpayer_dissatisfied,
+                    "contact_unresolved": _contact_unresolved(item),
                     "analysis_status": item.analysis_status,
                 }
             )
@@ -1112,19 +742,17 @@ class DemoService:
         }
 
     def history_detail(self, business_id: object) -> dict[str, object] | None:
-        identifier = str(business_id).strip()
+        identifier = str(business_id or "").strip()
         if not identifier:
             raise ValueError("缺少业务编号")
         with self._sessions() as session:
             item = session.get(CallTrajectory, identifier)
         if item is None:
             return None
-        masked_phone = "号码信息不可用"
+        masked = "号码不可用"
         if item.raw_phone_encrypted:
             try:
-                masked_phone = _mask_phone(
-                    self.protector.decrypt_phone(item.raw_phone_encrypted)
-                )
+                masked = _mask_phone(self.protector.decrypt_phone(item.raw_phone_encrypted))
             except (ValueError, TypeError):
                 pass
         return {
@@ -1142,7 +770,7 @@ class DemoService:
                 "registration_unit": item.registration_unit,
                 "handling_method": item.handling_method,
                 "business_category": item.business_category,
-                "masked_phone": masked_phone,
+                "masked_phone": masked,
                 "satisfaction": item.satisfaction,
                 "call_serial_number": item.call_serial_number,
             },
@@ -1155,68 +783,43 @@ class DemoService:
                 "resolved": item.resolved_status,
                 "unresolved_reason": item.unresolved_reason,
                 "work_order": item.work_order,
-                "proficiency_score": item.proficiency_score,
-                "proficiency_summary": item.proficiency_summary,
-                "service_effect_rating": item.service_rating,
-                "service_effect_summary": item.service_summary,
+                "wait_pushback": _wait_pushback(item),
+                "abnormal_end": _abnormal(item),
+                "contact_unresolved": _contact_unresolved(item),
+                "taxpayer_dissatisfied": item.taxpayer_dissatisfied,
+                "proficiency_level": item.proficiency_level,
+                "proficiency_basis": item.proficiency_basis,
+                "emotion_state": item.emotion_state,
+                "emotion_basis": item.emotion_basis,
                 "is_repeated_issue": item.is_repeated_issue,
                 "repeat_reason": item.repeat_reason,
                 "matched_previous_question": item.matched_previous_question,
-                "matched_previous_call_time": item.matched_previous_call_time,
                 "previous_issue_resolved": item.previous_issue_resolved,
                 "repeat_summary": item.repeat_summary,
-                "repeat_confidence": item.repeat_confidence,
                 "repeat_review_status": item.repeat_review_status,
-                "contact_target": item.contact_target,
                 "analysis_status": item.analysis_status,
             },
         }
 
 
-def _counter_rows(
-    counter: Counter[str], limit: int | None = None
-) -> list[dict[str, object]]:
-    rows = counter.most_common(limit)
-    return [{"label": label, "value": value} for label, value in rows]
-
-
-def _segmented_counter_rows(
-    counter: Counter[str],
-    resolution: dict[str, Counter[str]],
-    limit: int | None = None,
-) -> list[dict[str, object]]:
-    return [
-        {
-            "label": label,
-            "value": value,
-            "resolved": resolution[label]["resolved"],
-            "unresolved": resolution[label]["unresolved"],
-            "unknown": resolution[label]["unknown"],
-        }
-        for label, value in counter.most_common(limit)
-    ]
-
-
-def _mask_phone(phone: str) -> str:
-    if len(phone) >= 8:
-        return f"{phone[:3]}{'*' * (len(phone) - 7)}{phone[-4:]}"
-    if len(phone) >= 5:
-        return f"{phone[:2]}{'*' * (len(phone) - 4)}{phone[-2:]}"
-    if len(phone) >= 3:
-        return f"{phone[0]}{'*' * (len(phone) - 2)}{phone[-1:]}"
-    return "*" * len(phone)
-
-
 def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
     class DemoHandler(BaseHTTPRequestHandler):
-        server_version = "TaxpayerProfileDemo/0.1"
+        server_version = "TaxpayerProfileDemo/0.2"
 
-        def _json(self, status: int, payload: object) -> None:
+        def _json(
+            self,
+            status: int,
+            payload: object,
+            *,
+            headers: dict[str, str] | None = None,
+        ) -> None:
             content = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(content)))
             self.send_header("Cache-Control", "no-store")
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(content)
 
@@ -1238,9 +841,25 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                 raise ValueError("请求内容必须是 JSON 对象")
             return body
 
+        def _token(self) -> str | None:
+            cookie = SimpleCookie()
+            cookie.load(self.headers.get("Cookie", ""))
+            item = cookie.get(SESSION_COOKIE)
+            return item.value if item else None
+
+        def _require_user(self, *, admin: bool = False):  # type: ignore[no-untyped-def]
+            user = service.auth.authenticate(self._token())
+            if user is None:
+                self._error(401, "请先登录")
+                return None
+            if admin and user.role != "admin":
+                self._error(403, "当前账号无权访问该功能")
+                return None
+            return user
+
         def do_GET(self) -> None:  # noqa: N802
-            parsed = urlparse(self.path)
-            if parsed.path == "/":
+            path = urlparse(self.path).path
+            if path == "/":
                 content = (WEB_ROOT / "index.html").read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1249,48 +868,72 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                 self.end_headers()
                 self.wfile.write(content)
                 return
-            if parsed.path == "/api/dashboard":
-                try:
-                    self._json(200, service.dashboard_summary())
-                except ValueError as exc:
-                    self._error(400, str(exc))
+            if path == "/app.js":
+                content = (WEB_ROOT / "app.js").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(content)
                 return
-            if parsed.path == "/api/showcase/catalog":
-                try:
-                    self._json(200, service.profile_showcase_catalog())
-                except ValueError as exc:
-                    self._error(400, str(exc))
+            if path == "/api/auth/me":
+                user = self._require_user()
+                if user is not None:
+                    self._json(200, {"user": user_payload(user)})
                 return
-            self._error(404, "接口不存在")
+            admin_only = path in {"/api/showcase/catalog", "/api/users"}
+            if self._require_user(admin=admin_only) is None:
+                return
+            if path == "/api/dashboard":
+                self._json(200, service.dashboard_summary())
+            elif path == "/api/showcase/catalog":
+                self._json(200, service.profile_showcase_catalog())
+            elif path == "/api/users":
+                self._json(200, {"items": service.auth.list_users()})
+            else:
+                self._error(404, "接口不存在")
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path not in {
-                "/api/profile",
-                "/api/advice",
-                "/api/history",
-                "/api/history/detail",
-                "/api/showcase",
-            }:
-                self._error(404, "接口不存在")
-                return
             try:
                 body = self._read_json()
             except ValueError as exc:
                 self._error(400, str(exc))
                 return
+            if path == "/api/auth/login":
+                try:
+                    token, user = service.auth.login(body.get("username"), body.get("password"))
+                    cookie = (
+                        f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800"
+                    )
+                    self._json(200, {"user": user}, headers={"Set-Cookie": cookie})
+                except ValueError as exc:
+                    self._error(401, str(exc))
+                return
+            if path == "/api/auth/logout":
+                service.auth.logout(self._token())
+                self._json(
+                    200,
+                    {"ok": True},
+                    headers={
+                        "Set-Cookie": f"{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
+                    },
+                )
+                return
+            admin_only = path in {"/api/showcase", "/api/users/create", "/api/users/update"}
+            if self._require_user(admin=admin_only) is None:
+                return
             try:
                 if path == "/api/profile":
-                    phone = body.get("phone")
-                    if phone is None:
+                    if body.get("phone") is None:
                         raise ValueError("缺少来电号码")
-                    profile = service.lookup_profile(phone)
+                    profile = service.lookup_profile(body["phone"])
                     self._json(200, {"found": profile is not None, "profile": profile})
                 elif path == "/api/advice":
-                    phone = body.get("phone")
-                    if phone is None:
+                    if body.get("phone") is None:
                         raise ValueError("缺少来电号码")
-                    self._json(200, service.generate_advice(phone))
+                    self._json(200, service.generate_advice(body["phone"]))
                 elif path == "/api/history":
                     self._json(
                         200,
@@ -1301,12 +944,9 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                         ),
                     )
                 elif path == "/api/history/detail":
-                    business_id = body.get("business_id")
-                    if business_id is None:
-                        raise ValueError("缺少业务编号")
-                    detail = service.history_detail(business_id)
+                    detail = service.history_detail(body.get("business_id"))
                     self._json(200, {"found": detail is not None, "detail": detail})
-                else:
+                elif path == "/api/showcase":
                     self._json(
                         200,
                         service.profile_showcase(
@@ -1314,21 +954,46 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                             scenario=body.get("scenario", "baseline"),
                         ),
                     )
+                elif path == "/api/users/create":
+                    self._json(
+                        200,
+                        {
+                            "user": service.auth.create_user(
+                                username=body.get("username"),
+                                display_name=body.get("display_name"),
+                                password=body.get("password"),
+                                role=body.get("role"),
+                            )
+                        },
+                    )
+                elif path == "/api/users/update":
+                    self._json(
+                        200,
+                        {
+                            "user": service.auth.update_user(
+                                user_id=body.get("user_id"),
+                                display_name=body.get("display_name"),
+                                role=body.get("role"),
+                                is_active=body.get("is_active"),
+                                password=body.get("password"),
+                            )
+                        },
+                    )
+                else:
+                    self._error(404, "接口不存在")
             except ValueError as exc:
                 self._error(400, str(exc))
 
         def log_message(self, format: str, *args: object) -> None:
             del format, args
-            print(f"{self.address_string()} - {self.command} {urlparse(self.path).path}")
 
     return DemoHandler
 
 
-def run_server(
-    *, service: DemoService, host: str = "127.0.0.1", port: int = 8000
-) -> None:
+def run_server(*, service: DemoService, host: str = "127.0.0.1", port: int = 8000) -> None:
+    service.initialize_auth()
     server = ThreadingHTTPServer((host, port), _handler_factory(service))
-    print(f"坐席服务辅助系统已启动：http://{host}:{port}")
+    print(f"12366坐席服务辅助系统已启动：http://{host}:{port}")
     print("按 Ctrl+C 停止。")
     try:
         server.serve_forever()

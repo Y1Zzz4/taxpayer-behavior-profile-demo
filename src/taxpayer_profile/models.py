@@ -1,10 +1,10 @@
-"""SQLAlchemy models for the three core database tables."""
+"""SQLAlchemy models for profile, trajectory, update, user, and session data."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -25,6 +25,10 @@ class CallerProfile(Base):
     enterprise_identity: Mapped[str | None] = mapped_column(String(20))
     proficiency_score: Mapped[float | None] = mapped_column(Float)
     proficiency_summary: Mapped[str | None] = mapped_column(String(300))
+    proficiency_level: Mapped[str | None] = mapped_column(String(20))
+    proficiency_basis: Mapped[str | None] = mapped_column(String(300))
+    emotion_state: Mapped[str | None] = mapped_column(String(20))
+    emotion_basis: Mapped[str | None] = mapped_column(String(300))
     first_call_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     latest_call_time: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     total_call_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -98,6 +102,10 @@ class CallTrajectory(Base):
     effective_qa_content: Mapped[str | None] = mapped_column(Text)
     proficiency_score: Mapped[float | None] = mapped_column(Float)
     proficiency_summary: Mapped[str | None] = mapped_column(String(300))
+    proficiency_level: Mapped[str | None] = mapped_column(String(20))
+    proficiency_basis: Mapped[str | None] = mapped_column(String(300))
+    emotion_state: Mapped[str | None] = mapped_column(String(20))
+    emotion_basis: Mapped[str | None] = mapped_column(String(300))
     service_rating: Mapped[str | None] = mapped_column(String(20))
     service_summary: Mapped[str | None] = mapped_column(String(300))
     is_repeated_call: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -161,3 +169,26 @@ class UpdateLog(Base):
     failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     summary: Mapped[str | None] = mapped_column(Text)
+
+
+class SystemUser(Base):
+    __tablename__ = "system_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(100))
+    password_hash: Mapped[str] = mapped_column(String(300))
+    role: Mapped[str] = mapped_column(String(20), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("system_users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)

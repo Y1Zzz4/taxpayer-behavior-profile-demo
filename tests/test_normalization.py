@@ -108,7 +108,7 @@ def test_trusted_resolved_field_is_used_as_a_fallback_and_time_source_is_kept() 
 
 def test_rule_abnormal_end() -> None:
     assert determine_rule_abnormal_end("", "通话中断", "") is True
-    assert determine_rule_abnormal_end("纳税人：我再问一下", "", "") is True
+    assert determine_rule_abnormal_end("纳税人：我再问一下", "", "") is False
     assert determine_rule_abnormal_end("坐席：谢谢来电，再见", "", "") is False
     assert determine_rule_abnormal_end("纳税人：好的，明白了", "", "") is False
     assert determine_rule_abnormal_end("", "本次未中断", "正常结束") is False
@@ -119,6 +119,6 @@ def test_rule_abnormal_end() -> None:
             "",
             "",
         )
-        is True
+        is False
     )
     assert determine_rule_abnormal_end("", "正常咨询", "已答复") is False

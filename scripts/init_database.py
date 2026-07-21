@@ -1,4 +1,4 @@
-"""Build the database from trusted history plus raw 2026-06-10 rows."""
+"""Build the database from trusted 1-9 June history and later raw rows."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from taxpayer_profile.security import PhoneProtector
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "创建数据库：2026-06-01 至 09 导入可信分析字段，"
-            "之后的记录忽略分析列并重新分析。"
+            "创建数据库：2026-06-01 至 09 复用可信分析字段并补齐新增画像字段，"
+            "之后的记录忽略旧分析列并重新分析。"
         )
     )
     parser.add_argument(

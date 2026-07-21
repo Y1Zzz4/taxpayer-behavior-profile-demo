@@ -169,22 +169,29 @@
     .metric { grid-column: span 2; min-height: 72px; padding: 11px 12px; background: #f7f8fb; border: 1px solid #eaecf2; border-top: 3px solid #8190d8; border-radius: 8px; }
     .metric:nth-child(2) { border-top-color: #8470c8; }
     .metric:nth-child(3) { border-top-color: #28a394; }
-    .metric:nth-child(4) { grid-column: span 3; border-top-color: #dda440; }
-    .metric:nth-child(5) { grid-column: span 3; border-top-color: #d56b76; }
+    .metric:nth-child(4) { border-top-color: #dda440; }
+    .metric:nth-child(5) { border-top-color: #d56b76; }
+    .metric:nth-child(6) { border-top-color: #da7f46; }
     .metric span { display: block; color: var(--muted); font-size: 10px; }
     .metric b { display: block; margin-top: 5px; color: #343c55; font-size: 22px; font-variant-numeric: tabular-nums; }
     .priority { grid-column: 1 / -1; padding: 12px 14px; border-left: 4px solid var(--primary-2); background: #f1f3ff; border-radius: 0 7px 7px 0; line-height: 1.65; font-size: 13px; }
     .priority.warning { color: #70490f; background: var(--warning-soft); border-left-color: var(--warning); }
     .work-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); gap: 18px; align-items: start; }
+    #advice.panel-body:not(.placeholder):not(.loading) { padding-top: 9px; }
     .advice-summary { padding: 14px 15px; background: linear-gradient(115deg, #eef0ff, #eef9f7); border-left: 4px solid var(--primary-2); border-radius: 0 8px 8px 0; line-height: 1.75; font-size: 15px; font-weight: 650; }
-    .advice-mode { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; color: var(--muted); font-size: 12px; }
+    .advice-mode { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; color: var(--muted); font-size: 12px; }
     .advice-mode strong { color: var(--primary); font-size: 14px; }
     h3 { margin: 17px 0 8px; color: #47596a; font-size: 13px; }
     ol, ul { margin: 7px 0 0; padding-left: 21px; }
     li { padding: 4px 0; line-height: 1.65; font-size: 13px; }
     .risk-alert { margin: 14px 0 0; padding: 10px 12px; color: #70490f; background: var(--warning-soft); border-left: 4px solid var(--warning); font-size: 12px; line-height: 1.6; }
     details.advice-details { margin-top: 16px; border-top: 1px solid var(--line); }
-    details.advice-details > summary { padding: 14px 0 0; color: var(--primary-2); font-size: 13px; font-weight: 700; cursor: pointer; }
+    details.advice-details > summary { padding: 14px 0 2px; color: var(--primary-2); font-size: 13px; font-weight: 700; cursor: pointer; }
+    details.advice-details[open] > summary { margin-bottom: 10px; }
+    .advice-details-body { padding: 1px 13px 12px; background: #f8f9fc; border: 1px solid #e7e9f0; border-radius: 8px; }
+    .advice-detail { padding: 11px 0; border-bottom: 1px solid #e7e9ef; }
+    .advice-detail span { color: #40566b; font-size: 12px; font-weight: 750; }
+    .advice-detail p { margin: 5px 0 0; color: #5e687c; font-size: 12px; line-height: 1.7; }
     .advice-block { margin: 14px 0; }
     .advice-block label { color: #40566b; font-size: 12px; font-weight: 750; }
     .advice-block p { margin: 6px 0 0; line-height: 1.7; font-size: 13px; }
@@ -234,18 +241,18 @@
     }
     .dashboard-context strong { color: #234761; }
     .dashboard-context-note { color: #758593; white-space: nowrap; }
-    .dashboard-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+    .dashboard-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
     .stat-card {
-      position: relative; min-height: 116px; overflow: hidden; padding: 17px;
-      background: var(--paper); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+      position: relative; min-height: 120px; overflow: hidden; padding: 18px 70px 17px 18px;
+      background: linear-gradient(145deg, #fff, color-mix(in srgb, var(--card-color, #4e7899) 4%, #fff)); border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--shadow);
     }
     .stat-card::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--card-color, #4e7899); }
     .stat-card::after { content: ""; position: absolute; right: -23px; bottom: -30px; width: 78px; height: 78px; border-radius: 50%; background: color-mix(in srgb, var(--card-color, #4e7899) 9%, transparent); }
-    .stat-label { position: relative; z-index: 1; color: var(--muted); font-size: 12px; }
-    .stat-value { position: relative; z-index: 1; margin-top: 11px; color: #183e5e; font-size: 28px; font-weight: 750; font-variant-numeric: tabular-nums; }
-    .stat-note { position: relative; z-index: 1; margin-top: 4px; color: #84919d; font-size: 10px; }
-    .stat-icon { position: absolute; z-index: 1; right: 15px; top: 17px; width: 34px; height: 34px; display: grid; place-items: center; color: var(--card-color, #4e7899); background: color-mix(in srgb, var(--card-color, #4e7899) 10%, white); border-radius: 9px; }
-    .stat-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+    .stat-label { position: relative; z-index: 1; display: block; color: var(--muted); font-size: 12px; }
+    .stat-value { position: relative; z-index: 1; display: block; margin-top: 10px; color: #183e5e; font-size: 29px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .stat-note { position: relative; z-index: 1; display: block; margin-top: 4px; color: #84919d; font-size: 10px; }
+    .stat-icon { position: absolute; z-index: 1; right: 17px; top: 18px; width: 40px; height: 40px; display: grid; place-items: center; color: var(--card-color, #4e7899); background: color-mix(in srgb, var(--card-color, #4e7899) 11%, white); border: 1px solid color-mix(in srgb, var(--card-color, #4e7899) 18%, white); border-radius: 11px; }
+    .stat-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
     .dashboard-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; }
     .dashboard-grid .panel { position: relative; transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
     .dashboard-grid .panel::before { content: ""; position: absolute; z-index: 2; inset: 0 18px auto; height: 3px; background: var(--panel-accent, transparent); border-radius: 0 0 6px 6px; opacity: .92; }
@@ -259,13 +266,16 @@
     .accent-slate { --panel-accent: linear-gradient(90deg, #8490a6, #b3bac8); }
     .span-4 { grid-column: span 4; }
     .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
     .span-7 { grid-column: span 7; }
     .span-8 { grid-column: span 8; }
     .span-12 { grid-column: 1 / -1; }
     .chart-body { min-height: 285px; padding: 18px; }
     .chart-body.compact-chart { min-height: 245px; }
-    .line-chart-shell { min-height: 248px; display: flex; flex-direction: column; }
-    .line-chart { width: 100%; height: 235px; overflow: visible; }
+    .chart-body.compact-facts { min-height: auto; }
+    .chart-body.trend-only { min-height: 288px; padding: 15px 19px 10px; }
+    .line-chart-shell { min-height: 248px; display: flex; flex-direction: column; justify-content: center; }
+    .line-chart { width: 100%; height: 258px; overflow: visible; }
     .line-grid { stroke: #dce4ea; stroke-width: 1; stroke-dasharray: 3 4; }
     .line-axis-text { fill: #788794; font-size: 10px; }
     .line-path { fill: none; stroke: #5d72dc; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
@@ -328,9 +338,14 @@
     .signal-card:nth-child(4).active { background: #ecf8f5; border-left-color: #27a18f; }
     .signal-card strong { display: block; color: #2c475d; font-size: 20px; font-variant-numeric: tabular-nums; }
     .signal-card span { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
-    .insight-list { display: grid; gap: 10px; }
-    .insight-item { position: relative; padding: 11px 12px 11px 36px; color: #3f5568; background: #f5f8fa; border: 1px solid #e0e6eb; border-radius: 3px; font-size: 11px; line-height: 1.65; }
-    .insight-item::before { content: attr(data-index); position: absolute; left: 11px; top: 11px; width: 16px; height: 16px; display: grid; place-items: center; color: #fff; background: #557e9d; border-radius: 50%; font-size: 8px; }
+    .insight-list { display: grid; gap: 9px; }
+    .insight-panel-body { min-height: auto; }
+    .insight-panel-body .insight-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .insight-item { position: relative; min-height: 49px; padding: 10px 11px 10px 40px; color: #41566a; background: linear-gradient(110deg, #f3f6fb, #f7faf9); border: 1px solid #e0e6ed; border-radius: 9px; font-size: 11px; line-height: 1.65; }
+    .insight-item::before { content: attr(data-index); position: absolute; left: 11px; top: 11px; width: 20px; height: 20px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #6074d7, #39998e); border-radius: 7px; font-size: 8px; font-weight: 800; }
+    .insight-item:nth-child(2)::before { background: linear-gradient(135deg, #26a08f, #4d91ad); }
+    .insight-item:nth-child(3)::before { background: linear-gradient(135deg, #d79a38, #d8755e); }
+    .insight-item:nth-child(4)::before { background: linear-gradient(135deg, #7962bd, #b0679f); }
     .empty-chart { min-height: 170px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
     .update-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
     .update-item { min-height: 78px; padding: 10px 15px; border-right: 1px solid var(--line); }
@@ -353,14 +368,23 @@
     .showcase-module-tab.active { background: #fff; border-color: #dfe2e9; box-shadow: 0 4px 12px rgba(45,53,75,.08); }
     .showcase-module-tab.active > span { color: #fff; background: linear-gradient(135deg, #596dd3, #2c9d91); }
     .showcase-module-tab.active strong { color: #303c59; }
-    .showcase-controls { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 14px 22px; margin-bottom: 18px; padding: 16px 18px; overflow: visible; }
+    .showcase-controls { display: grid; grid-template-columns: minmax(300px, 370px) 1fr; gap: 14px 22px; margin-bottom: 18px; padding: 16px 18px; overflow: visible; }
     .showcase-controls label { display: block; margin-bottom: 7px; color: #4d566c; font-size: 10px; font-weight: 750; }
+    .showcase-search { position: relative; margin-bottom: 8px; }
+    .showcase-search::before { content: "⌕"; position: absolute; left: 11px; top: 50%; color: #768399; font-size: 17px; transform: translateY(-52%); pointer-events: none; }
+    .showcase-search input { height: 37px; padding-left: 35px; background: #f8f9fc; border-color: #dfe3eb; }
+    .showcase-index-meta { display: block; margin-top: 6px; color: #87909f; font-size: 9px; }
     .showcase-scenario-wrap { min-width: 0; }
-    .scenario-tabs { display: flex; flex-wrap: wrap; gap: 7px; }
-    .scenario-tab { min-height: 42px; padding: 7px 11px; color: #646d80; background: #f7f8fb; border: 1px solid #e1e4eb; border-radius: 8px; text-align: left; }
-    .scenario-tab strong { display: block; font-size: 10px; }
-    .scenario-tab:hover { color: var(--primary); border-color: #cbd1ec; }
-    .scenario-tab.active { color: #fff; background: #596dd3; border-color: #596dd3; box-shadow: 0 6px 16px rgba(82,103,216,.18); }
+    .scenario-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .scenario-tab { min-height: 58px; display: grid; grid-template-columns: 29px 1fr; gap: 9px; align-items: center; padding: 9px 11px; color: #646d80; background: #f8f9fc; border: 1px solid #e1e4eb; border-radius: 9px; text-align: left; transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+    .scenario-tab > i { width: 27px; height: 27px; display: grid; place-items: center; color: #6676c8; background: #e9ecff; border-radius: 7px; font-size: 8px; font-style: normal; font-weight: 800; }
+    .scenario-tab strong { display: block; color: #465169; font-size: 10px; }
+    .scenario-tab span { display: block; overflow: hidden; margin-top: 3px; color: #89919f; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .scenario-tab:hover { border-color: #cbd1ec; box-shadow: 0 5px 13px rgba(62,74,116,.08); transform: translateY(-1px); }
+    .scenario-tab.active { color: #fff; background: linear-gradient(125deg, #596dd3, #6374d5 64%, #439b91); border-color: #596dd3; box-shadow: 0 7px 18px rgba(82,103,216,.2); }
+    .scenario-tab.active > i { color: #fff; background: rgba(255,255,255,.18); }
+    .scenario-tab.active strong { color: #fff; }
+    .scenario-tab.active span { color: rgba(255,255,255,.76); }
     .showcase-status { grid-column: 1 / -1; min-height: 18px; padding-top: 11px; color: #758091; border-top: 1px solid #eceef3; font-size: 10px; }
     .showcase-status.error { color: var(--danger); }
     .showcase-content { display: grid; gap: 18px; }
@@ -377,13 +401,18 @@
     .knowledge-kpi span { display: block; margin-top: 3px; color: #89919f; font-size: 8px; }
     .knowledge-graph-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
     .knowledge-graph-toolbar p { margin: 0; color: #7a8495; font-size: 9px; line-height: 1.55; }
-    .graph-toolbar-actions { display: flex; gap: 6px; }
+    .graph-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
     .graph-tool { min-height: 30px; padding: 5px 9px; color: #617087; background: #f5f7fa; border: 1px solid #dde2e9; border-radius: 7px; font-size: 8px; }
     .graph-tool:hover, .graph-tool.active { color: #fff; background: #566acb; border-color: #566acb; }
     .knowledge-graph-stage { position: relative; min-width: 0; height: 590px; overflow: hidden; background: linear-gradient(145deg, #111a30, #202d4d 56%, #123c46); border: 1px solid #34415f; border-radius: 12px; box-shadow: inset 0 0 70px rgba(4,10,24,.55), 0 10px 24px rgba(29,39,67,.14); cursor: grab; touch-action: none; }
     .knowledge-graph-stage.dragging { cursor: grabbing; }
     .knowledge-graph-canvas { width: 100%; height: 100%; display: block; outline: none; }
     .graph-gesture-hint { position: absolute; right: 12px; top: 11px; padding: 6px 9px; color: #b8c6dc; background: rgba(10,18,35,.66); border: 1px solid rgba(154,177,210,.18); border-radius: 7px; font-size: 8px; pointer-events: none; backdrop-filter: blur(5px); }
+    .graph-derivation-status { position: absolute; z-index: 2; left: 14px; top: 13px; width: min(390px, calc(100% - 190px)); padding: 11px 13px; color: #dce8f7; background: rgba(10,18,35,.78); border: 1px solid rgba(150,181,216,.24); border-left: 3px solid #74d9c7; border-radius: 0 9px 9px 0; box-shadow: 0 9px 24px rgba(3,9,22,.22); pointer-events: none; backdrop-filter: blur(7px); }
+    .graph-derivation-status strong { display: block; color: #f2f7ff; font-size: 12px; }
+    .graph-derivation-status span { display: block; overflow: hidden; margin-top: 4px; color: #b9c8dc; font-size: 9px; line-height: 1.55; text-overflow: ellipsis; white-space: nowrap; }
+    .derivation-progress { height: 3px; overflow: hidden; margin-top: 8px; background: rgba(255,255,255,.1); border-radius: 999px; }
+    .derivation-progress i { width: 0; height: 100%; display: block; background: linear-gradient(90deg, #72d7c5, #7f9af1, #e4a5d0); border-radius: inherit; transition: width .12s linear; }
     .graph-depth-legend { position: absolute; left: 12px; bottom: 11px; display: flex; flex-wrap: wrap; gap: 8px; padding: 7px 9px; color: #aab8cd; background: rgba(10,18,35,.64); border: 1px solid rgba(154,177,210,.16); border-radius: 7px; font-size: 7px; pointer-events: none; }
     .graph-depth-legend span { display: inline-flex; align-items: center; gap: 4px; }
     .graph-depth-legend i { width: 7px; height: 7px; border-radius: 50%; }
@@ -392,6 +421,10 @@
     .graph-depth-legend .profile { background: #a682e2; }
     .graph-depth-legend .mode { background: #e79b55; }
     .graph-depth-legend .action { background: #48b9a5; }
+    .graph-depth-legend .proficiency { background: #6280df; box-shadow: 0 0 8px rgba(98,128,223,.55); }
+    .graph-depth-legend .emotion { background: #d85f77; box-shadow: 0 0 8px rgba(216,95,119,.55); }
+    .graph-depth-legend .facts { background: #2ca18f; box-shadow: 0 0 8px rgba(44,161,143,.55); }
+    .graph-depth-legend .guidance { background: #a85c91; box-shadow: 0 0 8px rgba(168,92,145,.5); }
     .knowledge-selection { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(260px, 1.8fr) minmax(220px, 1fr); gap: 12px; align-items: start; margin-top: 10px; padding: 12px 14px; background: #f7f8fb; border: 1px solid #e3e6ed; border-left: 3px solid #6678d8; border-radius: 0 9px 9px 0; }
     .knowledge-selection label { color: #89919f; font-size: 8px; }
     .knowledge-selection strong { display: block; margin-top: 4px; color: #374159; font-size: 13px; }
@@ -431,7 +464,9 @@
     .service-mode-catalog { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
     .service-mode-card { position: relative; padding: 11px 12px 11px 15px; background: #fff8f1; border: 1px solid #f0dfcc; border-radius: 8px; }
     .service-mode-card::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; background: #df9250; border-radius: 0 3px 3px 0; }
-    .service-mode-card.active { background: #fff1df; border-color: #eac69f; }
+    .service-mode-card.active { background: #eef2ff; border-color: #cad4f7; box-shadow: inset 0 0 0 1px rgba(94,114,211,.08); }
+    .service-mode-card.active::before { background: #5e72d3; }
+    .service-mode-card.active strong { color: #4057b0; }
     .service-mode-card strong { color: #704b2c; font-size: 11px; }
     .service-mode-card p { margin: 6px 0 8px; color: #765f4d; font-size: 9px; line-height: 1.65; }
     .action-catalog { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
@@ -562,7 +597,7 @@
     body.drawer-open { overflow: hidden; }
 
     /* 演示屏幕的正文略微放大，图表与画像模块同步提升可读性。 */
-    body { font-size: 14px; }
+    body { font-size: 15px; }
     .nav-title { font-size: 14px; }
     .panel-head h2 { font-size: 17px; }
     .nav-desc, .side-note, .panel-head-note, .stat-note, .chart-caption { font-size: 11px; }
@@ -582,10 +617,42 @@
     .profile-dimension-item span, .baseline-strategy label { font-size: 9px; }
     .evidence-item strong, .profile-facet strong, .profile-dimension-item strong,
     .baseline-strategy p { font-size: 10px; }
+    .login-screen { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 12%, rgba(91,111,219,.24), transparent 32%), radial-gradient(circle at 85% 82%, rgba(39,165,145,.20), transparent 32%), linear-gradient(145deg, #f5f7fc, #e9edf7); }
+    .login-card { width: min(440px, 100%); overflow: hidden; background: rgba(255,255,255,.96); border: 1px solid rgba(205,213,230,.9); border-radius: 20px; box-shadow: 0 28px 80px rgba(43,54,88,.18); }
+    .login-hero { padding: 28px 30px 24px; color: #fff; background: linear-gradient(125deg, #35446f, #586bd4 64%, #2c9d91); }
+    .login-hero strong { display: block; font-size: 29px; letter-spacing: .03em; }
+    .login-hero span { display: block; margin-top: 7px; color: rgba(255,255,255,.78); font-size: 13px; }
+    .login-form { display: grid; gap: 16px; padding: 26px 30px 30px; }
+    .login-form label { display: grid; gap: 7px; color: #48536c; font-size: 13px; font-weight: 700; }
+    .login-form .button { width: 100%; margin-top: 3px; }
+    .login-note { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+    .login-error { min-height: 18px; color: var(--danger); font-size: 12px; }
+    .side-user { display: grid; grid-template-columns: 36px 1fr auto; gap: 9px; align-items: center; margin: auto 13px 10px; padding: 11px; background: rgba(255,255,255,.055); border: 1px solid rgba(255,255,255,.08); border-radius: 11px; }
+    .user-avatar { width: 36px; height: 36px; display: grid; place-items: center; color: #fff; background: linear-gradient(145deg, #697be0, #2fa393); border-radius: 10px; font-weight: 800; }
+    .side-user strong, .side-user span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .side-user strong { font-size: 12px; }
+    .side-user span { margin-top: 2px; color: #98a5c4; font-size: 10px; }
+    .logout-button { padding: 5px 7px; color: #cbd2e5; background: transparent; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; font-size: 10px; }
+    .user-form { display: grid; grid-template-columns: repeat(5, 1fr) auto; gap: 10px; align-items: end; }
+    .user-form label { color: var(--muted); font-size: 11px; }
+    .user-form input, .user-form select { margin-top: 5px; }
+    .user-status { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+    .user-status.active { color: var(--success); background: var(--success-soft); }
+    .user-status.disabled { color: var(--muted); background: #eef0f4; }
+    .fact-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .fact-card { position: relative; min-height: 92px; overflow: hidden; padding: 16px; background: #f7f8fc; border: 1px solid #e6e9f1; border-top: 3px solid #8d98ae; border-radius: 10px; }
+    .fact-card::after { content: ""; position: absolute; right: -20px; bottom: -27px; width: 64px; height: 64px; background: rgba(119,132,161,.07); border-radius: 50%; }
+    .fact-card.active:nth-child(1) { color: #a36722; background: #fff9ee; border-color: #f0dfbd; border-top-color: #d89b3b; }
+    .fact-card.active:nth-child(2) { color: #5369c0; background: #f3f5ff; border-color: #dfe3f6; border-top-color: #687bd7; }
+    .fact-card.active:nth-child(3) { color: #9c5662; background: #fff3f4; border-color: #f0dadd; border-top-color: #d86e7b; }
+    .fact-card.active:nth-child(4) { color: #277b71; background: #edf9f6; border-color: #d4ebe5; border-top-color: #2ca08f; }
+    .fact-card.active:nth-child(5) { color: #7552a8; background: #f7f2ff; border-color: #e5dbf4; border-top-color: #896bc0; }
+    .fact-card strong { position: relative; z-index: 1; display: block; color: currentColor; font-size: 27px; font-variant-numeric: tabular-nums; }
+    .fact-card span { position: relative; z-index: 1; display: block; margin-top: 7px; color: #667186; font-size: 11px; font-weight: 700; }
 
     @media (max-width: 1160px) {
-      .dashboard-metrics { grid-template-columns: repeat(3, 1fr); }
-      .span-4, .span-5, .span-7 { grid-column: span 6; }
+      .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .span-4, .span-5, .span-6, .span-7 { grid-column: span 6; }
       .span-8 { grid-column: 1 / -1; }
       .update-grid { grid-template-columns: repeat(3, 1fr); }
       .update-item:nth-child(3) { border-right: 0; }
@@ -608,7 +675,7 @@
       .brand-copy { gap: 7px; }
       .hotline { font-size: 20px; }
       .hotline-name { font-size: 10px; }
-      .system-name, .nav-label, .side-foot { display: none; }
+      .system-name, .nav-label, .side-foot, .side-user { display: none; }
       .side-nav { display: flex; gap: 4px; overflow-x: auto; padding: 0 8px 8px; }
       .nav-link { flex: 1 0 142px; min-height: 46px; grid-template-columns: 28px 1fr; gap: 8px; padding: 6px 9px; border-radius: 9px; }
       .nav-link::after { display: none; }
@@ -625,7 +692,7 @@
       .filter-bar { grid-template-columns: 1fr auto auto; }
       .filter-bar .input-wrap { grid-column: 1 / -1; }
       .result-summary { grid-column: 1 / -1; justify-self: start; }
-      .span-4, .span-5, .span-7, .span-8 { grid-column: 1 / -1; }
+      .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: 1 / -1; }
       .showcase-controls { grid-template-columns: 1fr; }
       .showcase-status { grid-column: 1; }
       .showcase-logic { grid-template-columns: 1fr; gap: 9px; }
@@ -638,12 +705,14 @@
       .knowledge-graph-toolbar { align-items: flex-start; flex-direction: column; }
       .knowledge-selection { grid-template-columns: 1fr; }
       .knowledge-selection-tags { grid-column: auto; }
+      .graph-derivation-status { top: 48px; width: calc(100% - 28px); }
       .composite-catalog { grid-template-columns: 1fr; }
       .inference-flow { grid-template-columns: repeat(2, 1fr); }
       .inference-arrow { display: none; }
       .change-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .comparison-grid { grid-template-columns: 1fr; }
       .comparison-arrow { min-height: 20px; transform: rotate(90deg); }
+      .insight-panel-body .insight-list { grid-template-columns: 1fr; }
     }
     @media (max-width: 590px) {
       .page-header { align-items: flex-start; flex-direction: column; }
@@ -689,6 +758,18 @@
   </style>
 </head>
 <body>
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-hero"><strong>12366 纳税服务热线</strong><span>坐席服务辅助系统</span></div>
+      <form id="login-form" class="login-form">
+        <label>用户名<input id="login-username" autocomplete="username" placeholder="请输入用户名" required></label>
+        <label>密码<input id="login-password" type="password" autocomplete="current-password" placeholder="请输入密码" required></label>
+        <div id="login-error" class="login-error"></div>
+        <button id="login-submit" class="button" type="submit">登录系统</button>
+        <p class="login-note">管理员可查看画像推演和用户管理；坐席可使用接待辅助、数据概览与历史记录。</p>
+      </form>
+    </div>
+  </section>
   <aside class="sidebar">
     <div class="side-brand">
       <div class="brand-mark" aria-hidden="true">
@@ -701,7 +782,7 @@
     <nav class="side-nav" aria-label="系统页面">
       <button class="nav-link active" type="button" data-page="workbench" aria-current="page">
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.69 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.56 2.81.69A2 2 0 0 1 22 16.92z"/></svg></span>
-        <span class="nav-copy"><span class="nav-title">来电服务工作台</span><span class="nav-desc">来电查询与接待建议</span></span>
+        <span class="nav-copy"><span class="nav-title">坐席接待助手</span><span class="nav-desc">来电查询与接待建议</span></span>
       </button>
       <button class="nav-link" type="button" data-page="dashboard">
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg></span>
@@ -711,11 +792,16 @@
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 3v5h5M3.05 13A9 9 0 1 0 5.7 6.7L3 8M12 7v5l3 2"/></svg></span>
         <span class="nav-copy"><span class="nav-title">历史来电记录</span><span class="nav-desc">单通来电轨迹查询</span></span>
       </button>
-      <button class="nav-link" type="button" data-page="showcase">
+      <button class="nav-link" type="button" data-page="showcase" data-admin-only>
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18V8M10 18V4M16 18v-7M2 21h20M19 5l2 2-2 2M21 7h-5"/></svg></span>
         <span class="nav-copy"><span class="nav-title">画像推演中心</span><span class="nav-desc">证据链与增量策略演示</span></span>
       </button>
+      <button class="nav-link" type="button" data-page="users" data-admin-only>
+        <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M22 11h-6"/></svg></span>
+        <span class="nav-copy"><span class="nav-title">用户与权限</span><span class="nav-desc">管理员和坐席账号</span></span>
+      </button>
     </nav>
+    <div class="side-user"><div id="user-avatar" class="user-avatar">坐</div><div><strong id="user-name">未登录</strong><span id="user-role">—</span></div><button id="logout" class="logout-button" type="button">退出</button></div>
     <div class="side-foot">
       <div class="service-status"><span class="status-dot"></span><span>系统服务正常</span></div>
       <div class="side-note">数据本地匹配 · 模型请求前脱敏</div>
@@ -726,14 +812,12 @@
     <section id="page-workbench" class="page-view">
       <header class="page-header">
         <div>
-          <div class="eyebrow">12366 来电辅助</div>
-          <h1>来电服务工作台</h1>
-          <p class="page-subtitle">快速确认历史服务信息，获取本次号码级接待策略</p>
+          <h1>12366坐席接待助手</h1>
+          <p class="page-subtitle">快速确认历史服务情况，获取个性化接待建议</p>
         </div>
         <div class="page-context">当前页面 · 坐席接听辅助</div>
       </header>
 
-      <div class="scope">服务范围：涉税费咨询、信息查询、服务投诉、违法举报、意见建议等12366来电服务</div>
       <form id="lookup-form" class="lookup">
         <label class="field-label" for="phone">来电号码</label>
         <input id="phone" name="phone" autocomplete="tel" inputmode="tel" placeholder="请输入完整来电号码">
@@ -752,7 +836,7 @@
       <section class="work-layout">
         <article class="panel advice-panel">
           <div class="panel-head"><div class="panel-title"><h2>本次接待建议</h2></div><span id="advice-badge" class="badge hidden"></span></div>
-          <div id="advice" class="panel-body placeholder">调取历史信息后，系统将实时生成号码级接待策略。</div>
+          <div id="advice" class="panel-body placeholder">调取历史信息后，系统将实时生成个性化接待建议。</div>
         </article>
         <article class="panel profile-panel">
           <div class="panel-head">
@@ -782,19 +866,19 @@
       <section class="dashboard-grid">
         <article class="panel span-12 accent-indigo">
           <div class="panel-head"><div class="panel-title"><h2>来电量趋势</h2></div><span class="panel-head-note">最近14个自然日（以库内最新日期为准）</span></div>
-          <div id="daily-chart" class="chart-body"></div>
+          <div id="daily-chart" class="chart-body trend-only"></div>
         </article>
-        <article class="panel span-4 accent-indigo">
-          <div class="panel-head"><div class="panel-title"><h2>咨询主体构成</h2></div><span class="panel-head-note">按号码画像</span></div>
+        <article class="panel span-6 accent-indigo">
+          <div class="panel-head"><div class="panel-title"><h2>咨询主体构成</h2></div><span class="panel-head-note">画像主体分布</span></div>
           <div id="caller-chart" class="chart-body"></div>
         </article>
-        <article class="panel span-4 accent-teal">
-          <div class="panel-head"><div class="panel-title"><h2>业务熟练度分层</h2></div><span id="proficiency-average" class="panel-head-note">按号码画像</span></div>
-          <div id="proficiency-chart" class="chart-body"></div>
+        <article class="panel span-6 accent-teal">
+          <div class="panel-head"><div class="panel-title"><h2>问题解决情况</h2></div><span class="panel-head-note">按来电记录</span></div>
+          <div id="resolution-chart" class="chart-body"></div>
         </article>
-        <article class="panel span-4 accent-purple">
-          <div class="panel-head"><div class="panel-title"><h2>服务画像类型</h2></div><span class="panel-head-note">透明规则分类</span></div>
-          <div id="profile-type-chart" class="chart-body"></div>
+        <article class="panel span-12 accent-purple">
+          <div class="panel-head"><div class="panel-title"><h2>历史服务事实</h2></div><span class="panel-head-note">按来电记录统计</span></div>
+          <div id="historical-facts" class="chart-body compact-facts"></div>
         </article>
         <article class="panel span-12 accent-coral">
           <div class="panel-head"><div class="panel-title"><h2>专题类别与解决情况</h2></div><span class="panel-head-note">占比按单通来电统计</span></div>
@@ -804,21 +888,9 @@
           <div class="panel-head"><div class="panel-title"><h2>需求类别与解决情况</h2></div><span class="panel-head-note">多标签分别计数 · 占比按标签总量</span></div>
           <div id="demand-chart" class="chart-body"></div>
         </article>
-        <article class="panel span-4 accent-teal">
-          <div class="panel-head"><div class="panel-title"><h2>问题解决情况</h2></div><span class="panel-head-note">按来电记录</span></div>
-          <div id="resolution-chart" class="chart-body"></div>
-        </article>
-        <article class="panel span-4 accent-purple">
-          <div class="panel-head"><div class="panel-title"><h2>服务效果评估</h2></div><span class="panel-head-note">含暂无法判断</span></div>
-          <div id="rating-chart" class="chart-body"></div>
-        </article>
-        <article class="panel span-4 accent-coral">
-          <div class="panel-head"><div class="panel-title"><h2>服务关注信号</h2></div><span class="panel-head-note">同一来电可重复计数</span></div>
-          <div id="signal-chart" class="chart-body compact-chart"></div>
-        </article>
         <article class="panel span-12 accent-cyan">
-          <div class="panel-head"><div class="panel-title"><h2>数据解读</h2></div><span class="panel-head-note">基于当前统计自动归纳</span></div>
-          <div id="insight-list" class="chart-body compact-chart"></div>
+          <div class="panel-head"><div class="panel-title"><h2>整体情况分析</h2></div><span class="panel-head-note">当前数据摘要</span></div>
+          <div id="insight-list" class="chart-body insight-panel-body"></div>
         </article>
         <article class="panel span-12 accent-slate">
           <div class="panel-head"><div class="panel-title"><h2>最近数据更新</h2></div><span id="update-status" class="badge">等待加载</span></div>
@@ -832,15 +904,15 @@
         <div>
           <div class="eyebrow">画像能力演示</div>
           <h1>画像推演中心</h1>
-          <p class="page-subtitle">从单通来电事实到号码画像，再到坐席服务方式，完整展示证据链与增量变化</p>
+          <p class="page-subtitle">展示历史来电如何沉淀为画像信息，并为坐席匹配更合适的接待方式</p>
         </div>
-        <div class="page-context">只读推演 · 不改写数据库</div>
+        <div class="page-context">情景演示 · 结果仅供参考</div>
       </header>
 
       <section class="showcase-logic" aria-label="画像形成过程">
         <strong>画像形成逻辑</strong>
-        <div><span>单通事实</span><i>→</i><span>六维标签</span><i>→</i><span>综合服务画像</span><i>→</i><span>组合式服务动作</span></div>
-        <p>画像是多个可并存标签的组合；综合类型只表示当前最优先的接待方向。</p>
+        <div><span>业务熟悉度</span><i>+</i><span>近期情绪</span><i>+</i><span>五项历史事实</span><i>→</i><span>四种接待模式</span></div>
+        <p>综合近期状态与历史服务记录，为坐席匹配更合适的接待方式。</p>
       </section>
 
       <nav class="showcase-module-tabs" aria-label="画像能力模块">
@@ -848,7 +920,7 @@
           <span>01</span><strong>增量画像推演</strong><small>观察一通新来电如何改变画像与服务策略</small>
         </button>
         <button class="showcase-module-tab" type="button" data-showcase-module="knowledge">
-          <span>02</span><strong>多维画像图谱</strong><small>探索完整分类、复杂关系和组合式服务动作</small>
+          <span>02</span><strong>多维画像图谱</strong><small>探索三维画像、五项事实与四种接待模式</small>
         </button>
       </nav>
 
@@ -856,7 +928,9 @@
         <section class="panel showcase-controls">
           <div class="showcase-select-wrap">
             <label for="showcase-profile-select">选择一个现有号码画像</label>
+            <div class="showcase-search"><input id="showcase-profile-search" type="search" placeholder="输入序号、脱敏号码或接待模式检索" autocomplete="off"></div>
             <select id="showcase-profile-select" disabled><option>正在读取画像库…</option></select>
+            <small id="showcase-index-meta" class="showcase-index-meta">正在建立号码画像索引…</small>
           </div>
           <div class="showcase-scenario-wrap">
             <label>选择增量推演场景</label>
@@ -928,6 +1002,12 @@
         </div>
       </section>
     </section>
+
+    <section id="page-users" class="page-view hidden">
+      <header class="page-header"><div><div class="eyebrow">系统管理</div><h1>用户与权限</h1><p class="page-subtitle">管理管理员和坐席账号，权限由服务端校验</p></div><button id="refresh-users" class="button secondary compact" type="button">刷新</button></header>
+      <section class="panel" style="margin-bottom:18px"><div class="panel-head"><div class="panel-title"><h2>新增用户</h2></div></div><form id="user-form" class="panel-body user-form"><label>用户名<input id="new-username" required></label><label>显示名称<input id="new-display-name" required></label><label>初始密码<input id="new-password" type="password" minlength="8" required></label><label>角色<select id="new-role"><option value="agent">坐席</option><option value="admin">管理员</option></select></label><div id="user-notice" class="notice"></div><button class="button" type="submit">创建用户</button></form></section>
+      <section class="panel table-panel"><div class="table-scroll"><table><thead><tr><th>用户名</th><th>显示名称</th><th>角色</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="user-body"><tr><td class="table-empty" colspan="6">正在读取用户…</td></tr></tbody></table></div></section>
+    </section>
   </main>
 
   <div id="detail-overlay" class="detail-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="detail-title">
@@ -940,7 +1020,7 @@
     </aside>
   </div>
 
-  <script>
+  <script type="text/plain" id="legacy-script">
     const text = (value, fallback = '暂无记录') => value === null || value === undefined || value === '' ? fallback : String(value);
     const resolvedText = value => value === true ? '已直接解决' : value === false ? '未直接解决' : '无法判断';
     const shortDate = value => value ? String(value).replace('T', ' ').slice(0, 10) : '时间未记录';
@@ -1780,7 +1860,7 @@
           title: `${dimension.name}事实`,
           subtitle: instanceMode ? graphText(model?.basis, 15) : '历史数据来源',
           description: instanceMode ? model?.basis : dimension.description,
-          tags: instanceMode ? ['当前号码历史证据'] : ['单通来电事实', '号码级汇总']
+          tags: instanceMode ? ['当前来电历史依据'] : ['来电记录', '历史信息汇总']
         });
         nodeRecords.push({
           id: `dimension:${dimension.id}`,
@@ -1804,8 +1884,8 @@
           ...position,
           radius: 17,
           title: profile.type,
-          subtitle: `P${profile.priority} · 当前库 ${profile.current_count || 0} 个`,
-          description: `${profile.definition} 判定规则：${profile.rule || '按优先级命中。'}`,
+          subtitle: `当前库 ${profile.current_count || 0} 个`,
+          description: `${profile.definition} 适用情形：${profile.rule || '根据近期状态综合判断。'}`,
           tags: (profile.modes || []).map(id => (modeMap.get(id) || {}).label || id),
           source: profile,
           current: instanceMode && profile.type === currentProfileType
@@ -2266,12 +2346,12 @@
 
       const profileSection = el('section', 'taxonomy-section');
       const profileHead = el('div', 'taxonomy-section-head');
-      profileHead.append(el('strong', '', '四类综合服务画像'), el('span', '', '按 P1→P4 优先命中；认知水平不再单独占用主画像'));
+      profileHead.append(el('strong', '', '四类坐席接待模式'), el('span', '', '根据近期状态与历史服务记录匹配接待重点'));
       const profileGrid = el('div', 'composite-catalog');
       (taxonomy.composite_profiles || []).forEach(profile => {
         const card = el('article', `composite-card${profile.type === currentProfile ? ' active' : ''}`);
         const title = el('div', 'composite-title');
-        title.append(el('strong', '', `P${profile.priority} · ${profile.type}`), el('span', '', `当前库 ${profile.current_count || 0} 个`));
+        title.append(el('strong', '', profile.type), el('span', '', `当前库 ${profile.current_count || 0} 个`));
         const dimensionNames = (profile.dimensions || []).map(id => (taxonomy.dimensions || []).find(item => item.id === id)?.name || id);
         const modeNames = (profile.modes || []).map(id => (taxonomy.service_modes || []).find(item => item.id === id)?.label || id);
         card.append(
@@ -2809,5 +2889,6 @@
 
     showPage(location.hash.slice(1) || 'workbench', false);
   </script>
+  <script src="/app.js"></script>
 </body>
 </html>

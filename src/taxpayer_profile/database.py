@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from taxpayer_profile.models import Base
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def make_engine(database: Path | str) -> Engine:

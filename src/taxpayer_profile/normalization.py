@@ -15,12 +15,6 @@ from taxpayer_profile.security import normalize_phone
 
 TRUE_VALUES = {"true", "1", "是", "有", "存在", "已解决", "y", "yes"}
 FALSE_VALUES = {"false", "0", "否", "无", "不存在", "未解决", "n", "no"}
-NORMAL_END_PATTERNS = (
-    r"(?:谢谢|感谢)(?:您|老师|了|啦|哈)?",
-    r"(?:再见|拜拜|辛苦了|没问题|就这样|先这样)",
-    r"(?:好的?|好嘞|明白了?|知道了?|清楚了?|可以了?|行了?)",
-    r"(?:稍后|等会儿?|待会儿?)?(?:进行|做)?评价",
-)
 ABNORMAL_END_PATTERNS = (
     r"(?:电话|通话|线路|对话|语音)?(?:突然|意外|异常)?中断",
     r"(?:对方|来电人|纳税人|坐席)?(?:突然|直接|已经|已)?挂断",
@@ -100,12 +94,11 @@ def determine_work_order(existing_value: object, processing_method: object) -> b
 def determine_rule_abnormal_end(
     transcript: object, business_content: object, answer_content: object
 ) -> bool:
-    """Apply the source rule conservatively around the actual end of the call.
+    """Identify only explicit source evidence of an interruption or hang-up.
 
-    A negated marker such as ``本次未中断`` is not evidence.  Closure words only
-    count at the end of the final utterance, so an earlier ``谢谢`` cannot mask a
-    later abrupt cutoff.  The expanded acknowledgement list avoids treating
-    ordinary endings such as ``好的，明白了`` as abnormal.
+    Missing courtesy or closure words are not evidence of an abnormal ending.
+    Semantic cases such as an unresolved transfer are handled separately by the
+    model field, while this deterministic field remains conservative.
     """
 
     business_and_answer = "".join(
@@ -142,12 +135,7 @@ def determine_rule_abnormal_end(
     if has_negated_marker:
         return False
 
-    ending = terminal_text.rstrip("。！？!?，,；;：:、~～ ")
-    normal_end = any(
-        re.search(rf"(?:{pattern})[啊呀吧呢哦的]*$", ending)
-        for pattern in NORMAL_END_PATTERNS
-    )
-    return not normal_end
+    return False
 
 
 def int_or_none(value: object) -> int | None:
@@ -204,6 +192,10 @@ class NormalizedCallInput:
     raw_identity_label: str | None
     proficiency_score: float | None
     proficiency_summary: str
+    proficiency_level: str
+    proficiency_basis: str
+    emotion_state: str
+    emotion_basis: str
     service_rating: str | None
     service_summary: str | None
     enterprise_identity_source: str
@@ -261,7 +253,9 @@ def normalize_call_row(
         call_serial_number=text_or_none(row.get("呼叫流水号")),
         core_question=text_or_none(row.get("大模型核心问题")),
         topic_category=text_or_none(row.get("一级专题类别")),
-        demand_category=None,
+        demand_category=(
+            text_or_none(row.get("需求类别")) if trust_analyzed_fields else None
+        ),
         father_question=(
             text_or_none(row.get("father_question")) if trust_analyzed_fields else None
         ),
@@ -278,8 +272,13 @@ def normalize_call_row(
             row.get("是否工单") if trust_analyzed_fields else None,
             row.get("登记处理方式"),
         ),
-        rule_abnormal_end=determine_rule_abnormal_end(
-            transcript, row.get("业务内容"), row.get("答复内容")
+        rule_abnormal_end=(
+            normalize_boolean(row.get("非正常中断"))
+            if trust_analyzed_fields
+            and normalize_boolean(row.get("非正常中断")) is not None
+            else determine_rule_abnormal_end(
+                transcript, row.get("业务内容"), row.get("答复内容")
+            )
         ),
         model_abnormal_end=(
             normalize_boolean(row.get("是否非正常中断（大模型判断）"))
@@ -331,6 +330,27 @@ def normalize_call_row(
         raw_identity_label=text_or_none(row.get("申请人员身份")),
         proficiency_score=None,
         proficiency_summary="无法判断",
+        proficiency_level=(
+            text_or_none(row.get("业务熟悉度")) or "暂无法判断"
+            if trust_analyzed_fields
+            else "暂无法判断"
+        ),
+        proficiency_basis=(
+            text_or_none(row.get("业务熟悉度依据"))
+            or "现有字段未提供业务熟悉度依据。"
+            if trust_analyzed_fields
+            else "等待分析。"
+        ),
+        emotion_state=(
+            text_or_none(row.get("近期情绪状态")) or "暂无法判断"
+            if trust_analyzed_fields
+            else "暂无法判断"
+        ),
+        emotion_basis=(
+            text_or_none(row.get("情绪状态依据")) or "现有字段未提供情绪状态依据。"
+            if trust_analyzed_fields
+            else "等待分析。"
+        ),
         service_rating=None,
         service_summary=None,
         enterprise_identity_source=(

@@ -10,7 +10,7 @@ from taxpayer_profile.database import create_schema, make_engine, make_session_f
 from taxpayer_profile.models import CallTrajectory
 
 
-def test_database_creates_only_three_core_tables(tmp_path: Path) -> None:
+def test_database_creates_profile_and_auth_tables(tmp_path: Path) -> None:
     engine = make_engine(tmp_path / "profiles.sqlite3")
     create_schema(engine)
 
@@ -18,6 +18,8 @@ def test_database_creates_only_three_core_tables(tmp_path: Path) -> None:
         "caller_profiles",
         "call_trajectories",
         "update_logs",
+        "system_users",
+        "auth_sessions",
     }
 
 

@@ -5,6 +5,183 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+PROFICIENCY_LEVELS = ("专业", "了解", "小白")
+EMOTION_STATES = ("平稳", "焦虑", "不满")
+
+RECEPTION_MODE_CATALOG = (
+    {
+        "id": "soothe",
+        "label": "耐心安抚",
+        "priority": 1,
+        "rule": "近期情绪为不满，或出现等待且潜在推诿，或对坐席不满",
+        "focus": "先承接情绪和历史体验，再说明本通可处理范围、责任节点与反馈方式。",
+        "communication": "语气稳定克制，先复述确认，不争辩；涉及等待或转交时主动说明原因和节点。",
+        "avoid": "避免机械重复历史口径、直接转接或在未说明原因时让来电人继续等待。",
+    },
+    {
+        "id": "followup",
+        "label": "问题跟进",
+        "priority": 2,
+        "rule": "存在历史工单、异常中断，或联系相关人员/部门后仍未解决",
+        "focus": "优先核验历史事项当前状态、承办节点和待补信息，形成可继续追踪的闭环。",
+        "communication": "先确认是否延续历史事项；确认后从已有节点继续，减少重复复述。",
+        "avoid": "避免重复登记、重复提供已被证明无效的口径，或把尚未确认的历史问题当成本次诉求。",
+    },
+    {
+        "id": "direct",
+        "label": "结论直给",
+        "priority": 3,
+        "rule": "无更高优先级历史信号，且业务熟悉度为专业或了解",
+        "focus": "先给关键结论、适用条件和必要办理节点，再根据追问补充细节。",
+        "communication": "表达简洁准确，减少基础概念铺垫；对焦虑状态增加结果和时限确认。",
+        "avoid": "避免连续展开与当前诉求无关的通用知识，或只讲流程而不先说明结论。",
+    },
+    {
+        "id": "guide",
+        "label": "通俗引导",
+        "priority": 4,
+        "rule": "未命中前三项，通常为业务熟悉度小白或证据暂不足",
+        "focus": "先用通俗语言说明目标和判断结果，再按少量关键节点引导。",
+        "communication": "降低术语密度，一次说明一至两个关键节点，并根据反馈调整解释深度。",
+        "avoid": "避免堆叠专业术语、一次给出过多操作，或在未确认理解时快速结束。",
+    },
+)
+
+
+def proficiency_level_from_score(score: float | None) -> str:
+    """Convert the legacy numeric score into the approved three-level label."""
+
+    if score is None:
+        return "暂无法判断"
+    if score >= 8:
+        return "专业"
+    if score >= 5:
+        return "了解"
+    return "小白"
+
+
+def normalize_proficiency_level(value: str | None, score: float | None = None) -> str:
+    rendered = (value or "").strip().removesuffix("型")
+    aliases = {
+        "熟悉": "了解",
+        "一般": "了解",
+        "新手": "小白",
+        "不熟悉": "小白",
+        "无法判断": "暂无法判断",
+        "证据不足": "暂无法判断",
+    }
+    rendered = aliases.get(rendered, rendered)
+    if rendered in {*PROFICIENCY_LEVELS, "暂无法判断"}:
+        return rendered
+    return proficiency_level_from_score(score)
+
+
+def infer_emotion_state(
+    *, transcript: str | None, business_content: str | None, answer_content: str | None
+) -> tuple[str, str]:
+    """Conservative rules-only fallback; a configured model remains preferred."""
+
+    combined = " ".join(
+        value for value in (business_content, answer_content, transcript) if value
+    )
+    if len(combined) < 12:
+        return "暂无法判断", "可用表达不足，暂不预设来电人情绪。"
+    dissatisfied_terms = (
+        "投诉",
+        "不满意",
+        "态度不好",
+        "推诿",
+        "怎么又",
+        "一直不给",
+        "根本没",
+        "太差",
+    )
+    anxious_terms = (
+        "着急",
+        "急着",
+        "怎么办",
+        "来不及",
+        "马上到期",
+        "什么时候",
+        "还要多久",
+        "会不会罚",
+        "影响",
+    )
+    if any(term in combined for term in dissatisfied_terms):
+        return "不满", "表达中出现明确负面评价、责备或投诉倾向。"
+    if any(term in combined for term in anxious_terms):
+        return "焦虑", "表达中持续关注时限、结果或可能产生的影响。"
+    return "平稳", "表达整体有序，未出现明显担忧、责备或负面评价。"
+
+
+@dataclass(frozen=True)
+class ReceptionModeResult:
+    mode_id: str
+    mode: str
+    basis: str
+    focus: str
+    communication: str
+    avoid: str
+    matched_facts: tuple[str, ...]
+
+
+def classify_reception_mode(
+    *,
+    proficiency_level: str | None,
+    emotion_state: str | None,
+    wait_pushback_count: int = 0,
+    work_order_count: int = 0,
+    abnormal_end_count: int = 0,
+    contact_unresolved_count: int = 0,
+    dissatisfaction_count: int = 0,
+) -> ReceptionModeResult:
+    """Map recent five-workday facts to exactly one of four reception modes."""
+
+    level = normalize_proficiency_level(proficiency_level)
+    emotion = (emotion_state or "暂无法判断").strip().removesuffix("型")
+    if emotion not in {*EMOTION_STATES, "暂无法判断"}:
+        emotion = "暂无法判断"
+
+    facts: list[str] = []
+    if wait_pushback_count:
+        facts.append(f"等待且潜在推诿{wait_pushback_count}次")
+    if work_order_count:
+        facts.append(f"历史工单{work_order_count}次")
+    if abnormal_end_count:
+        facts.append(f"异常中断{abnormal_end_count}次")
+    if contact_unresolved_count:
+        facts.append(f"联系后未解决{contact_unresolved_count}次")
+    if dissatisfaction_count:
+        facts.append(f"对坐席不满{dissatisfaction_count}次")
+
+    if emotion == "不满" or wait_pushback_count or dissatisfaction_count:
+        selected = RECEPTION_MODE_CATALOG[0]
+        basis = (
+            f"近期情绪为{emotion}；" + "、".join(facts or ["存在服务体验关注信号"])
+        )
+    elif work_order_count or abnormal_end_count or contact_unresolved_count:
+        selected = RECEPTION_MODE_CATALOG[1]
+        basis = "近五个工作日存在" + "、".join(facts) + "，需要优先核对进展。"
+    elif level in {"专业", "了解"}:
+        selected = RECEPTION_MODE_CATALOG[2]
+        basis = f"业务熟悉度为{level}，且近五个工作日未出现更高优先级服务信号。"
+        if emotion == "焦虑":
+            basis += "近期情绪偏焦虑，直给结论时需同步确认时限和影响。"
+    else:
+        selected = RECEPTION_MODE_CATALOG[3]
+        basis = (
+            f"业务熟悉度为{level}，近五个工作日未出现更高优先级服务信号。"
+        )
+    return ReceptionModeResult(
+        mode_id=str(selected["id"]),
+        mode=str(selected["label"]),
+        basis=basis,
+        focus=str(selected["focus"]),
+        communication=str(selected["communication"]),
+        avoid=str(selected["avoid"]),
+        matched_facts=tuple(facts),
+    )
+
 
 def weighted_proficiency(values: list[tuple[datetime, float | None]]) -> float | None:
     """Use linearly increasing weights 1..n after chronological sorting."""

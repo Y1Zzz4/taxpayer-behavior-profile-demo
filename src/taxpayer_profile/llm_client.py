@@ -28,6 +28,8 @@ EnterpriseIdentity = Literal[
     "法定代表人", "财务负责人", "办税人员", "其他", "无法判断", "不适用"
 ]
 ServiceRating = Literal["良好", "一般", "需关注", "无法判断"]
+ProficiencyLevel = Literal["专业", "了解", "小白", "暂无法判断"]
+EmotionState = Literal["平稳", "焦虑", "不满", "暂无法判断"]
 DemandCategory = Literal[
     "政策咨询类",
     "操作辅导类",
@@ -38,9 +40,9 @@ DemandCategory = Literal[
     "意见建议类",
     "其他类",
 ]
-PROMPT_VERSION = "call-extraction-v7"
+PROMPT_VERSION = "call-extraction-v8"
 REPEAT_PROMPT_VERSION = "repeat-issue-v4"
-REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v4"
+REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v6"
 
 AdviceText = Annotated[str, Field(min_length=1, max_length=300)]
 
@@ -69,6 +71,14 @@ class CallExtractionResult(BaseModel):
     effective_qa_content: str | None = Field(default=None, max_length=2000)
     proficiency_score: float | None = Field(default=None, ge=1, le=10)
     proficiency_summary: str = Field(min_length=1, max_length=200)
+    proficiency_level: ProficiencyLevel = "暂无法判断"
+    proficiency_basis: str = Field(
+        default="现有结果未提供业务熟悉度依据。", min_length=1, max_length=300
+    )
+    emotion_state: EmotionState = "暂无法判断"
+    emotion_basis: str = Field(
+        default="现有结果未提供情绪状态依据。", min_length=1, max_length=300
+    )
     service_rating: ServiceRating
     service_summary: str = Field(min_length=1, max_length=300)
 
@@ -76,6 +86,14 @@ class CallExtractionResult(BaseModel):
     def validate_consistency(self) -> "CallExtractionResult":
         if self.proficiency_score is None and self.proficiency_summary != "无法判断":
             raise ValueError("熟练度为空时说明必须为“无法判断”")
+        if self.proficiency_level == "暂无法判断" and self.proficiency_score is not None:
+            self.proficiency_level = (
+                "专业"
+                if self.proficiency_score >= 8
+                else "了解"
+                if self.proficiency_score >= 5
+                else "小白"
+            )
         if (
             self.natural_qa_turns is not None
             and self.effective_qa_turns is not None
@@ -114,13 +132,26 @@ class RealtimeServiceAdviceResult(BaseModel):
 
     advice_summary: str = Field(min_length=1, max_length=200)
     service_mode: str = Field(min_length=1, max_length=80)
+    mode_application: str = Field(
+        min_length=1,
+        max_length=300,
+        description="说明推荐模式如何具体约束本次接待方式，不得改写推荐模式",
+    )
+    service_focus: list[AdviceText] = Field(default_factory=list, max_length=4)
     opening_strategy: str = Field(min_length=1, max_length=300)
     communication_style: str = Field(min_length=1, max_length=300)
     history_followups: list[AdviceText] = Field(default_factory=list, max_length=5)
     risk_reminders: list[AdviceText] = Field(default_factory=list, max_length=5)
     avoid_actions: list[AdviceText] = Field(default_factory=list, max_length=5)
-    recommended_sequence: list[AdviceText] = Field(min_length=1, max_length=6)
+    # Accepted for compatibility with an older prompt, but not exposed by the UI.
+    recommended_sequence: list[AdviceText] = Field(default_factory=list, max_length=6)
     evidence: list[AdviceText] = Field(min_length=1, max_length=6)
+
+    @model_validator(mode="after")
+    def fill_macro_focus(self) -> "RealtimeServiceAdviceResult":
+        if not self.service_focus:
+            self.service_focus = [self.opening_strategy]
+        return self
 
 
 def build_repeat_payload(

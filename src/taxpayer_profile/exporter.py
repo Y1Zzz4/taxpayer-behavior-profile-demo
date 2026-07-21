@@ -8,11 +8,15 @@ from typing import Any
 
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import select
 
 from taxpayer_profile.database import make_engine, make_session_factory
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
+from taxpayer_profile.profiling import (
+    RECEPTION_MODE_CATALOG,
+    classify_reception_mode,
+)
 from taxpayer_profile.security import PhoneProtector
 
 
@@ -44,19 +48,36 @@ def _safe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _format_workbook(path: Path) -> None:
     workbook = load_workbook(path)
-    for worksheet in workbook.worksheets:
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    alternate_fill = PatternFill("solid", fgColor="EAF2F8")
+    white_font = Font(color="FFFFFF", bold=True)
+    thin_border = Border(bottom=Side(style="thin", color="D9E2F3"))
+    tab_colors = ("1F4E78", "2E75B6", "5B9BD5", "70AD47")
+    for sheet_index, worksheet in enumerate(workbook.worksheets):
         worksheet.freeze_panes = "A2"
         worksheet.auto_filter.ref = worksheet.dimensions
-        for row in worksheet.iter_rows():
+        worksheet.sheet_view.showGridLines = False
+        worksheet.sheet_properties.tabColor = tab_colors[sheet_index % len(tab_colors)]
+        worksheet.row_dimensions[1].height = 28
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = white_font
+            cell.alignment = Alignment(
+                horizontal="center", vertical="center", wrap_text=True
+            )
+        for row_index, row in enumerate(worksheet.iter_rows(min_row=2), start=2):
             for cell in row:
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
+                cell.border = thin_border
+                if row_index % 2 == 0:
+                    cell.fill = alternate_fill
         for column_cells in worksheet.columns:
             letter = column_cells[0].column_letter
             longest = max(
                 (len(str(cell.value)) for cell in column_cells if cell.value is not None),
                 default=8,
             )
-            worksheet.column_dimensions[letter].width = min(max(longest + 2, 10), 45)
+            worksheet.column_dimensions[letter].width = min(max(longest + 2, 12), 52)
     workbook.save(path)
 
 
@@ -87,10 +108,10 @@ def export_results(
             "来电号码": phones[profile.phone_hash],
             "咨询主体": profile.caller_type,
             "细化主体": profile.enterprise_identity,
-            "服务画像类型": profile.service_profile_type,
-            "服务画像依据": profile.service_profile_basis,
-            "办税熟练程度": profile.proficiency_score,
-            "熟练程度说明": profile.proficiency_summary,
+            "业务熟悉度": profile.proficiency_level,
+            "业务熟悉度依据": profile.proficiency_basis,
+            "近期情绪状态": profile.emotion_state,
+            "情绪状态依据": profile.emotion_basis,
             "首次来电时间": _datetime(profile.first_call_time),
             "最近来电时间": _datetime(profile.latest_call_time),
             "累计来电次数": profile.total_call_count,
@@ -160,6 +181,10 @@ def export_results(
             "有效问答内容": item.effective_qa_content,
             "办税熟练程度": item.proficiency_score,
             "熟练程度说明": item.proficiency_summary,
+            "业务熟悉度": item.proficiency_level,
+            "业务熟悉度依据": item.proficiency_basis,
+            "近期情绪状态": item.emotion_state,
+            "情绪状态依据": item.emotion_basis,
             "服务效果评估": item.service_rating,
             "服务效果说明": item.service_summary,
             "是否重复来电": _boolean(item.is_repeated_call),
@@ -228,3 +253,340 @@ def export_results(
         )
     _format_workbook(destination)
     return destination
+
+
+def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, Path]:
+    """Write external-facing methodology and service-guidance workbooks."""
+
+    directory = Path(output_directory).expanduser().resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    mapping_path = directory / "纳税人特征与接待模式映射表.xlsx"
+    guidance_path = directory / "接待模式服务建议表.xlsx"
+
+    mapping_notes = [
+        {
+            "说明项": "文档用途",
+            "内容": "说明纳税人特征如何推导为接待模式，供方案评审、演示和规则核验使用；不替代本次来电的具体业务判断。",
+        },
+        {
+            "说明项": "输入结构",
+            "内容": "输入由业务熟悉度、近期情绪状态和五项历史服务事实组成，三类信息共同描述纳税人本身情况及近期服务经历。",
+        },
+        {
+            "说明项": "统计窗口",
+            "内容": "以最近一次来电日期为锚点，取最近五个工作日。业务熟悉度和情绪采用窗口内最近一次有效判断；历史服务事实统计窗口内发生次数。",
+        },
+        {
+            "说明项": "推导方式",
+            "内容": "按“耐心安抚→问题跟进→结论直给→通俗引导”的顺序判断，只输出第一个命中的主模式，保证结果唯一且可解释。",
+        },
+        {
+            "说明项": "识别与映射",
+            "内容": "特征可复用既有分析字段，也可由新增来电的大模型分析结果提供；从特征到接待模式采用确定性规则映射。",
+        },
+        {
+            "说明项": "重要边界",
+            "内容": "“焦虑”表示关注时限、结果或影响，不等同于“不满”，不会单独触发耐心安抚；情绪不满与“对坐席不满”历史事实分别判断。",
+        },
+        {
+            "说明项": "使用边界",
+            "内容": "接待模式提供宏观沟通方向。坐席仍需结合本次诉求核验业务事实、适用政策和具体办理口径。",
+        },
+    ]
+
+    field_rows = [
+        {
+            "维度": "业务熟悉度",
+            "取值或事实": "专业",
+            "判定口径": "能准确描述业务场景、条件或办理节点，理解相关术语，追问集中在边界或结果",
+            "聚合方式": "最近五个工作日内最近一次有效判断",
+            "映射作用": "未出现更高优先级信号时，推荐结论直给",
+        },
+        {
+            "维度": "业务熟悉度",
+            "取值或事实": "了解",
+            "判定口径": "知道事项和基本办理方向，能够说明主要问题，但仍需确认部分规则、材料或节点",
+            "聚合方式": "最近五个工作日内最近一次有效判断",
+            "映射作用": "未出现更高优先级信号时，推荐结论直给",
+        },
+        {
+            "维度": "业务熟悉度",
+            "取值或事实": "小白",
+            "判定口径": "对基础概念、办理入口或操作路径明显不熟悉，需要通俗解释和分段引导",
+            "聚合方式": "最近五个工作日内最近一次有效判断",
+            "映射作用": "未出现更高优先级信号时，推荐通俗引导",
+        },
+        {
+            "维度": "近期情绪状态",
+            "取值或事实": "平稳",
+            "判定口径": "表达基本有序，没有明显担忧、责备或负面评价",
+            "聚合方式": "最近五个工作日内最近一次有效判断",
+            "映射作用": "不单独改变优先级",
+        },
+        {
+            "维度": "近期情绪状态",
+            "取值或事实": "焦虑",
+            "判定口径": "担忧时限、结果、处罚或损失，反复追问进度，但没有明确负面评价",
+            "聚合方式": "最近五个工作日内最近一次有效判断",
+            "映射作用": "不单独触发安抚；在相应模式中强化时限、结果和影响确认",
+        },
+        {
+            "维度": "近期情绪状态",
+            "取值或事实": "不满",
+            "判定口径": "出现明确负面评价、责备、拒绝或投诉倾向；不限定不满对象",
+            "聚合方式": "最近五个工作日内最近一次有效判断",
+            "映射作用": "直接触发耐心安抚",
+        },
+        {
+            "维度": "历史服务事实",
+            "取值或事实": "等待推诿",
+            "判定口径": "存在让纳税人等待表述=是，且坐席存在潜在推诿行为=是",
+            "聚合方式": "统计最近五个工作日内命中次数",
+            "映射作用": "发生至少一次即触发耐心安抚",
+        },
+        {
+            "维度": "历史服务事实",
+            "取值或事实": "历史工单",
+            "判定口径": "是否工单=是",
+            "聚合方式": "统计最近五个工作日内命中次数",
+            "映射作用": "未命中耐心安抚时，触发问题跟进",
+        },
+        {
+            "维度": "历史服务事实",
+            "取值或事实": "异常中断",
+            "判定口径": "既有分析采用已确认字段；新增来电仅在明确中断、挂断或语义判断命中时计入，缺少结束语不单独认定",
+            "聚合方式": "规则判断或语义判断任一为是即计入；统计最近五个工作日内命中次数",
+            "映射作用": "未命中耐心安抚时，触发问题跟进",
+        },
+        {
+            "维度": "历史服务事实",
+            "取值或事实": "联系后未解决",
+            "判定口径": "对话中存在联系相关人员或部门=是，且坐席是否解决纳税人问题=否",
+            "聚合方式": "统计最近五个工作日内同时满足条件的次数",
+            "映射作用": "未命中耐心安抚时，触发问题跟进",
+        },
+        {
+            "维度": "历史服务事实",
+            "取值或事实": "对坐席不满",
+            "判定口径": "纳税人是否对当前坐席或本通热线存在不满=是",
+            "聚合方式": "统计最近五个工作日内命中次数",
+            "映射作用": "发生至少一次即触发耐心安抚",
+        },
+    ]
+    mapping_rows = [
+        {
+            "判断顺序": 1,
+            "接待模式": "耐心安抚",
+            "触发条件": "近期情绪=不满，或等待推诿次数>0，或对坐席不满次数>0；满足任一项即可",
+            "前置条件": "无，最高优先级",
+            "推导结果": "先承接情绪和历史服务体验，再说明本通可处理范围、责任节点与反馈方式",
+        },
+        {
+            "判断顺序": 2,
+            "接待模式": "问题跟进",
+            "触发条件": "历史工单次数>0，或异常中断次数>0，或联系后未解决次数>0；满足任一项即可",
+            "前置条件": "未命中耐心安抚",
+            "推导结果": "优先核验历史事项状态、承办节点和待补信息，从已有节点继续处理",
+        },
+        {
+            "判断顺序": 3,
+            "接待模式": "结论直给",
+            "触发条件": "业务熟悉度=专业或了解",
+            "前置条件": "未命中耐心安抚和问题跟进",
+            "推导结果": "先给关键结论、适用条件和必要办理节点；焦虑时同步确认时限与影响",
+        },
+        {
+            "判断顺序": 4,
+            "接待模式": "通俗引导",
+            "触发条件": "业务熟悉度=小白或暂无法判断",
+            "前置条件": "未命中前三种模式",
+            "推导结果": "使用通俗语言说明目标与判断结果，再按少量关键节点分段引导",
+        },
+    ]
+
+    example_specs = [
+        ("E01", "专业", "平稳", {}, "P1无关注信号→P2无跟进事实→P3命中专业"),
+        ("E02", "了解", "焦虑", {}, "焦虑不等于不满，P1未命中→P2未命中→P3命中了解"),
+        ("E03", "小白", "平稳", {}, "P1、P2未命中→P3不满足→P4兜底"),
+        ("E04", "暂无法判断", "焦虑", {}, "焦虑不单独触发安抚，熟悉度证据不足→P4兜底"),
+        ("E05", "专业", "不满", {}, "P1命中近期情绪不满，其余维度不再改变主模式"),
+        (
+            "E06",
+            "专业",
+            "平稳",
+            {"wait_pushback_count": 1},
+            "P1命中等待推诿，优先于专业对应的结论直给",
+        ),
+        (
+            "E07",
+            "了解",
+            "平稳",
+            {"dissatisfaction_count": 1},
+            "P1命中对坐席不满，优先于了解对应的结论直给",
+        ),
+        (
+            "E08",
+            "专业",
+            "平稳",
+            {"work_order_count": 1},
+            "P1未命中→P2命中历史工单",
+        ),
+        (
+            "E09",
+            "小白",
+            "平稳",
+            {"abnormal_end_count": 1},
+            "P1未命中→P2命中异常中断，优先于通俗引导",
+        ),
+        (
+            "E10",
+            "了解",
+            "焦虑",
+            {"contact_unresolved_count": 1},
+            "焦虑不触发P1→P2命中联系后未解决",
+        ),
+        (
+            "E11",
+            "专业",
+            "平稳",
+            {"wait_pushback_count": 1, "work_order_count": 1},
+            "P1和P2信号同时存在，按优先级保留P1耐心安抚",
+        ),
+        (
+            "E12",
+            "了解",
+            "不满",
+            {"work_order_count": 1, "abnormal_end_count": 1},
+            "情绪不满、工单和异常中断同时存在，按优先级保留P1耐心安抚",
+        ),
+    ]
+
+    fact_labels = {
+        "wait_pushback_count": "等待推诿",
+        "work_order_count": "历史工单",
+        "abnormal_end_count": "异常中断",
+        "contact_unresolved_count": "联系后未解决",
+        "dissatisfaction_count": "对坐席不满",
+    }
+    example_rows: list[dict[str, Any]] = []
+    for example_id, proficiency, emotion, facts, derivation in example_specs:
+        result = classify_reception_mode(
+            proficiency_level=proficiency,
+            emotion_state=emotion,
+            **facts,
+        )
+        rendered_facts = "、".join(
+            f"{fact_labels[key]}{count}次" for key, count in facts.items() if count
+        )
+        example_rows.append(
+            {
+                "示例编号": example_id,
+                "业务熟悉度": proficiency,
+                "近期情绪": emotion,
+                "历史事实（最近五个工作日）": rendered_facts or "无",
+                "规则推导": derivation,
+                "推荐模式": result.mode,
+                "接待重点": result.focus,
+            }
+        )
+
+    with pd.ExcelWriter(mapping_path, engine="openpyxl") as writer:
+        pd.DataFrame(_safe_rows(mapping_notes)).to_excel(
+            writer, sheet_name="使用说明", index=False
+        )
+        pd.DataFrame(_safe_rows(mapping_rows)).to_excel(
+            writer, sheet_name="模式映射规则", index=False
+        )
+        pd.DataFrame(_safe_rows(field_rows)).to_excel(
+            writer, sheet_name="字段判定口径", index=False
+        )
+        pd.DataFrame(_safe_rows(example_rows)).to_excel(
+            writer, sheet_name="推导示例", index=False
+        )
+    _format_workbook(mapping_path)
+
+    mode_details = {
+        "耐心安抚": {
+            "建议开场方向": "先确认已了解其关注点和既往体验，再说明本通将优先核实的事项。",
+            "结束前确认": "确认已说明当前结论、后续责任节点和可追踪方式。",
+        },
+        "问题跟进": {
+            "建议开场方向": "先确认本次是否延续历史事项，并核对业务编号、工单或最近处理节点。",
+            "结束前确认": "确认当前进展、下一责任节点、所需补充信息及合理反馈预期。",
+        },
+        "结论直给": {
+            "建议开场方向": "先回应核心判断，再说明适用条件和必要办理节点。",
+            "结束前确认": "确认来电人已掌握结论、边界条件及仍需自行核验的事项。",
+        },
+        "通俗引导": {
+            "建议开场方向": "先用简明语言说明事项目标，再从当前最关键的一个节点开始解释。",
+            "结束前确认": "确认来电人理解当前节点，并知道下一步应准备或操作的内容。",
+        },
+    }
+    guidance_rows = [
+        {
+            "判断顺序": mode["priority"],
+            "接待模式": mode["label"],
+            "适用情形": mode["rule"],
+            "接待重点": mode["focus"],
+            "沟通方式": mode["communication"],
+            "建议开场方向": mode_details[str(mode["label"])]["建议开场方向"],
+            "结束前确认": mode_details[str(mode["label"])]["结束前确认"],
+            "需要避免": mode["avoid"],
+        }
+        for mode in RECEPTION_MODE_CATALOG
+    ]
+
+    guidance_notes = [
+        {
+            "说明项": "文档用途",
+            "内容": "说明四种接待模式的服务目标和沟通方向，供坐席接听前快速参考，也可用于方案展示和培训说明。",
+        },
+        {
+            "说明项": "使用顺序",
+            "内容": "先根据《纳税人特征与接待模式映射表》确定主模式，再查看对应服务建议；多种信号同时存在时不叠加多个主模式。",
+        },
+        {
+            "说明项": "动态调整",
+            "内容": "推荐模式来自历史画像。接听过程中如出现与历史不同的新事实或情绪表达，坐席应以本次实际情况动态调整沟通方式。",
+        },
+        {
+            "说明项": "建议边界",
+            "内容": "表内内容为宏观接待建议，不生成具体业务结论，不替代政策核验、身份核验及规范服务要求。",
+        },
+    ]
+
+    scenario_indexes = {"E02", "E03", "E05", "E06", "E07", "E08", "E09", "E10", "E11"}
+    scenarios: list[dict[str, Any]] = []
+    for row in example_rows:
+        if row["示例编号"] not in scenario_indexes:
+            continue
+        mode = next(
+            item for item in RECEPTION_MODE_CATALOG if item["label"] == row["推荐模式"]
+        )
+        scenarios.append(
+            {
+                "场景编号": row["示例编号"],
+                "特征组合": (
+                    f"{row['业务熟悉度']}；{row['近期情绪']}；"
+                    f"{row['历史事实（最近五个工作日）']}"
+                ),
+                "推导结果": row["推荐模式"],
+                "推导依据": row["规则推导"],
+                "现场侧重点": mode["focus"],
+                "需要避免": mode["avoid"],
+            }
+        )
+
+    with pd.ExcelWriter(guidance_path, engine="openpyxl") as writer:
+        pd.DataFrame(_safe_rows(guidance_notes)).to_excel(
+            writer, sheet_name="使用说明", index=False
+        )
+        pd.DataFrame(_safe_rows(guidance_rows)).to_excel(
+            writer, sheet_name="接待模式服务建议", index=False
+        )
+        pd.DataFrame(_safe_rows(scenarios)).to_excel(
+            writer, sheet_name="典型服务场景", index=False
+        )
+    _format_workbook(guidance_path)
+    return mapping_path, guidance_path

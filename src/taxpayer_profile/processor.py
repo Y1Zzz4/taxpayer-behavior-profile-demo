@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Protocol
 from uuid import uuid4
@@ -40,14 +40,15 @@ from taxpayer_profile.normalization import NormalizedCallInput, normalize_call_r
 from taxpayer_profile.profiling import (
     analyze_proficiency,
     analyze_service,
-    classify_service_profile,
+    infer_emotion_state,
+    normalize_proficiency_level,
     weighted_proficiency,
 )
 from taxpayer_profile.repeat_analysis import RepeatDecision, analyze_repeat_issue
 from taxpayer_profile.security import PhoneProtector
 
-ANALYSIS_VERSION = "profile-2026-07-21-v3"
-EXTRACTION_VERSION = "extraction-2026-07-21-v3"
+ANALYSIS_VERSION = "profile-2026-07-21-v4"
+EXTRACTION_VERSION = "extraction-2026-07-21-v4"
 
 
 class AnalysisClient(Protocol):
@@ -143,9 +144,7 @@ def _unresolved_summary(trajectories: list[CallTrajectory], limit: int = 3) -> s
 
 
 def _personalized_profile_summary(profile: CallerProfile) -> str:
-    sentences = [
-        f"该号码当前呈现“{profile.service_profile_type or '常规服务型'}”服务画像。"
-    ]
+    sentences: list[str] = []
     if profile.caller_type == "企业":
         if profile.enterprise_identity in {None, "无法判断"}:
             sentences.append("最近一次为企业咨询，细化主体暂无法判断。")
@@ -161,10 +160,15 @@ def _personalized_profile_summary(profile: CallerProfile) -> str:
         ]
         suffix = f"，归入{'、'.join(categories)}" if categories else ""
         sentences.append(f"最近关注“{profile.latest_question}”{suffix}。")
-    if profile.proficiency_score is not None:
+    if profile.proficiency_level:
         sentences.append(
-            f"历史沟通显示其业务熟练度约为{profile.proficiency_score:.1f}/10，"
-            f"{profile.proficiency_summary or '建议在本次接待中继续观察理解程度'}"
+            f"近期沟通显示其业务熟悉度为{profile.proficiency_level}，"
+            f"{profile.proficiency_basis or '建议在本次接待中继续观察理解程度'}"
+        )
+    if profile.emotion_state:
+        sentences.append(
+            f"近期情绪状态为{profile.emotion_state}，"
+            f"{profile.emotion_basis or '建议根据本次表达动态调整沟通方式'}"
         )
     if profile.unresolved_count:
         reason = profile.latest_unresolved_reason or "仍需核对具体处理节点"
@@ -174,6 +178,19 @@ def _personalized_profile_summary(profile: CallerProfile) -> str:
     elif profile.latest_service_rating:
         sentences.append(f"最近一次服务效果评估为“{profile.latest_service_rating}”。")
     return "".join(sentences)
+
+
+def _recent_five_workday_items(
+    ordered: list[CallTrajectory],
+) -> list[CallTrajectory]:
+    anchor = ordered[-1].call_time.date()
+    workdays: set[date] = set()
+    current = anchor
+    while len(workdays) < 5:
+        if current.weekday() < 5:
+            workdays.add(current)
+        current -= timedelta(days=1)
+    return [item for item in ordered if item.call_time.date() in workdays]
 
 
 def _update_profile(
@@ -213,6 +230,38 @@ def _update_profile(
         ),
         "无法判断",
     )
+    recent = _recent_five_workday_items(ordered)
+    recent_level = next(
+        (
+            item
+            for item in reversed(recent)
+            if normalize_proficiency_level(
+                item.proficiency_level, item.proficiency_score
+            )
+            != "暂无法判断"
+        ),
+        latest,
+    )
+    profile.proficiency_level = normalize_proficiency_level(
+        recent_level.proficiency_level, recent_level.proficiency_score
+    )
+    profile.proficiency_basis = (
+        recent_level.proficiency_basis
+        or recent_level.proficiency_summary
+        or "近期可用表达不足，暂不预设业务熟悉程度。"
+    )
+    recent_emotion = next(
+        (
+            item
+            for item in reversed(recent)
+            if item.emotion_state in {"平稳", "焦虑", "不满"}
+        ),
+        latest,
+    )
+    profile.emotion_state = recent_emotion.emotion_state or "暂无法判断"
+    profile.emotion_basis = (
+        recent_emotion.emotion_basis or "近期可用表达不足，暂不预设情绪状态。"
+    )
     profile.latest_business_id = latest.business_id
     profile.latest_question = latest.core_question
     profile.latest_topic_category = latest.topic_category
@@ -234,16 +283,8 @@ def _update_profile(
     profile.recent_questions_summary = _question_summary(recent_questions)
     profile.unresolved_questions_summary = _unresolved_summary(ordered)
     profile.repeated_questions_summary = _question_summary(repeated_questions)
-    classification = classify_service_profile(
-        total_calls=profile.total_call_count,
-        repeated_issues=profile.repeated_issue_count,
-        unresolved=profile.unresolved_count,
-        work_orders=profile.work_order_count,
-        dissatisfaction=profile.dissatisfaction_count,
-        proficiency_score=profile.proficiency_score,
-    )
-    profile.service_profile_type = classification.profile_type
-    profile.service_profile_basis = classification.basis
+    profile.service_profile_type = None
+    profile.service_profile_basis = None
     profile.profile_summary = _personalized_profile_summary(profile)
     profile.updated_at = datetime.now(timezone.utc)
 
@@ -304,6 +345,24 @@ def _local_trusted_enrichment(call: NormalizedCallInput) -> NormalizedCallInput:
         effective_qa_turns=call.effective_qa_turns,
         service_was_unclear=bool(call.potential_pushback),
     )
+    proficiency_level = normalize_proficiency_level(
+        (
+            call.proficiency_level
+            if call.proficiency_level not in {"", "无法判断", "暂无法判断"}
+            else None
+        ),
+        proficiency.score,
+    )
+    proficiency_basis = (
+        call.proficiency_basis
+        if call.proficiency_level not in {None, "暂无法判断", "无法判断"}
+        else proficiency.summary
+    )
+    emotion_state, emotion_basis = infer_emotion_state(
+        transcript=call.transcript,
+        business_content=call.business_content,
+        answer_content=call.answer_content,
+    )
     combined = " ".join(
         value
         for value in (call.core_question, call.business_content, call.answer_content)
@@ -331,10 +390,22 @@ def _local_trusted_enrichment(call: NormalizedCallInput) -> NormalizedCallInput:
             unresolved_reason = "本通记录显示问题未直接解决，具体原因未明确"
     return replace(
         call,
-        demand_category=demand_category,
+        demand_category=call.demand_category or demand_category,
         unresolved_reason=unresolved_reason,
         proficiency_score=proficiency.score,
         proficiency_summary=proficiency.summary,
+        proficiency_level=proficiency_level,
+        proficiency_basis=proficiency_basis,
+        emotion_state=(
+            call.emotion_state
+            if call.emotion_state in {"平稳", "焦虑", "不满"}
+            else emotion_state
+        ),
+        emotion_basis=(
+            call.emotion_basis
+            if call.emotion_state in {"平稳", "焦虑", "不满"}
+            else emotion_basis
+        ),
         service_rating=service.rating,
         service_summary=service.summary,
     )
@@ -360,6 +431,11 @@ def _merge_extraction(
     def trusted_or_extracted(existing: object, extracted: object) -> object:
         return existing if trusted and existing is not None else extracted
 
+    def trusted_new_label(existing: str, extracted: str) -> str:
+        if trusted and existing not in {"", "无法判断", "暂无法判断"}:
+            return existing
+        return extracted
+
     resolved_status = trusted_or_extracted(
         call.resolved_status, extraction.resolved_status
     )
@@ -377,7 +453,11 @@ def _merge_extraction(
     return replace(
         call,
         core_question=call.core_question or extraction.core_question,
-        demand_category=", ".join(extraction.demand_categories),
+        demand_category=(
+            call.demand_category
+            if trusted and call.demand_category
+            else ", ".join(extraction.demand_categories)
+        ),
         father_question=trusted_or_extracted(  # type: ignore[arg-type]
             call.father_question, extraction.father_question
         ),
@@ -425,6 +505,22 @@ def _merge_extraction(
         ),
         proficiency_score=extraction.proficiency_score,
         proficiency_summary=extraction.proficiency_summary,
+        proficiency_level=trusted_new_label(
+            call.proficiency_level, extraction.proficiency_level
+        ),
+        proficiency_basis=(
+            call.proficiency_basis
+            if trusted
+            and call.proficiency_level not in {"", "无法判断", "暂无法判断"}
+            else extraction.proficiency_basis
+        ),
+        emotion_state=trusted_new_label(call.emotion_state, extraction.emotion_state),
+        emotion_basis=(
+            call.emotion_basis
+            if trusted
+            and call.emotion_state not in {"", "无法判断", "暂无法判断"}
+            else extraction.emotion_basis
+        ),
         service_rating=extraction.service_rating,
         service_summary=extraction.service_summary,
         enterprise_identity_source=identity.source,
@@ -451,6 +547,10 @@ def _enrich_call(
             enriched = replace(
                 call,
                 demand_category="其他类",
+                proficiency_level="暂无法判断",
+                proficiency_basis="可用文本不足，暂不预设业务熟悉程度。",
+                emotion_state="暂无法判断",
+                emotion_basis="可用文本不足，暂不预设情绪状态。",
                 service_rating="无法判断",
                 service_summary="无法判断：可用文本不足。",
             )
@@ -728,6 +828,10 @@ def _trajectory_from_call(
         effective_qa_content=call.effective_qa_content,
         proficiency_score=call.proficiency_score,
         proficiency_summary=call.proficiency_summary,
+        proficiency_level=call.proficiency_level,
+        proficiency_basis=call.proficiency_basis,
+        emotion_state=call.emotion_state,
+        emotion_basis=call.emotion_basis,
         service_rating=call.service_rating,
         service_summary=call.service_summary,
         is_repeated_call=previous is not None,

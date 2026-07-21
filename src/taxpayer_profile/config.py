@@ -19,6 +19,10 @@ class Settings:
     llm_model: str | None
     phone_hash_key: str | None
     phone_encryption_key: str | None
+    default_admin_username: str = "admin"
+    default_admin_password: str = "Admin@12366"
+    default_agent_username: str = "agent"
+    default_agent_password: str = "Agent@12366"
 
     @property
     def llm_configured(self) -> bool:
@@ -51,4 +55,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
         llm_model=os.getenv("LLM_MODEL"),
         phone_hash_key=os.getenv("PHONE_HASH_KEY"),
         phone_encryption_key=os.getenv("PHONE_ENCRYPTION_KEY"),
+        default_admin_username=os.getenv("DEFAULT_ADMIN_USERNAME", "admin"),
+        default_admin_password=os.getenv("DEFAULT_ADMIN_PASSWORD", "Admin@12366"),
+        default_agent_username=os.getenv("DEFAULT_AGENT_USERNAME", "agent"),
+        default_agent_password=os.getenv("DEFAULT_AGENT_PASSWORD", "Agent@12366"),
     )

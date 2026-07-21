@@ -12,7 +12,7 @@ from taxpayer_profile.web_app import DemoService, run_server
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="启动来电历史查询与坐席服务辅助页面。")
+    parser = argparse.ArgumentParser(description="启动 12366 坐席接待辅助演示系统。")
     parser.add_argument("--database", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)

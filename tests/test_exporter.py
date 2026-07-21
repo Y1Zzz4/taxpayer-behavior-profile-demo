@@ -12,7 +12,7 @@ from taxpayer_profile.database import (
     make_session_factory,
     transactional_session,
 )
-from taxpayer_profile.exporter import export_results
+from taxpayer_profile.exporter import export_profile_rule_workbooks, export_results
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
 from taxpayer_profile.query import (
     _five_workdays,
@@ -146,11 +146,53 @@ def test_export_has_three_formatted_worksheets_and_query_interface(
     assert "phone" not in result
     assert result["total_call_count"] == 1
     assert result["agent_context"]["statistics"]["total_calls"] == 1
-    assert "recommended_mode" not in result["agent_context"]
+    assert result["agent_context"]["recommended_mode"] == "通俗引导"
     assert "service_suggestion" not in result
     assert result["trajectories"][0]["business_id"] == "BIZ-1"
     assert result["trajectories"][0]["work_order"] is False
     assert "matched_previous_question" in result["trajectories"][0]
+
+
+def test_profile_rule_workbooks_are_self_contained_and_cover_derivations(
+    tmp_path: Path,
+) -> None:
+    mapping_path, guidance_path = export_profile_rule_workbooks(tmp_path)
+
+    mapping = load_workbook(mapping_path)
+    assert mapping.sheetnames == [
+        "使用说明",
+        "模式映射规则",
+        "字段判定口径",
+        "推导示例",
+    ]
+    assert mapping["模式映射规则"].max_row == 5
+    assert mapping["字段判定口径"].max_row == 12
+    assert mapping["推导示例"].max_row == 13
+    recommended_modes = {
+        cell.value for cell in mapping["推导示例"]["F"][1:]
+    }
+    assert recommended_modes == {"耐心安抚", "问题跟进", "结论直给", "通俗引导"}
+    mapping_text = " ".join(
+        str(cell.value or "")
+        for sheet in mapping.worksheets
+        for row in sheet.iter_rows()
+        for cell in row
+    )
+    assert "缺少结束语不单独认定" in mapping_text
+    assert "号码级" not in mapping_text
+
+    guidance = load_workbook(guidance_path)
+    assert guidance.sheetnames == ["使用说明", "接待模式服务建议", "典型服务场景"]
+    assert guidance["接待模式服务建议"].max_row == 5
+    assert guidance["典型服务场景"].max_row == 10
+    guidance_text = " ".join(
+        str(cell.value or "")
+        for sheet in guidance.worksheets
+        for row in sheet.iter_rows()
+        for cell in row
+    )
+    assert "宏观接待建议" in guidance_text
+    assert "号码级" not in guidance_text
 
 
 def test_web_dashboard_and_history_are_read_only_and_mask_phone(
@@ -185,7 +227,8 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
             "value": 1,
             "resolved": 1,
             "unresolved": 0,
-            "unknown": 0,
+                "unknown": 0,
+                "share": 100.0,
         }
     ]
     assert "data_quality" not in dashboard
@@ -211,24 +254,21 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     catalog = service.profile_showcase_catalog()
     assert len(catalog["items"]) == 1
     assert catalog["items"][0]["masked_phone"] == "138****0001"
-    assert catalog["taxonomy"]["dimension_count"] == 6
-    assert catalog["taxonomy"]["dimension_category_count"] == 30
-    assert catalog["taxonomy"]["composite_profile_count"] == 4
-    assert catalog["taxonomy"]["service_mode_count"] == 7
-    assert catalog["taxonomy"]["service_action_count"] == 10
+    assert catalog["summary"]["dimension_count"] == 3
+    assert catalog["summary"]["fact_count"] == 5
+    assert catalog["summary"]["mode_count"] == 4
     assert "13800000001" not in str(catalog)
     showcase = service.profile_showcase(
         profile_key=catalog["items"][0]["profile_key"],
-        scenario="repeat_unresolved",
+        scenario="followup_signal",
     )
-    assert showcase["before"]["state"]["total_calls"] == 1
-    assert showcase["after"]["state"]["total_calls"] == 2
-    assert showcase["after"]["state"]["unresolved"] == 1
-    assert showcase["after"]["result"]["profile_type"] == "事项跟进型"
-    assert len(showcase["before"]["profile_model"]["items"]) == 6
-    assert showcase["before"]["profile_model"]["active_category_count"] >= 6
-    assert showcase["after"]["profile_model"]["service_actions"]
-    assert showcase["changes"][-1]["field"] == "推荐服务方式"
+    assert showcase["after"]["state"]["contact_unresolved"] == (
+        showcase["before"]["state"]["contact_unresolved"] + 1
+    )
+    assert showcase["after"]["result"]["service_mode"] == "问题跟进"
+    assert len(showcase["before"]["profile_model"]["items"]) == 3
+    assert showcase["before"]["profile_model"]["active_category_count"] >= 3
+    assert showcase["changes"][-1]["field"] == "推荐接待模式"
     assert "不写入" in showcase["disclaimer"]
     assert "13800000001" not in str(showcase)
 
@@ -282,6 +322,9 @@ def test_information_overview_uses_five_workdays_and_overlapping_demand_labels()
         "call_count": 3,
         "same_demand_count": 2,
         "work_order_count": 1,
+        "wait_pushback_count": 0,
+        "abnormal_end_count": 0,
+        "contact_unresolved_count": 0,
         "unresolved_count": 1,
         "dissatisfaction_count": 0,
     }
