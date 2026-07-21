@@ -1,7 +1,11 @@
 from pathlib import Path
 
 from taxpayer_profile.config import PROJECT_ROOT
-from taxpayer_profile.llm_client import PROMPT_VERSION, REALTIME_ADVICE_PROMPT_VERSION
+from taxpayer_profile.llm_client import (
+    PROMPT_VERSION,
+    REALTIME_ADVICE_PROMPT_VERSION,
+    REPEAT_PROMPT_VERSION,
+)
 
 
 def test_call_extraction_prompt_contains_required_business_rules() -> None:
@@ -26,11 +30,12 @@ def test_call_extraction_prompt_contains_required_business_rules() -> None:
         "service": "服务效果评估",
         "demand_category": "工单/拉起类",
         "unresolved_reason": "unresolved_reason",
+        "specific_core_issue": "问题发生的业务场景 + 来电人真正要解决的事项",
         "no_policy_claim": "不判断政策答案是否绝对正确",
     }
     missing = [name for name, text in required_rules.items() if text not in prompt]
     assert missing == []
-    assert PROMPT_VERSION == "call-extraction-v6"
+    assert PROMPT_VERSION == "call-extraction-v7"
 
 
 def test_prompt_does_not_request_prohibited_structured_identifiers() -> None:
@@ -52,3 +57,13 @@ def test_realtime_advice_prompt_is_phone_level_not_a_policy_answer() -> None:
     assert "号码或其他个人标识" in prompt
     assert "不能只写“常规型”“澄清确认型”“耐心沟通型”" in prompt
     assert REALTIME_ADVICE_PROMPT_VERSION == "realtime-service-advice-v3"
+
+
+def test_repeat_prompt_separates_contact_queries_from_business_repetition() -> None:
+    prompt = (PROJECT_ROOT / "prompts/repeat_issue_system.txt").read_text(
+        encoding="utf-8"
+    )
+
+    assert "通用联络诉求" in prompt
+    assert "降低 confidence" in prompt
+    assert REPEAT_PROMPT_VERSION == "repeat-issue-v4"

@@ -98,6 +98,15 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "需求类别与解决情况",
         "数据解读",
         "历史来电记录",
+        "画像推演中心",
+        "历史问题衔接",
+        "待衔接的未解决问题",
+        "重复咨询问题与候选线索",
+        "重复来电不会自动视为同一问题",
+        "画像证据回放",
+        "增量画像推演",
+        "画像判定原则",
+        "/api/showcase",
         "信息速览",
         "近5个工作日",
         "原始登记信息（A—P列）",
@@ -116,3 +125,5 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
     assert '<h2>服务画像分类方法</h2>' not in page
     assert "radial-gradient" not in page
     assert "本地 Demo 在线" not in page
+    assert "profileBox.append(profileTypeButton" not in page
+    assert "appendInfo(primary" not in page

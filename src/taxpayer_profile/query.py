@@ -197,12 +197,22 @@ def query_profile(
                     "effective_qa_content": item.effective_qa_content,
                     "resolved": item.resolved_status,
                     "unresolved_reason": item.unresolved_reason,
+                    "work_order": item.work_order,
                     "is_repeated_call": item.is_repeated_call,
                     "is_repeated_issue": item.is_repeated_issue,
+                    "matched_previous_business_id": item.matched_previous_business_id,
+                    "matched_previous_question": item.matched_previous_question,
+                    "matched_previous_call_time": (
+                        item.matched_previous_call_time.isoformat(sep=" ")
+                        if item.matched_previous_call_time
+                        else None
+                    ),
+                    "previous_issue_resolved": item.previous_issue_resolved,
                     "repeat_candidate_score": item.repeat_candidate_score,
                     "repeat_confidence": item.repeat_confidence,
                     "repeat_review_status": item.repeat_review_status,
                     "repeat_reason": item.repeat_reason,
+                    "repeat_summary": item.repeat_summary,
                     "service_rating": item.service_rating,
                     "service_summary": item.service_summary,
                     "analysis_status": item.analysis_status,

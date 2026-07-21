@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from taxpayer_profile.config import PROJECT_ROOT, Settings
 from taxpayer_profile.database import make_engine, make_session_factory
 from taxpayer_profile.llm_client import OpenAICompatibleClient
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
+from taxpayer_profile.profiling import build_service_strategy, classify_service_profile
 from taxpayer_profile.query import query_profile
 from taxpayer_profile.realtime_advice import (
     AdviceClient,
@@ -29,6 +31,81 @@ from taxpayer_profile.security import PhoneProtector
 
 WEB_ROOT = PROJECT_ROOT / "web"
 MAX_REQUEST_BYTES = 16_384
+SHOWCASE_SCENARIOS = (
+    {
+        "id": "baseline",
+        "label": "当前画像",
+        "description": "只展示现有历史证据，不增加模拟记录。",
+    },
+    {
+        "id": "repeat_unresolved",
+        "label": "同类事项再次未解决",
+        "description": "模拟同一问题再次来电，且本通仍未直接解决。",
+    },
+    {
+        "id": "resolved_closure",
+        "label": "历史事项完成闭环",
+        "description": "模拟来电核验进度后，将一项历史待办确认解决。",
+    },
+    {
+        "id": "service_dissatisfaction",
+        "label": "新增服务不满信号",
+        "description": "模拟来电人对等待或转交过程表达不满。",
+    },
+)
+
+
+def _showcase_key(phone_hash: str) -> str:
+    return hashlib.sha256(f"profile-showcase:{phone_hash}".encode()).hexdigest()[:18]
+
+
+def _strategy_payload(
+    *,
+    profile: CallerProfile,
+    trajectories: list[CallTrajectory],
+    state: dict[str, int],
+    latest_resolved: bool | None,
+) -> dict[str, object]:
+    question = profile.latest_question or "最近咨询事项"
+    unresolved_questions = [
+        item.core_question or item.topic_category or "历史未解决事项"
+        for item in trajectories
+        if item.resolved_status is False
+    ]
+    classification = classify_service_profile(
+        total_calls=state["total_calls"],
+        repeated_issues=state["repeated_issues"],
+        unresolved=state["unresolved"],
+        work_orders=state["work_orders"],
+        dissatisfaction=state["dissatisfaction"],
+        proficiency_score=profile.proficiency_score,
+    )
+    strategy = build_service_strategy(
+        total_calls=state["total_calls"],
+        repeated_issues=state["repeated_issues"],
+        unresolved=state["unresolved"],
+        work_orders=state["work_orders"],
+        abnormal_ends=state["abnormal_ends"],
+        dissatisfaction=state["dissatisfaction"],
+        has_pushback=any(item.potential_pushback is True for item in trajectories),
+        latest_resolved=latest_resolved,
+        proficiency_score=profile.proficiency_score,
+        latest_question=question,
+        recent_questions=[
+            item.core_question
+            for item in reversed(trajectories)
+            if item.core_question
+        ][:3],
+        unresolved_questions=unresolved_questions[:3],
+    )
+    return {
+        "profile_type": classification.profile_type,
+        "profile_basis": classification.basis,
+        "attention_level": strategy.attention_level,
+        "service_mode": strategy.recommended_mode,
+        "strategy_reason": strategy.reason,
+        "service_suggestion": strategy.suggestion,
+    }
 
 
 @dataclass
@@ -272,6 +349,274 @@ class DemoService:
             ),
         }
 
+    def profile_showcase_catalog(self) -> dict[str, object]:
+        """List masked example profiles for the read-only profile showcase."""
+
+        with self._sessions() as session:
+            profiles = session.scalars(
+                select(CallerProfile).order_by(CallerProfile.latest_call_time.desc())
+            ).all()
+
+        items: list[dict[str, object]] = []
+        for profile in profiles:
+            try:
+                masked_phone = _mask_phone(
+                    self.protector.decrypt_phone(profile.phone_encrypted)
+                )
+            except (ValueError, TypeError):
+                masked_phone = "号码信息不可用"
+            items.append(
+                {
+                    "profile_key": _showcase_key(profile.phone_hash),
+                    "masked_phone": masked_phone,
+                    "profile_type": profile.service_profile_type or "暂未分类",
+                    "latest_question": profile.latest_question or "最近咨询事项未记录",
+                    "total_calls": profile.total_call_count,
+                    "repeated_issues": profile.repeated_issue_count,
+                    "unresolved": profile.unresolved_count,
+                    "dissatisfaction": profile.dissatisfaction_count,
+                    "latest_call_time": profile.latest_call_time,
+                    "presentation_priority": (
+                        100
+                        if not any(
+                            (
+                                profile.dissatisfaction_count,
+                                profile.unresolved_count,
+                                profile.repeated_issue_count,
+                            )
+                        )
+                        else 60
+                        if profile.unresolved_count and not profile.dissatisfaction_count
+                        else 30
+                    )
+                    + int(bool(profile.latest_question)),
+                }
+            )
+        items.sort(
+            key=lambda item: (
+                -int(item["presentation_priority"]),
+                str(item["latest_call_time"]),
+            )
+        )
+        for item in items:
+            item.pop("presentation_priority", None)
+        return {
+            "items": items,
+            "scenarios": list(SHOWCASE_SCENARIOS),
+            "methodology": [
+                "先区分重复来电和同一问题重复咨询，避免仅凭号码频次下结论。",
+                "核心问题保持具体到业务场景和实际诉求，再结合历史语义关系判断。",
+                "画像按新增来电逐次更新，每个结论均保留到单通来电的证据入口。",
+                "服务方式由画像事实映射生成，推演结果不写入数据库。",
+            ],
+        }
+
+    def profile_showcase(
+        self, *, profile_key: object, scenario: object = "baseline"
+    ) -> dict[str, object]:
+        """Return evidence, profile and a non-persistent incremental simulation."""
+
+        key = str(profile_key or "").strip()
+        scenario_id = str(scenario or "baseline").strip()
+        scenario_map = {item["id"]: item for item in SHOWCASE_SCENARIOS}
+        if not key:
+            raise ValueError("缺少画像标识")
+        if scenario_id not in scenario_map:
+            raise ValueError("不支持该推演场景")
+
+        with self._sessions() as session:
+            profiles = session.scalars(select(CallerProfile)).all()
+            profile = next(
+                (item for item in profiles if _showcase_key(item.phone_hash) == key),
+                None,
+            )
+            if profile is None:
+                raise ValueError("未找到对应画像")
+            trajectories = list(
+                session.scalars(
+                    select(CallTrajectory)
+                    .where(CallTrajectory.phone_hash == profile.phone_hash)
+                    .order_by(
+                        CallTrajectory.call_time.asc(),
+                        CallTrajectory.business_id.asc(),
+                    )
+                )
+            )
+
+        try:
+            masked_phone = _mask_phone(
+                self.protector.decrypt_phone(profile.phone_encrypted)
+            )
+        except (ValueError, TypeError):
+            masked_phone = "号码信息不可用"
+
+        state = {
+            "total_calls": profile.total_call_count,
+            "repeated_calls": profile.repeated_call_count,
+            "repeated_issues": profile.repeated_issue_count,
+            "unresolved": profile.unresolved_count,
+            "work_orders": profile.work_order_count,
+            "abnormal_ends": profile.abnormal_end_count,
+            "dissatisfaction": profile.dissatisfaction_count,
+        }
+        before = _strategy_payload(
+            profile=profile,
+            trajectories=trajectories,
+            state=state,
+            latest_resolved=profile.latest_resolved,
+        )
+        after_state = state.copy()
+        after_resolved = profile.latest_resolved
+        scenario_event = "当前仅回放数据库中的历史事实。"
+        if scenario_id == "repeat_unresolved":
+            after_state["total_calls"] += 1
+            after_state["repeated_calls"] += 1
+            after_state["repeated_issues"] += 1
+            after_state["unresolved"] += 1
+            after_resolved = False
+            scenario_event = "新增一通同类事项来电，经核对仍未直接解决。"
+        elif scenario_id == "resolved_closure":
+            after_state["total_calls"] += 1
+            after_state["repeated_calls"] += 1
+            after_state["repeated_issues"] += int(bool(trajectories))
+            after_state["unresolved"] = max(0, after_state["unresolved"] - 1)
+            after_resolved = True
+            scenario_event = "新增一通进度核验来电，并确认一项历史待办已完成闭环。"
+        elif scenario_id == "service_dissatisfaction":
+            after_state["total_calls"] += 1
+            after_state["repeated_calls"] += 1
+            after_state["dissatisfaction"] += 1
+            after_resolved = None
+            scenario_event = "新增一通来电，来电人对等待或转交过程表达不满。"
+        after = _strategy_payload(
+            profile=profile,
+            trajectories=trajectories,
+            state=after_state,
+            latest_resolved=after_resolved,
+        )
+
+        daily_counts = Counter(item.call_time.date() for item in trajectories)
+        max_single_day = max(daily_counts.values(), default=0)
+        rolling_three_day = 0
+        if daily_counts:
+            first_day = min(daily_counts)
+            last_day = max(daily_counts)
+            current = first_day
+            ordered_days = []
+            while current <= last_day:
+                ordered_days.append(daily_counts.get(current, 0))
+                current += timedelta(days=1)
+            rolling_three_day = max(
+                sum(ordered_days[max(0, index - 2) : index + 1])
+                for index in range(len(ordered_days))
+            )
+
+        timeline = []
+        for index, item in enumerate(reversed(trajectories), 1):
+            contributions = []
+            if item.caller_type:
+                contributions.append(f"主体识别：{item.caller_type}")
+            if item.core_question:
+                contributions.append("形成具体咨询主题")
+            if item.proficiency_score is not None:
+                contributions.append(f"熟练度证据：{item.proficiency_score:.1f}/10")
+            if item.resolved_status is False:
+                contributions.append("进入未解决事项池")
+            if item.is_repeated_issue is True:
+                contributions.append("确认同一问题重复咨询")
+            elif item.repeat_review_status == "pending_review":
+                contributions.append("进入重复问题候选核对")
+            if item.taxpayer_dissatisfied is True:
+                contributions.append("形成服务关注信号")
+            timeline.append(
+                {
+                    "index": len(trajectories) - index + 1,
+                    "business_id": item.business_id,
+                    "call_time": item.call_time,
+                    "question": item.core_question or "咨询事项未形成明确记录",
+                    "topic_category": item.topic_category,
+                    "demand_category": item.demand_category,
+                    "resolved": item.resolved_status,
+                    "unresolved_reason": item.unresolved_reason,
+                    "is_repeated_issue": item.is_repeated_issue,
+                    "repeat_status": item.repeat_review_status,
+                    "repeat_summary": item.repeat_summary,
+                    "service_rating": item.service_rating,
+                    "contributions": contributions or ["保留为基础来电事实"],
+                }
+            )
+
+        metric_labels = {
+            "total_calls": "累计来电",
+            "repeated_issues": "同一问题重复咨询",
+            "unresolved": "未直接解决",
+            "work_orders": "历史工单",
+            "dissatisfaction": "服务不满",
+        }
+        changes = [
+            {
+                "field": label,
+                "before": state[field],
+                "after": after_state[field],
+                "changed": state[field] != after_state[field],
+            }
+            for field, label in metric_labels.items()
+        ]
+        changes.extend(
+            [
+                {
+                    "field": "服务画像",
+                    "before": before["profile_type"],
+                    "after": after["profile_type"],
+                    "changed": before["profile_type"] != after["profile_type"],
+                },
+                {
+                    "field": "推荐服务方式",
+                    "before": before["service_mode"],
+                    "after": after["service_mode"],
+                    "changed": before["service_mode"] != after["service_mode"],
+                },
+            ]
+        )
+
+        return {
+            "profile_key": key,
+            "masked_phone": masked_phone,
+            "scenario": {**scenario_map[scenario_id], "event": scenario_event},
+            "profile": {
+                "caller_type": profile.caller_type,
+                "enterprise_identity": profile.enterprise_identity,
+                "latest_question": profile.latest_question,
+                "topic_category": profile.latest_topic_category,
+                "demand_category": profile.latest_demand_category,
+                "registration_unit": profile.latest_registration_unit,
+                "proficiency_score": profile.proficiency_score,
+                "proficiency_summary": profile.proficiency_summary,
+                "latest_service_rating": profile.latest_service_rating,
+                "first_call_time": profile.first_call_time,
+                "latest_call_time": profile.latest_call_time,
+            },
+            "rolling_signals": {
+                "total_calls": profile.total_call_count,
+                "same_direction_count": (
+                    min(profile.total_call_count, profile.repeated_issue_count + 1)
+                    if profile.repeated_issue_count
+                    else 0
+                ),
+                "repeat_candidates": sum(
+                    item.repeat_review_status == "pending_review"
+                    for item in trajectories
+                ),
+                "max_single_day": max_single_day,
+                "max_three_days": rolling_three_day,
+            },
+            "timeline": timeline,
+            "before": {"state": state, "result": before},
+            "after": {"state": after_state, "result": after},
+            "changes": changes,
+            "disclaimer": "该页面用于演示画像增量逻辑。模拟事件仅在本次页面请求中计算，不写入画像库或来电轨迹。",
+        }
+
     def history_page(
         self, *, page: object = 1, page_size: object = 10, phone: object | None = None
     ) -> dict[str, object]:
@@ -406,6 +751,12 @@ class DemoService:
                 "service_effect_summary": item.service_summary,
                 "is_repeated_issue": item.is_repeated_issue,
                 "repeat_reason": item.repeat_reason,
+                "matched_previous_question": item.matched_previous_question,
+                "matched_previous_call_time": item.matched_previous_call_time,
+                "previous_issue_resolved": item.previous_issue_resolved,
+                "repeat_summary": item.repeat_summary,
+                "repeat_confidence": item.repeat_confidence,
+                "repeat_review_status": item.repeat_review_status,
                 "contact_target": item.contact_target,
                 "analysis_status": item.analysis_status,
             },
@@ -494,6 +845,12 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                 except ValueError as exc:
                     self._error(400, str(exc))
                 return
+            if parsed.path == "/api/showcase/catalog":
+                try:
+                    self._json(200, service.profile_showcase_catalog())
+                except ValueError as exc:
+                    self._error(400, str(exc))
+                return
             self._error(404, "接口不存在")
 
         def do_POST(self) -> None:  # noqa: N802
@@ -503,6 +860,7 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                 "/api/advice",
                 "/api/history",
                 "/api/history/detail",
+                "/api/showcase",
             }:
                 self._error(404, "接口不存在")
                 return
@@ -532,12 +890,20 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                             phone=body.get("phone"),
                         ),
                     )
-                else:
+                elif path == "/api/history/detail":
                     business_id = body.get("business_id")
                     if business_id is None:
                         raise ValueError("缺少业务编号")
                     detail = service.history_detail(business_id)
                     self._json(200, {"found": detail is not None, "detail": detail})
+                else:
+                    self._json(
+                        200,
+                        service.profile_showcase(
+                            profile_key=body.get("profile_key"),
+                            scenario=body.get("scenario", "baseline"),
+                        ),
+                    )
             except ValueError as exc:
                 self._error(400, str(exc))
 

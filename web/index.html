@@ -189,22 +189,32 @@
     .advice-block label { color: #40566b; font-size: 12px; font-weight: 750; }
     .advice-block p { margin: 6px 0 0; line-height: 1.7; font-size: 13px; }
     .service-note { margin-top: 16px; padding: 10px 12px; color: var(--muted); background: #f6f8fa; font-size: 11px; line-height: 1.65; }
-    .profile-summary-card { margin-bottom: 14px; padding: 13px 14px; color: #3b4560; background: linear-gradient(135deg, #f1f3ff, #f4fbfa); border: 1px solid #e2e6f3; border-radius: 9px; font-size: 12px; line-height: 1.75; }
-    .profile-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 13px; }
-    .profile-status-card { padding: 10px 11px; background: #f8f9fb; border: 1px solid #e7eaf0; border-radius: 8px; }
-    .profile-status-card span { display: block; color: #858e9e; font-size: 10px; }
-    .profile-status-card strong { display: block; margin-top: 4px; color: #374158; font-size: 12px; line-height: 1.55; }
-    .profile-focus { margin-bottom: 13px; padding: 11px 12px; color: #7b5311; background: var(--warning-soft); border-left: 4px solid #dda440; border-radius: 0 7px 7px 0; font-size: 11px; line-height: 1.65; }
-    .profile-type-inline { width: 100%; justify-content: space-between; margin-bottom: 12px; border-radius: 8px; }
-    .info-list { display: grid; }
-    .info-row { padding: 11px 0; border-bottom: 1px solid #e6eaee; }
-    .info-row:first-child { padding-top: 0; }
-    .info-row:last-child { padding-bottom: 0; border-bottom: 0; }
-    .info-row span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
-    .info-row strong { display: block; font-size: 13px; font-weight: 600; line-height: 1.6; }
-    .profile-more { margin-top: 12px; border-top: 1px solid var(--line); }
-    .profile-more > summary { padding: 13px 0 0; color: var(--primary); font-size: 11px; font-weight: 700; cursor: pointer; }
-    .profile-more .info-list { margin-top: 9px; padding: 11px 12px; background: #f7f8fa; border-radius: 8px; }
+    .history-bridge { margin-bottom: 15px; padding: 12px 14px; color: #4a536b; background: #f3f5fc; border: 1px solid #e3e6f2; border-left: 4px solid #6b7ddd; border-radius: 0 8px 8px 0; font-size: 12px; line-height: 1.7; }
+    .history-bridge.attention { color: #765010; background: #fff8e9; border-color: #f1dfb8; border-left-color: #d99e38; }
+    .issue-section + .issue-section { margin-top: 17px; }
+    .issue-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+    .issue-section-head strong { color: #3e465b; font-size: 12px; }
+    .issue-count { padding: 3px 7px; color: #6a7285; background: #f0f2f6; border-radius: 999px; font-size: 9px; }
+    .issue-list { display: grid; gap: 8px; }
+    .issue-card { position: relative; padding: 11px 12px; background: #fafbfc; border: 1px solid #e5e8ee; border-left: 3px solid #8a95ae; border-radius: 8px; }
+    .issue-card.unresolved { background: #fffaf0; border-color: #f0e1c3; border-left-color: #d99e38; }
+    .issue-card.repeated { background: #f4f5ff; border-color: #e0e3f5; border-left-color: #7383da; }
+    .issue-card.pending { background: #f8f7fc; border-left-color: #9b88c7; }
+    .issue-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: #828b9a; font-size: 9px; }
+    .issue-tag { padding: 2px 6px; color: #7a5414; background: #fff0cf; border-radius: 999px; font-weight: 700; }
+    .issue-card.repeated .issue-tag { color: #5665b8; background: #e7eaff; }
+    .issue-question { margin-top: 7px; color: #343c52; font-size: 12px; font-weight: 700; line-height: 1.65; }
+    .issue-reason { margin-top: 6px; color: #697386; font-size: 10px; line-height: 1.65; }
+    .issue-reason b { color: #535d72; font-weight: 700; }
+    .issue-action { margin-top: 8px; padding: 0; color: var(--primary); background: transparent; border: 0; font-size: 10px; font-weight: 700; }
+    .issue-empty { padding: 12px; color: #818a99; background: #f8f9fb; border: 1px dashed #d9dde6; border-radius: 8px; font-size: 10px; line-height: 1.65; }
+    .history-more { margin-top: 16px; border-top: 1px solid var(--line); }
+    .history-more > summary { padding: 13px 0 0; color: var(--primary); font-size: 11px; font-weight: 700; cursor: pointer; }
+    .recent-call-list { display: grid; gap: 7px; margin-top: 10px; }
+    .recent-call-row { display: grid; grid-template-columns: 82px 1fr auto; gap: 9px; align-items: center; padding: 8px 9px; background: #f8f9fb; border-radius: 7px; }
+    .recent-call-row time { color: #858e9e; font-size: 9px; }
+    .recent-call-row span { overflow: hidden; color: #4a5368; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .recent-call-row b { color: #6f7888; font-size: 9px; font-weight: 700; white-space: nowrap; }
     .loading { min-height: 280px; display: grid; place-items: center; color: var(--muted); text-align: center; }
     .spinner { width: 26px; height: 26px; margin: 0 auto 11px; border: 3px solid #d9e2e9; border-top-color: var(--primary-2); border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -321,6 +331,100 @@
     .update-item span { display: block; color: var(--muted); font-size: 11px; }
     .update-item strong { display: block; margin-top: 7px; color: #31485c; font-size: 13px; line-height: 1.5; word-break: break-word; }
 
+    .showcase-hero {
+      display: grid; grid-template-columns: minmax(300px, .85fr) minmax(620px, 1.15fr); gap: 28px; align-items: center;
+      margin-bottom: 18px; padding: 26px 28px; color: #fff;
+      background: linear-gradient(120deg, #303b68 0%, #5265bd 54%, #268e84 135%);
+      border: 1px solid rgba(63,76,132,.34); border-radius: 14px; box-shadow: 0 12px 32px rgba(42,49,85,.14);
+    }
+    .showcase-hero-copy > span { color: #b9c7ff; font-size: 9px; font-weight: 800; letter-spacing: .16em; }
+    .showcase-hero-copy h2 { margin: 9px 0 10px; font-size: 20px; line-height: 1.55; }
+    .showcase-hero-copy p { margin: 0; color: #d2d8ea; font-size: 11px; line-height: 1.75; }
+    .method-pipeline { display: grid; grid-template-columns: 1fr 20px 1fr 20px 1fr 20px 1fr; align-items: stretch; }
+    .method-stage { min-width: 0; padding: 14px 12px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.13); border-radius: 10px; }
+    .method-stage i { width: 25px; height: 25px; display: grid; place-items: center; color: #dce2ff; background: rgba(255,255,255,.12); border-radius: 7px; font-size: 9px; font-style: normal; }
+    .method-stage strong { display: block; margin-top: 9px; font-size: 12px; }
+    .method-stage span { display: block; margin-top: 4px; color: #c4cce2; font-size: 9px; line-height: 1.45; }
+    .method-arrow { display: grid; place-items: center; color: #99d2c9; font-size: 14px; }
+    .showcase-controls { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 14px 22px; margin-bottom: 18px; padding: 16px 18px; overflow: visible; }
+    .showcase-controls label { display: block; margin-bottom: 7px; color: #4d566c; font-size: 10px; font-weight: 750; }
+    .showcase-scenario-wrap { min-width: 0; }
+    .scenario-tabs { display: flex; flex-wrap: wrap; gap: 7px; }
+    .scenario-tab { min-height: 42px; padding: 7px 11px; color: #646d80; background: #f7f8fb; border: 1px solid #e1e4eb; border-radius: 8px; text-align: left; }
+    .scenario-tab strong { display: block; font-size: 10px; }
+    .scenario-tab span { display: block; margin-top: 2px; color: #8a92a1; font-size: 8px; }
+    .scenario-tab:hover { color: var(--primary); border-color: #cbd1ec; }
+    .scenario-tab.active { color: #fff; background: #596dd3; border-color: #596dd3; box-shadow: 0 6px 16px rgba(82,103,216,.18); }
+    .scenario-tab.active span { color: #dfe3ff; }
+    .showcase-status { grid-column: 1 / -1; min-height: 18px; padding-top: 11px; color: #758091; border-top: 1px solid #eceef3; font-size: 10px; }
+    .showcase-status.error { color: var(--danger); }
+    .showcase-content { display: grid; gap: 18px; }
+    .showcase-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .showcase-kpi { min-height: 82px; padding: 13px 14px; background: #fff; border: 1px solid var(--line); border-top: 3px solid var(--kpi-color, #6578df); border-radius: 10px; box-shadow: var(--shadow); }
+    .showcase-kpi span { display: block; color: #858e9d; font-size: 9px; }
+    .showcase-kpi strong { display: block; margin-top: 6px; color: #343d55; font-size: 20px; font-variant-numeric: tabular-nums; }
+    .showcase-kpi small { display: block; margin-top: 3px; color: #98a0ad; font-size: 8px; }
+    .showcase-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
+    .evidence-panel { grid-column: span 5; }
+    .showcase-profile-panel { grid-column: span 4; }
+    .showcase-strategy-panel { grid-column: span 3; }
+    .showcase-panel-body { padding: 16px; }
+    .rolling-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 15px; }
+    .rolling-signal { padding: 8px 6px; background: #f6f7fb; border-radius: 7px; text-align: center; }
+    .rolling-signal strong { display: block; color: #414a61; font-size: 14px; }
+    .rolling-signal span { display: block; margin-top: 2px; color: #8a92a0; font-size: 8px; }
+    .evidence-timeline { position: relative; display: grid; gap: 9px; padding-left: 17px; }
+    .evidence-timeline::before { content: ""; position: absolute; left: 5px; top: 10px; bottom: 10px; width: 1px; background: #d9deeb; }
+    .evidence-item { position: relative; width: 100%; padding: 10px 11px; color: inherit; background: #fafbfc; border: 1px solid #e6e9ef; border-radius: 8px; outline: none; text-align: left; }
+    .evidence-item::before { content: ""; position: absolute; left: -17px; top: 15px; width: 9px; height: 9px; background: #8b96b2; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #d2d8e5; }
+    .evidence-item:hover, .evidence-item.active { background: #f2f4ff; border-color: #cfd5ef; }
+    .evidence-item.active::before { background: #6073d7; box-shadow: 0 0 0 3px #e4e8ff; }
+    .evidence-item time { color: #8992a1; font-size: 8px; }
+    .evidence-item strong { display: block; margin-top: 4px; color: #3b4358; font-size: 10px; line-height: 1.55; }
+    .evidence-item span { display: block; margin-top: 4px; color: #747e8f; font-size: 8px; }
+    .evidence-explain { margin-top: 11px; padding: 10px 11px; color: #536079; background: #eef1ff; border-left: 3px solid #6578df; border-radius: 0 7px 7px 0; font-size: 9px; line-height: 1.65; }
+    .profile-identity { padding: 14px; color: #fff; background: linear-gradient(130deg, #5c70d4, #6c55b9); border-radius: 10px; }
+    .profile-identity span { display: block; color: #dfe3ff; font-size: 9px; }
+    .profile-identity strong { display: block; margin-top: 5px; font-size: 17px; }
+    .profile-identity p { margin: 6px 0 0; color: #e2e5f5; font-size: 9px; line-height: 1.55; }
+    .profile-facets { display: grid; gap: 0; margin-top: 12px; }
+    .profile-facet { padding: 10px 2px; border-bottom: 1px solid #eceef2; }
+    .profile-facet:last-child { border-bottom: 0; }
+    .profile-facet label { display: block; color: #89919f; font-size: 8px; }
+    .profile-facet strong { display: block; margin-top: 4px; color: #424b60; font-size: 10px; line-height: 1.55; }
+    .profile-classification { margin-top: 11px; padding: 11px 12px; color: #554482; background: #f2eeff; border: 1px solid #e1d9f7; border-radius: 8px; }
+    .profile-classification span { font-size: 8px; }
+    .profile-classification strong { display: block; margin-top: 4px; font-size: 14px; }
+    .profile-classification p { margin: 5px 0 0; font-size: 9px; line-height: 1.6; }
+    .strategy-attention { display: inline-flex; padding: 4px 8px; color: #755214; background: #fff0ce; border-radius: 999px; font-size: 9px; font-weight: 750; }
+    .strategy-mode { margin-top: 11px; color: #384159; font-size: 16px; line-height: 1.45; }
+    .strategy-block { margin-top: 13px; padding-top: 12px; border-top: 1px solid #e9ebf0; }
+    .strategy-block label { color: #8a92a0; font-size: 8px; }
+    .strategy-block p { margin: 5px 0 0; color: #535e70; font-size: 9px; line-height: 1.7; }
+    .strategy-output { margin-top: 13px; padding: 11px 12px; color: #315d57; background: #eaf7f4; border-left: 3px solid #2aa08f; border-radius: 0 8px 8px 0; font-size: 10px; line-height: 1.7; }
+    .simulation-panel { overflow: visible; }
+    .simulation-event { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 11px 13px; color: #536079; background: #f1f3fb; border: 1px solid #e1e5f1; border-radius: 8px; font-size: 10px; line-height: 1.6; }
+    .simulation-event i { width: 26px; height: 26px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; background: #6578df; border-radius: 7px; font-size: 10px; font-style: normal; }
+    .change-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; margin-bottom: 15px; }
+    .change-card { min-width: 0; padding: 9px; background: #f8f9fb; border: 1px solid #e8eaf0; border-radius: 7px; }
+    .change-card.changed { background: #eef9f6; border-color: #cfe8e1; }
+    .change-card span { display: block; overflow: hidden; color: #8b93a1; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .change-values { display: flex; align-items: center; gap: 4px; margin-top: 5px; }
+    .change-values b { overflow: hidden; color: #4d566a; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .change-values i { color: #9aa1ad; font-size: 8px; font-style: normal; }
+    .changed .change-values b:last-child { color: #16806a; }
+    .comparison-grid { display: grid; grid-template-columns: 1fr 34px 1fr; gap: 10px; align-items: stretch; }
+    .comparison-card { padding: 13px 14px; background: #fafbfc; border: 1px solid #e5e8ed; border-radius: 9px; }
+    .comparison-card.after { background: #f0f8f6; border-color: #d0e7e1; }
+    .comparison-card > span { color: #89919f; font-size: 8px; }
+    .comparison-card strong { display: block; margin-top: 5px; color: #3f485d; font-size: 13px; }
+    .comparison-card p { margin: 6px 0 0; color: #687285; font-size: 9px; line-height: 1.65; }
+    .comparison-arrow { display: grid; place-items: center; color: #27a08f; font-size: 18px; }
+    .methodology-panel .showcase-panel-body { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+    .methodology-item { position: relative; padding: 12px 12px 12px 38px; color: #536079; background: #f7f8fb; border: 1px solid #e8eaf0; border-radius: 8px; font-size: 9px; line-height: 1.65; }
+    .methodology-item i { position: absolute; left: 11px; top: 12px; width: 18px; height: 18px; display: grid; place-items: center; color: #fff; background: #6678d8; border-radius: 6px; font-size: 8px; font-style: normal; }
+    .showcase-disclaimer { color: #858e9d; font-size: 9px; text-align: right; }
+
     .result-summary { align-self: center; justify-self: end; color: var(--muted); font-size: 12px; }
     .table-panel { overflow: visible; }
     .table-scroll { overflow-x: auto; }
@@ -378,6 +482,11 @@
       .update-grid { grid-template-columns: repeat(3, 1fr); }
       .update-item:nth-child(3) { border-right: 0; }
       .work-layout { grid-template-columns: 1fr; }
+      .showcase-hero { grid-template-columns: 1fr; }
+      .evidence-panel { grid-column: 1 / -1; }
+      .showcase-profile-panel, .showcase-strategy-panel { grid-column: span 6; }
+      .change-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .methodology-panel .showcase-panel-body { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 800px) {
       .sidebar { position: sticky; top: 0; width: 100%; height: auto; box-shadow: 0 6px 20px rgba(28,34,56,.12); }
@@ -405,6 +514,14 @@
       .filter-bar .input-wrap { grid-column: 1 / -1; }
       .result-summary { grid-column: 1 / -1; justify-self: start; }
       .span-4, .span-5, .span-7, .span-8 { grid-column: 1 / -1; }
+      .showcase-controls { grid-template-columns: 1fr; }
+      .showcase-status { grid-column: 1; }
+      .method-pipeline { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .method-arrow { display: none; }
+      .showcase-profile-panel, .showcase-strategy-panel { grid-column: 1 / -1; }
+      .change-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .comparison-grid { grid-template-columns: 1fr; }
+      .comparison-arrow { min-height: 20px; transform: rotate(90deg); }
     }
     @media (max-width: 590px) {
       .page-header { align-items: flex-start; flex-direction: column; }
@@ -433,6 +550,13 @@
       .detail-field, .detail-field:nth-child(even) { border-right: 0; }
       .detail-field.wide { grid-column: auto; }
       .method-rule-row { grid-template-columns: 24px 88px 1fr; }
+      .showcase-hero { padding: 20px; }
+      .showcase-kpis { grid-template-columns: repeat(2, 1fr); }
+      .rolling-strip { grid-template-columns: repeat(2, 1fr); }
+      .methodology-panel .showcase-panel-body { grid-template-columns: 1fr; }
+      .scenario-tab { width: 100%; }
+      .recent-call-row { grid-template-columns: 72px 1fr; }
+      .recent-call-row b { grid-column: 2; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
@@ -461,6 +585,10 @@
       <button class="nav-link" type="button" data-page="history">
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 3v5h5M3.05 13A9 9 0 1 0 5.7 6.7L3 8M12 7v5l3 2"/></svg></span>
         <span class="nav-copy"><span class="nav-title">历史来电记录</span><span class="nav-desc">单通来电轨迹查询</span></span>
+      </button>
+      <button class="nav-link" type="button" data-page="showcase">
+        <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18V8M10 18V4M16 18v-7M2 21h20M19 5l2 2-2 2M21 7h-5"/></svg></span>
+        <span class="nav-copy"><span class="nav-title">画像推演中心</span><span class="nav-desc">证据链与增量策略演示</span></span>
       </button>
     </nav>
     <div class="side-foot">
@@ -503,10 +631,10 @@
         </article>
         <article class="panel profile-panel">
           <div class="panel-head">
-            <div class="panel-title"><h2>历史服务信息</h2></div>
+            <div class="panel-title"><h2>历史问题衔接</h2></div>
             <button id="view-current-history" class="button secondary compact hidden" type="button">查看全部来电</button>
           </div>
-          <div id="profile" class="panel-body placeholder">请输入来电号码查询历史记录。</div>
+          <div id="profile" class="panel-body placeholder">请输入来电号码查询需要衔接的历史问题。</div>
         </article>
       </section>
     </section>
@@ -574,6 +702,50 @@
       </section>
     </section>
 
+    <section id="page-showcase" class="page-view hidden">
+      <header class="page-header">
+        <div>
+          <div class="eyebrow">画像能力演示</div>
+          <h1>画像推演中心</h1>
+          <p class="page-subtitle">从单通来电事实到号码画像，再到坐席服务方式，完整展示证据链与增量变化</p>
+        </div>
+        <div class="page-context">只读推演 · 不改写数据库</div>
+      </header>
+
+      <section class="showcase-hero">
+        <div class="showcase-hero-copy">
+          <span>PROFILE INTELLIGENCE</span>
+          <h2>画像不是一个静态标签，而是一条可以解释、可以回放、可以增量更新的证据链。</h2>
+          <p>系统先识别每通来电的主体、事项和服务结果，再区分“重复来电”与“同一问题重复咨询”，最终把历史事实映射为坐席可执行的服务方式。</p>
+        </div>
+        <div class="method-pipeline" aria-label="画像形成过程">
+          <div class="method-stage"><i>01</i><strong>来电事实</strong><span>原始记录与单通分析</span></div>
+          <div class="method-arrow">→</div>
+          <div class="method-stage"><i>02</i><strong>问题归并</strong><span>语义关系与时间窗口</span></div>
+          <div class="method-arrow">→</div>
+          <div class="method-stage"><i>03</i><strong>增量画像</strong><span>主体、能力与服务信号</span></div>
+          <div class="method-arrow">→</div>
+          <div class="method-stage"><i>04</i><strong>服务映射</strong><span>形成实时接待策略</span></div>
+        </div>
+      </section>
+
+      <section class="panel showcase-controls">
+        <div class="showcase-select-wrap">
+          <label for="showcase-profile-select">选择一个现有号码画像</label>
+          <select id="showcase-profile-select" disabled><option>正在读取画像库…</option></select>
+        </div>
+        <div class="showcase-scenario-wrap">
+          <label>选择增量推演场景</label>
+          <div id="showcase-scenarios" class="scenario-tabs" aria-label="推演场景"></div>
+        </div>
+        <div id="showcase-status" class="showcase-status">正在准备画像演示数据…</div>
+      </section>
+
+      <section id="showcase-content" class="showcase-content">
+        <div class="panel loading"><div><div class="spinner"></div>正在构建画像证据链…</div></div>
+      </section>
+    </section>
+
     <section id="page-history" class="page-view hidden">
       <header class="page-header">
         <div>
@@ -626,11 +798,17 @@
   <script>
     const text = (value, fallback = '暂无记录') => value === null || value === undefined || value === '' ? fallback : String(value);
     const resolvedText = value => value === true ? '已直接解决' : value === false ? '未直接解决' : '无法判断';
-    const pages = new Set(['workbench', 'dashboard', 'history']);
-    const pageTitles = {workbench: '来电服务工作台', dashboard: '画像数据概览', history: '历史来电记录'};
+    const shortDate = value => value ? String(value).replace('T', ' ').slice(0, 10) : '时间未记录';
+    const pages = new Set(['workbench', 'dashboard', 'history', 'showcase']);
+    const pageTitles = {workbench: '来电服务工作台', dashboard: '画像数据概览', history: '历史来电记录', showcase: '画像推演中心'};
     let currentPhone = '';
     let dashboardLoaded = false;
     let dashboardLoading = false;
+    let showcaseLoaded = false;
+    let showcaseLoading = false;
+    let showcaseQueued = false;
+    let showcaseCatalog = null;
+    let showcaseScenario = 'baseline';
     const historyState = {page: 1, pageSize: 10, phone: '', totalPages: 0, loaded: false, loading: false};
 
     const form = document.querySelector('#lookup-form');
@@ -655,6 +833,10 @@
     const detailTitle = document.querySelector('#detail-title');
     const detailSubtitle = document.querySelector('#detail-subtitle');
     const detailClose = document.querySelector('#detail-close');
+    const showcaseSelect = document.querySelector('#showcase-profile-select');
+    const showcaseScenarios = document.querySelector('#showcase-scenarios');
+    const showcaseStatus = document.querySelector('#showcase-status');
+    const showcaseContent = document.querySelector('#showcase-content');
 
     function el(tag, className, content) {
       const node = document.createElement(tag);
@@ -683,6 +865,7 @@
       if (updateHash && location.hash !== `#${page}`) location.hash = page;
       if (page === 'dashboard' && !dashboardLoaded) loadDashboard();
       if (page === 'history' && !historyState.loaded) loadHistory(1);
+      if (page === 'showcase' && !showcaseLoaded) loadShowcaseCatalog();
       window.scrollTo({top: 0, behavior: 'smooth'});
     }
 
@@ -765,51 +948,79 @@
       overviewPanel.classList.remove('hidden');
     }
 
-    function appendInfo(parent, label, value) {
-      const row = el('div', 'info-row');
-      row.append(el('span', '', label), el('strong', '', text(value)));
-      parent.append(row);
+    function historyIssueCard(item, kind) {
+      const pending = kind === 'repeated' && item.is_repeated_issue !== true;
+      const card = el('div', `issue-card ${kind}${pending ? ' pending' : ''}`);
+      const meta = el('div', 'issue-meta');
+      const status = kind === 'unresolved' ? '未直接解决' : pending ? '重复候选待核对' : '已确认重复咨询';
+      meta.append(el('span', 'issue-tag', status), el('span', '', shortDate(item.call_time)));
+      if (item.registration_unit) meta.append(el('span', '', `· ${item.registration_unit}`));
+      if (item.work_order) meta.append(el('span', '', '· 已形成工单'));
+      card.append(meta, el('div', 'issue-question', text(item.core_question, '该次咨询事项未形成明确记录')));
+
+      const reason = el('div', 'issue-reason');
+      if (kind === 'unresolved') {
+        reason.append(el('b', '', '未解决原因：'), document.createTextNode(text(item.unresolved_reason, '未形成明确原因记录')));
+      } else if (pending) {
+        const score = item.repeat_candidate_score == null ? '' : `，相似度线索 ${Math.round(item.repeat_candidate_score * 100)}%`;
+        reason.append(el('b', '', '当前判断：'), document.createTextNode(`与历史事项存在相似性${score}，仍需结合语义关系确认，暂不直接计为重复问题。`));
+      } else {
+        const linked = item.matched_previous_question || item.repeat_summary || item.repeat_reason;
+        reason.append(el('b', '', '关联依据：'), document.createTextNode(text(linked, '已通过历史语义关系确认属于同一问题')));
+      }
+      card.append(reason);
+      if (item.business_id) {
+        const action = el('button', 'issue-action', '查看该通来电证据 →');
+        action.type = 'button';
+        action.addEventListener('click', () => openHistoryDetail(item.business_id));
+        card.append(action);
+      }
+      return card;
+    }
+
+    function appendIssueSection(parent, title, rows, kind, emptyText) {
+      const section = el('section', 'issue-section');
+      const head = el('div', 'issue-section-head');
+      head.append(el('strong', '', title), el('span', 'issue-count', `${rows.length} 项`));
+      const list = el('div', 'issue-list');
+      if (rows.length) rows.slice(0, 3).forEach(item => list.append(historyIssueCard(item, kind)));
+      else list.append(el('div', 'issue-empty', emptyText));
+      section.append(head, list);
+      parent.append(section);
     }
 
     function renderProfile(profile) {
       profileBox.className = 'panel-body';
       profileBox.replaceChildren();
-      profileBox.append(profileTypeButton(profile, 'profile-type-inline'));
-      profileBox.append(el('div', 'profile-summary-card', text(profile.profile_summary, '现有历史信息不足，接通后请先确认本次实际诉求。')));
-
-      if (profile.unresolved_questions_summary) {
-        profileBox.append(el('div', 'profile-focus', `优先衔接：${profile.unresolved_questions_summary}`));
+      const trajectories = profile.trajectories || [];
+      const unresolved = trajectories.filter(item => item.resolved === false);
+      const repeated = trajectories.filter(item => item.is_repeated_issue === true || item.repeat_review_status === 'pending_review');
+      let bridgeText = '当前没有需要优先衔接的未解决或重复咨询事项，可在确认本次诉求后按正常流程服务。';
+      let attention = false;
+      if (unresolved.length && repeated.length) {
+        bridgeText = `历史有 ${unresolved.length} 项未直接解决记录，并存在 ${repeated.length} 条重复咨询或候选线索；建议先确认本次是否延续其中某一事项。`;
+        attention = true;
+      } else if (unresolved.length) {
+        bridgeText = `历史有 ${unresolved.length} 项未直接解决记录；建议先核对当前处理节点，避免重复提供相同口径。`;
+        attention = true;
+      } else if (repeated.length) {
+        bridgeText = `历史存在 ${repeated.length} 条重复咨询或候选线索；建议先确认本次新增变化，再从上次节点继续。`;
+        attention = true;
       }
+      profileBox.append(el('div', `history-bridge${attention ? ' attention' : ''}`, bridgeText));
+      appendIssueSection(profileBox, '待衔接的未解决问题', unresolved, 'unresolved', '当前没有已识别的未直接解决问题。');
+      appendIssueSection(profileBox, '重复咨询问题与候选线索', repeated, 'repeated', '当前没有已确认的重复问题或待核对候选。重复来电不会自动视为同一问题。');
 
-      const statusGrid = el('div', 'profile-status-grid');
-      const statuses = [
-        ['最近解决情况', resolvedText(profile.latest_resolved)],
-        ['最近服务效果', text(profile.latest_service_rating)],
-        ['业务熟练度', profile.proficiency_score == null ? '无法判断' : `${profile.proficiency_score}/10`],
-        ['历史来电', `${profile.total_call_count || 0} 次`]
-      ];
-      statuses.forEach(([label, value]) => {
-        const card = el('div', 'profile-status-card');
-        card.append(el('span', '', label), el('strong', '', value));
-        statusGrid.append(card);
+      const more = el('details', 'history-more');
+      more.append(el('summary', '', `查看其他最近服务记录（${Math.min(trajectories.length, 5)}条）`));
+      const list = el('div', 'recent-call-list');
+      trajectories.slice(0, 5).forEach(item => {
+        const row = el('div', 'recent-call-row');
+        row.append(el('time', '', shortDate(item.call_time)), el('span', '', text(item.core_question, '咨询事项未记录')), el('b', '', resolvedText(item.resolved)));
+        list.append(row);
       });
-      profileBox.append(statusGrid);
-
-      const primary = el('div', 'info-list');
-      appendInfo(primary, '最近咨询事项', profile.latest_question);
-      appendInfo(primary, '事项分类', `专题：${text(profile.latest_topic_category)}；需求：${text(profile.latest_demand_category)}`);
-      appendInfo(primary, '理解与引导提示', profile.proficiency_summary);
-      profileBox.append(primary);
-
-      const more = el('details', 'profile-more');
-      more.append(el('summary', '', '查看补充画像信息'));
-      const secondary = el('div', 'info-list');
-      appendInfo(secondary, '服务画像划分依据', profile.service_profile_basis);
-      appendInfo(secondary, '历史重复咨询', profile.repeated_questions_summary);
-      appendInfo(secondary, '近期咨询摘要', profile.recent_questions_summary);
-      appendInfo(secondary, '历史服务信号', `工单 ${profile.work_order_count || 0} 次；未直接解决 ${profile.unresolved_count || 0} 次；服务不满 ${profile.dissatisfaction_count || 0} 次`);
-      appendInfo(secondary, '历史时间范围', `${text(profile.first_call_time)} 至 ${text(profile.latest_call_time)}`);
-      more.append(secondary);
+      if (!trajectories.length) list.append(el('div', 'issue-empty', '暂无可展开的历史记录。'));
+      more.append(list);
       profileBox.append(more);
       viewCurrentHistory.classList.remove('hidden');
     }
@@ -1266,6 +1477,204 @@
 
     document.querySelector('#refresh-dashboard').addEventListener('click', () => loadDashboard(true));
 
+    function showcasePanel(title, note, className) {
+      const panel = el('article', `panel ${className}`);
+      const head = el('div', 'panel-head');
+      head.append(el('div', 'panel-title'));
+      head.firstChild.append(el('h2', '', title));
+      if (note) head.append(el('span', 'panel-head-note', note));
+      const body = el('div', 'showcase-panel-body');
+      panel.append(head, body);
+      return {panel, body};
+    }
+
+    function appendShowcaseKpi(parent, label, value, note, color) {
+      const card = el('div', 'showcase-kpi');
+      card.style.setProperty('--kpi-color', color);
+      card.append(el('span', '', label), el('strong', '', value), el('small', '', note));
+      parent.append(card);
+    }
+
+    function renderShowcase(data) {
+      showcaseContent.replaceChildren();
+      const profile = data.profile || {};
+      const rolling = data.rolling_signals || {};
+      const before = (data.before || {}).result || {};
+      const after = (data.after || {}).result || {};
+      const kpis = el('div', 'showcase-kpis');
+      appendShowcaseKpi(kpis, '累计来电', rolling.total_calls || 0, '号码级历史轨迹', '#6578df');
+      appendShowcaseKpi(kpis, '同一问题指向', rolling.same_direction_count || 0, '不等同于简单来电频次', '#28a08f');
+      appendShowcaseKpi(kpis, '重复候选', rolling.repeat_candidates || 0, '待语义关系进一步核对', '#8b6cc4');
+      appendShowcaseKpi(kpis, '三日窗口峰值', rolling.max_three_days || 0, '连续性参考，不单独定性', '#d99e38');
+      showcaseContent.append(kpis);
+
+      const grid = el('div', 'showcase-grid');
+      const evidence = showcasePanel('画像证据回放', '点击来电查看其画像贡献', 'evidence-panel');
+      const strip = el('div', 'rolling-strip');
+      [['单日峰值', rolling.max_single_day || 0], ['三日峰值', rolling.max_three_days || 0], ['同向问题', rolling.same_direction_count || 0], ['候选待核对', rolling.repeat_candidates || 0]].forEach(([label, value]) => {
+        const signal = el('div', 'rolling-signal');
+        signal.append(el('strong', '', value), el('span', '', label));
+        strip.append(signal);
+      });
+      const timeline = el('div', 'evidence-timeline');
+      const explain = el('div', 'evidence-explain', '选择一通来电后，这里会说明它为画像提供了哪些证据。');
+      (data.timeline || []).forEach((item, index) => {
+        const button = el('button', `evidence-item${index === 0 ? ' active' : ''}`);
+        button.type = 'button';
+        const states = [resolvedText(item.resolved)];
+        if (item.is_repeated_issue === true) states.push('同一问题重复咨询');
+        else if (item.repeat_status === 'pending_review') states.push('重复候选待核对');
+        button.append(el('time', '', `${shortDate(item.call_time)} · 第${item.index}通`), el('strong', '', text(item.question)), el('span', '', states.join(' · ')));
+        const showEvidence = () => {
+          timeline.querySelectorAll('.evidence-item').forEach(node => node.classList.toggle('active', node === button));
+          explain.replaceChildren(document.createTextNode(`本通画像贡献：${(item.contributions || []).join('；')}。`));
+          if (item.unresolved_reason) explain.append(document.createTextNode(` 未解决原因：${item.unresolved_reason}。`));
+          if (item.business_id) {
+            const action = el('button', 'issue-action', '查看该通完整证据 →');
+            action.type = 'button';
+            action.addEventListener('click', () => openHistoryDetail(item.business_id));
+            explain.append(action);
+          }
+        };
+        button.addEventListener('click', showEvidence);
+        timeline.append(button);
+        if (index === 0) setTimeout(showEvidence, 0);
+      });
+      if (!timeline.children.length) timeline.append(el('div', 'issue-empty', '当前画像没有可回放的来电轨迹。'));
+      evidence.body.append(strip, timeline, explain);
+
+      const current = showcasePanel('当前纳税人画像', data.masked_phone, 'showcase-profile-panel');
+      let identity = text(profile.caller_type, '咨询主体待识别');
+      if (profile.caller_type === '企业') identity += profile.enterprise_identity && profile.enterprise_identity !== '无法判断' ? ` · ${profile.enterprise_identity}` : ' · 细化主体待判断';
+      const identityCard = el('div', 'profile-identity');
+      identityCard.append(el('span', '', '最近咨询主体'), el('strong', '', identity), el('p', '', `历史覆盖 ${shortDate(profile.first_call_time)} 至 ${shortDate(profile.latest_call_time)}`));
+      const facets = el('div', 'profile-facets');
+      [
+        ['最近关注事项', profile.latest_question],
+        ['专题与需求', `${text(profile.topic_category)} · ${text(profile.demand_category)}`],
+        ['历史理解能力', profile.proficiency_score == null ? '当前证据不足，暂无法稳定判断' : `${profile.proficiency_score}/10 · ${text(profile.proficiency_summary)}`],
+        ['最近登记单位', profile.registration_unit],
+        ['最近服务效果', profile.latest_service_rating]
+      ].forEach(([label, value]) => {
+        const facet = el('div', 'profile-facet');
+        facet.append(el('label', '', label), el('strong', '', text(value)));
+        facets.append(facet);
+      });
+      const classification = el('div', 'profile-classification');
+      classification.append(el('span', '', '当前服务画像分类'), el('strong', '', text(before.profile_type)), el('p', '', text(before.profile_basis)));
+      current.body.append(identityCard, facets, classification);
+
+      const strategy = showcasePanel('坐席服务方式', '由当前画像实时映射', 'showcase-strategy-panel');
+      strategy.body.append(el('span', 'strategy-attention', text(before.attention_level)), el('div', 'strategy-mode', text(before.service_mode)));
+      const reason = el('div', 'strategy-block');
+      reason.append(el('label', '', '为什么采用这种方式'), el('p', '', text(before.strategy_reason)));
+      strategy.body.append(reason, el('div', 'strategy-output', text(before.service_suggestion)));
+      grid.append(evidence.panel, current.panel, strategy.panel);
+      showcaseContent.append(grid);
+
+      const simulation = showcasePanel('增量画像推演', '切换上方场景即时比较', 'simulation-panel');
+      const event = el('div', 'simulation-event');
+      event.append(el('i', '', '＋'), el('span', '', text((data.scenario || {}).event)));
+      const changes = el('div', 'change-grid');
+      (data.changes || []).forEach(item => {
+        const card = el('div', `change-card${item.changed ? ' changed' : ''}`);
+        const values = el('div', 'change-values');
+        values.append(el('b', '', text(item.before, '0')), el('i', '', '→'), el('b', '', text(item.after, '0')));
+        card.append(el('span', '', item.field), values);
+        changes.append(card);
+      });
+      const comparison = el('div', 'comparison-grid');
+      const beforeCard = el('div', 'comparison-card');
+      beforeCard.append(el('span', '', '推演前'), el('strong', '', text(before.profile_type)), el('p', '', `服务方式：${text(before.service_mode)}`));
+      const afterCard = el('div', 'comparison-card after');
+      afterCard.append(el('span', '', '推演后'), el('strong', '', text(after.profile_type)), el('p', '', `服务方式：${text(after.service_mode)}`));
+      comparison.append(beforeCard, el('div', 'comparison-arrow', '→'), afterCard);
+      simulation.body.append(event, changes, comparison, el('div', 'strategy-output', `推演后的坐席建议：${text(after.service_suggestion)}`));
+      showcaseContent.append(simulation.panel);
+
+      const methodology = showcasePanel('画像判定原则', '吸收滚动重复来电分析中的可解释规则', 'methodology-panel');
+      (showcaseCatalog.methodology || []).forEach((item, index) => {
+        const row = el('div', 'methodology-item', item);
+        row.append(el('i', '', index + 1));
+        methodology.body.append(row);
+      });
+      showcaseContent.append(methodology.panel, el('div', 'showcase-disclaimer', text(data.disclaimer)));
+    }
+
+    async function loadShowcase(force = false) {
+      if (!showcaseSelect.value) return;
+      if (showcaseLoading) {
+        showcaseQueued = true;
+        return;
+      }
+      showcaseLoading = true;
+      showcaseStatus.textContent = '正在回放历史证据并计算增量画像…';
+      showcaseStatus.className = 'showcase-status';
+      if (force) showcaseContent.replaceChildren(el('div', 'panel loading', '正在计算画像变化…'));
+      try {
+        const data = await fetchJson('/api/showcase', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({profile_key: showcaseSelect.value, scenario: showcaseScenario})
+        });
+        renderShowcase(data);
+        showcaseStatus.textContent = `${data.masked_phone} · ${text((data.scenario || {}).label)} · 推演结果未写入数据库`;
+      } catch (error) {
+        showcaseStatus.textContent = `画像推演失败：${error.message}`;
+        showcaseStatus.className = 'showcase-status error';
+        showcaseContent.replaceChildren(el('div', 'panel placeholder', '暂时无法读取画像推演数据。'));
+      } finally {
+        showcaseLoading = false;
+        if (showcaseQueued) {
+          showcaseQueued = false;
+          loadShowcase(true);
+        }
+      }
+    }
+
+    async function loadShowcaseCatalog() {
+      if (showcaseLoading || showcaseCatalog) return;
+      showcaseLoading = true;
+      try {
+        showcaseCatalog = await fetchJson('/api/showcase/catalog');
+        showcaseSelect.replaceChildren();
+        (showcaseCatalog.items || []).forEach(item => {
+          const option = document.createElement('option');
+          option.value = item.profile_key;
+          option.textContent = `${item.masked_phone} · ${item.profile_type} · ${item.latest_question}`;
+          showcaseSelect.append(option);
+        });
+        showcaseScenarios.replaceChildren();
+        (showcaseCatalog.scenarios || []).forEach(item => {
+          const button = el('button', `scenario-tab${item.id === showcaseScenario ? ' active' : ''}`);
+          button.type = 'button';
+          button.dataset.scenario = item.id;
+          button.append(el('strong', '', item.label), el('span', '', item.description));
+          button.addEventListener('click', () => {
+            showcaseScenario = item.id;
+            showcaseScenarios.querySelectorAll('.scenario-tab').forEach(node => node.classList.toggle('active', node === button));
+            loadShowcase(true);
+          });
+          showcaseScenarios.append(button);
+        });
+        showcaseSelect.disabled = !(showcaseCatalog.items || []).length;
+        showcaseLoaded = true;
+        if (showcaseSelect.value) {
+          showcaseLoading = false;
+          await loadShowcase(true);
+        } else {
+          showcaseStatus.textContent = '当前画像库暂无可供推演的号码。';
+          showcaseContent.replaceChildren(el('div', 'panel placeholder', '请先构建画像数据库。'));
+        }
+      } catch (error) {
+        showcaseStatus.textContent = `画像目录读取失败：${error.message}`;
+        showcaseStatus.className = 'showcase-status error';
+      } finally {
+        showcaseLoading = false;
+      }
+    }
+
+    showcaseSelect.addEventListener('change', () => loadShowcase(true));
+
     function stateTag(label, kind = '') { return el('span', `state${kind ? ` ${kind}` : ''}`, label); }
 
     function appendDetailSection(parent, title, fields, values) {
@@ -1390,6 +1799,12 @@
           ['服务效果说明', 'service_effect_summary', true],
           ['是否重复事项', 'is_repeated_issue', false, value => value === true ? '是' : value === false ? '否' : '无法判断'],
           ['重复原因', 'repeat_reason', true],
+          ['关联历史问题', 'matched_previous_question', true],
+          ['关联历史时间', 'matched_previous_call_time'],
+          ['前次问题是否解决', 'previous_issue_resolved', false, resolvedText],
+          ['重复判断说明', 'repeat_summary', true],
+          ['重复判断置信度', 'repeat_confidence', false, value => value == null ? '无法判断' : `${Math.round(value * 100)}%`],
+          ['重复复核状态', 'repeat_review_status'],
           ['建议联系对象', 'contact_target'],
           ['分析状态', 'analysis_status']
         ], extracted);

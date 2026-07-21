@@ -149,6 +149,8 @@ def test_export_has_three_formatted_worksheets_and_query_interface(
     assert "recommended_mode" not in result["agent_context"]
     assert "service_suggestion" not in result
     assert result["trajectories"][0]["business_id"] == "BIZ-1"
+    assert result["trajectories"][0]["work_order"] is False
+    assert "matched_previous_question" in result["trajectories"][0]
 
 
 def test_web_dashboard_and_history_are_read_only_and_mask_phone(
@@ -203,7 +205,24 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert detail["original"]["transcript"] == "纳税人咨询申报问题，坐席给出办理路径。"
     assert detail["original"]["registration_unit"] == "第一税务所"
     assert detail["extracted"]["resolved"] is True
+    assert detail["extracted"]["repeat_review_status"] == "not_required"
     assert "13800000001" not in str(detail)
+
+    catalog = service.profile_showcase_catalog()
+    assert len(catalog["items"]) == 1
+    assert catalog["items"][0]["masked_phone"] == "138****0001"
+    assert "13800000001" not in str(catalog)
+    showcase = service.profile_showcase(
+        profile_key=catalog["items"][0]["profile_key"],
+        scenario="repeat_unresolved",
+    )
+    assert showcase["before"]["state"]["total_calls"] == 1
+    assert showcase["after"]["state"]["total_calls"] == 2
+    assert showcase["after"]["state"]["unresolved"] == 1
+    assert showcase["after"]["result"]["profile_type"] == "事项待跟进型"
+    assert showcase["changes"][-1]["field"] == "推荐服务方式"
+    assert "不写入" in showcase["disclaimer"]
+    assert "13800000001" not in str(showcase)
 
 
 def test_information_overview_uses_five_workdays_and_overlapping_demand_labels() -> None:
