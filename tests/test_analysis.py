@@ -4,6 +4,7 @@ from taxpayer_profile.profiling import (
     analyze_service,
     attention_and_service_strategy,
     build_service_strategy,
+    classify_service_profile,
     weighted_proficiency,
 )
 from taxpayer_profile.models import CallTrajectory
@@ -137,7 +138,7 @@ def test_attention_strategy_avoids_derogatory_labels() -> None:
         proficiency_score=4.0,
     )
     assert level == "重点关注"
-    assert mode == "历史事项闭环优先型"
+    assert mode == "事项进度核验与闭环型"
     assert "未解决事项" in suggestion
 
 
@@ -165,7 +166,7 @@ def test_service_strategy_is_personalized_and_modes_are_distinct() -> None:
         latest_question="电子税务局申报",
     )
 
-    assert professional.recommended_mode == "专业来电结论与例外优先型"
+    assert professional.recommended_mode == "结论条件优先型"
     assert "境外奖金计税方式" in professional.suggestion
     assert "不展开通用入门步骤" in professional.suggestion
     assert guided.recommended_mode == "分步操作陪伴确认型"
@@ -199,7 +200,47 @@ def test_latest_unresolved_and_work_order_get_follow_up_modes() -> None:
         latest_question="查询工单进度",
     )
 
-    assert unresolved.recommended_mode == "未解决事项进度闭环型"
+    assert unresolved.recommended_mode == "事项进度核验与闭环型"
     assert "社保欠费缴纳" in unresolved.suggestion
-    assert work_order.recommended_mode == "工单进度快速核验型"
+    assert work_order.recommended_mode == "事项进度核验与闭环型"
     assert "受理时间、当前状态和承办节点" in work_order.suggestion
+
+
+def test_primary_service_profile_uses_four_clear_priority_rules() -> None:
+    common = {
+        "total_calls": 4,
+        "repeated_issues": 1,
+        "unresolved": 1,
+        "work_orders": 1,
+        "proficiency_score": 9.0,
+    }
+    assert (
+        classify_service_profile(**common, dissatisfaction=1).profile_type
+        == "服务关注型"
+    )
+    assert (
+        classify_service_profile(**common, dissatisfaction=0).profile_type
+        == "事项跟进型"
+    )
+    assert (
+        classify_service_profile(
+            total_calls=3,
+            repeated_issues=0,
+            unresolved=0,
+            work_orders=0,
+            dissatisfaction=0,
+            proficiency_score=9.0,
+        ).profile_type
+        == "持续咨询型"
+    )
+    assert (
+        classify_service_profile(
+            total_calls=1,
+            repeated_issues=0,
+            unresolved=0,
+            work_orders=0,
+            dissatisfaction=0,
+            proficiency_score=3.0,
+        ).profile_type
+        == "常规服务型"
+    )

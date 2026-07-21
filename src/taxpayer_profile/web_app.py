@@ -31,6 +31,7 @@ from taxpayer_profile.security import PhoneProtector
 
 WEB_ROOT = PROJECT_ROOT / "web"
 MAX_REQUEST_BYTES = 16_384
+REALTIME_ADVICE_TIMEOUT_SECONDS = 25.0
 SHOWCASE_SCENARIOS = (
     {
         "id": "baseline",
@@ -51,6 +52,169 @@ SHOWCASE_SCENARIOS = (
         "id": "service_dissatisfaction",
         "label": "新增服务不满信号",
         "description": "模拟来电人对等待或转交过程表达不满。",
+    },
+)
+
+PROFILE_DIMENSION_TAXONOMY = (
+    {
+        "id": "subject",
+        "name": "咨询主体",
+        "description": "识别最近一次来电代表的主体及企业细化角色，用于调整核验内容，不用于身份定性。",
+        "categories": (
+            "个人",
+            "企业·法定代表人",
+            "企业·财务负责人",
+            "企业·办税人员",
+            "企业·其他",
+            "企业·细化主体待识别",
+            "主体待识别",
+        ),
+    },
+    {
+        "id": "demand",
+        "name": "诉求形态",
+        "description": "复用单通来电需求类别，可同时保留两个彼此独立的诉求标签。",
+        "categories": (
+            "政策咨询类",
+            "操作辅导类",
+            "工单/拉起类",
+            "涉税查询类",
+            "系统异常类",
+            "投诉举报类",
+            "意见建议类",
+            "其他类",
+        ),
+    },
+    {
+        "id": "continuity",
+        "name": "互动连续性",
+        "description": "区分首次接触、一般复访、持续咨询和已经核实的同题重复。",
+        "categories": ("初次接触", "常规复访", "持续咨询", "同题重复"),
+    },
+    {
+        "id": "progress",
+        "name": "事项进展",
+        "description": "描述最近事项是否闭环、待跟进或已经进入工单流转。",
+        "categories": ("最近已闭环", "事项待跟进", "工单推进", "状态待确认"),
+    },
+    {
+        "id": "capability",
+        "name": "业务认知",
+        "description": "依据历史表达和问答证据调整术语密度及步骤粒度。",
+        "categories": ("引导辅助", "常规理解", "熟练自主", "证据不足"),
+    },
+    {
+        "id": "experience",
+        "name": "服务体验",
+        "description": "只评价历史服务过程信号，用于判断是否需要提高节点透明度。",
+        "categories": ("服务平稳", "过程关注", "信任修复"),
+    },
+)
+
+SERVICE_ACTION_CATALOG = (
+    {"id": "clarify", "label": "诉求开放式确认", "description": "先确认本次实际诉求，不把历史事项直接当成本次问题。"},
+    {"id": "history", "label": "历史节点衔接", "description": "经来电人确认后，从已知处理节点继续，减少重复复述。"},
+    {"id": "progress", "label": "进度与责任透明", "description": "说明当前状态、下一责任方、预计时间和查询入口。"},
+    {"id": "difference", "label": "新旧差异核对", "description": "重点核对材料、系统提示、处理进度或理解上的新增变化。"},
+    {"id": "conclusion", "label": "结论条件优先", "description": "先给结论框架、适用条件和例外，再补充必要步骤。"},
+    {"id": "guided", "label": "通俗分步引导", "description": "降低术语密度，一次给出少量步骤并等待操作结果。"},
+    {"id": "confirm", "label": "关键节点复述确认", "description": "在材料、页面或办理节点处确认理解和当前结果。"},
+    {"id": "transfer", "label": "等待与转交说明", "description": "发生等待或转交时主动说明原因、责任边界和预计时长。"},
+    {"id": "closure", "label": "闭环与查询方式", "description": "结束前确认是否解决，并说明仍待处理事项及后续查询方式。"},
+    {"id": "separate", "label": "新旧事项分流", "description": "明确区分延续事项和本次新问题，避免误归为重复咨询。"},
+)
+
+SERVICE_MODE_CATALOG = (
+    {
+        "id": "trust",
+        "label": "信任修复与节点透明型",
+        "definition": "用于出现服务体验风险的情形，优先复述诉求，并透明说明等待、转交和责任节点。",
+        "rule": "主画像为服务关注型，或任一画像同时出现潜在推诿、两次及以上异常结束。",
+        "profiles": ("服务关注型", "事项跟进型", "持续咨询型", "常规服务型"),
+        "actions": ("clarify", "progress", "transfer", "closure"),
+    },
+    {
+        "id": "progress",
+        "label": "事项进度核验与闭环型",
+        "definition": "用于未直接解决、工单或多次未闭环事项，先核验当前节点，再明确下一责任方和时间点。",
+        "rule": "主画像为事项跟进型，即未直接解决次数大于0或历史工单次数大于0。",
+        "profiles": ("事项跟进型",),
+        "actions": ("clarify", "history", "progress", "closure", "separate"),
+    },
+    {
+        "id": "difference",
+        "label": "重复问题差异核对型",
+        "definition": "用于同题重复咨询，重点确认本次相较前次新增的材料、状态、提示或理解差异。",
+        "rule": "主画像为持续咨询型，且已确认同类重复诉求次数大于0。",
+        "profiles": ("持续咨询型",),
+        "actions": ("clarify", "history", "difference", "closure", "separate"),
+    },
+    {
+        "id": "history",
+        "label": "历史上下文衔接型",
+        "definition": "用于一般复访或多次来电，先判断是否延续历史事项，再从已确认节点继续。",
+        "rule": "主画像为持续咨询型或常规服务型，且没有更优先事项，熟练度处于常规区间或证据不足。",
+        "profiles": ("持续咨询型", "常规服务型"),
+        "actions": ("clarify", "history", "separate", "closure"),
+    },
+    {
+        "id": "conclusion",
+        "label": "结论条件优先型",
+        "definition": "用于业务认知较高的来电人，先给结论、适用条件与例外，再补充关键操作节点。",
+        "rule": "主画像为持续咨询型或常规服务型，且历史业务熟练度大于等于8分。",
+        "profiles": ("持续咨询型", "常规服务型"),
+        "actions": ("clarify", "conclusion", "confirm", "closure"),
+    },
+    {
+        "id": "guided",
+        "label": "分步操作陪伴确认型",
+        "definition": "用于业务认知较低的来电人，降低术语密度，分段给出操作并逐节点确认。",
+        "rule": "主画像为持续咨询型或常规服务型，且历史业务熟练度小于等于4分。",
+        "profiles": ("持续咨询型", "常规服务型"),
+        "actions": ("clarify", "guided", "confirm", "closure"),
+    },
+    {
+        "id": "initial",
+        "label": "首次诉求澄清与标准引导型",
+        "definition": "用于历史证据较少或认知程度待判断的情形，先完整澄清诉求，再按标准流程引导。",
+        "rule": "主画像为常规服务型，且无稳定历史衔接关系和明确熟练度分层。",
+        "profiles": ("常规服务型",),
+        "actions": ("clarify", "confirm", "closure"),
+    },
+)
+
+COMPOSITE_PROFILE_CATALOG = (
+    {
+        "type": "服务关注型",
+        "priority": 1,
+        "definition": "历史服务体验需要优先修复，接待时首先保证等待、转交和责任节点透明。",
+        "rule": "历史对本通热线服务不满次数 > 0",
+        "dimensions": ("experience", "progress", "continuity"),
+        "modes": ("trust",),
+    },
+    {
+        "type": "事项跟进型",
+        "priority": 2,
+        "definition": "历史存在未直接解决事项或工单，应优先核对进度并形成可追踪的后续闭环。",
+        "rule": "未直接解决次数 > 0，或历史工单次数 > 0",
+        "dimensions": ("progress", "continuity", "demand"),
+        "modes": ("trust", "progress"),
+    },
+    {
+        "type": "持续咨询型",
+        "priority": 3,
+        "definition": "存在稳定复访或同题重复特征，应复用历史上下文并重点核对本次新增变化。",
+        "rule": "同类重复诉求次数 > 0，或累计来电次数 ≥ 3",
+        "dimensions": ("continuity", "progress", "demand"),
+        "modes": ("trust", "difference", "history", "conclusion", "guided"),
+    },
+    {
+        "type": "常规服务型",
+        "priority": 4,
+        "definition": "未出现更高优先级服务信号；具体采用结论优先、分步陪伴或首次引导，由业务认知与互动连续性共同决定。",
+        "rule": "P1—P3均未命中时作为兜底分类",
+        "dimensions": ("continuity", "progress", "capability"),
+        "modes": ("trust", "history", "conclusion", "guided", "initial"),
     },
 )
 
@@ -108,6 +272,171 @@ def _strategy_payload(
     }
 
 
+def _profile_dimension_snapshot(
+    *,
+    profile: CallerProfile,
+    trajectories: list[CallTrajectory],
+    state: dict[str, int],
+    latest_resolved: bool | None,
+) -> dict[str, object]:
+    """Build concurrent, explainable profile dimensions from stored facts."""
+
+    if profile.caller_type == "企业":
+        identity = profile.enterprise_identity
+        subject_value = (
+            f"企业·{identity}"
+            if identity in {"法定代表人", "财务负责人", "办税人员", "其他"}
+            else "企业·细化主体待识别"
+        )
+        subject_basis = f"最近咨询主体为企业，细化主体为{identity or '无法判断'}。"
+    elif profile.caller_type == "个人":
+        subject_value = "个人"
+        subject_basis = "最近咨询主体识别为个人。"
+    else:
+        subject_value = "主体待识别"
+        subject_basis = "现有记录不足以稳定判断最近咨询主体。"
+
+    demand_values = [
+        item.strip()
+        for item in (profile.latest_demand_category or "").replace("，", ",").split(",")
+        if item.strip()
+    ][:2]
+    demand_basis = (
+        f"最近一通来电的需求类别为{'、'.join(demand_values)}。"
+        if demand_values
+        else "最近一通来电尚未形成稳定需求类别。"
+    )
+
+    if state["repeated_issues"] > 0:
+        continuity_value = "同题重复"
+        continuity_basis = (
+            f"累计来电{state['total_calls']}次，其中已确认同一问题重复咨询"
+            f"{state['repeated_issues']}次。"
+        )
+    elif state["total_calls"] >= 3:
+        continuity_value = "持续咨询"
+        continuity_basis = f"累计来电{state['total_calls']}次，已形成持续复访特征。"
+    elif state["total_calls"] <= 1:
+        continuity_value = "初次接触"
+        continuity_basis = "当前仅有一次历史来电，连续性证据仍较少。"
+    else:
+        continuity_value = "常规复访"
+        continuity_basis = (
+            f"累计来电{state['total_calls']}次，但尚未确认同一问题重复咨询。"
+        )
+
+    if state["work_orders"] > 0:
+        progress_value = "工单推进"
+        progress_basis = f"历史存在{state['work_orders']}次工单记录，需要核验承办节点。"
+    elif state["unresolved"] > 0 or latest_resolved is False:
+        progress_value = "事项待跟进"
+        progress_basis = f"历史存在{state['unresolved']}次未直接解决记录。"
+    elif latest_resolved is True:
+        progress_value = "最近已闭环"
+        progress_basis = "最近一次来电记录显示事项已直接解决。"
+    else:
+        progress_value = "状态待确认"
+        progress_basis = "最近事项的解决状态尚无充分证据。"
+
+    score = profile.proficiency_score
+    if score is None:
+        capability_value = "证据不足"
+        capability_basis = "历史表达与问答证据不足，暂不预设理解程度。"
+    elif score < 5:
+        capability_value = "引导辅助"
+        capability_basis = f"历史业务熟练度为{score:.1f}/10，适合通俗分步引导。"
+    elif score >= 8:
+        capability_value = "熟练自主"
+        capability_basis = f"历史业务熟练度为{score:.1f}/10，可压缩基础概念铺垫。"
+    else:
+        capability_value = "常规理解"
+        capability_basis = f"历史业务熟练度为{score:.1f}/10，建议按反馈调整解释深度。"
+
+    has_pushback = any(item.potential_pushback is True for item in trajectories)
+    if state["dissatisfaction"] > 0:
+        experience_value = "信任修复"
+        experience_basis = (
+            f"历史存在{state['dissatisfaction']}次对本通热线服务不满记录，"
+            "应提高等待与转交透明度。"
+        )
+    elif state["abnormal_ends"] > 0 or has_pushback:
+        experience_value = "过程关注"
+        signals = []
+        if state["abnormal_ends"] > 0:
+            signals.append(f"{state['abnormal_ends']}次异常结束")
+        if has_pushback:
+            signals.append("潜在推诿信号")
+        experience_basis = f"历史存在{'、'.join(signals)}，需要加强过程确认。"
+    else:
+        experience_value = "服务平稳"
+        experience_basis = "历史暂未出现明确服务不满、推诿或异常结束信号。"
+
+    values_by_id: dict[str, tuple[list[str], str]] = {
+        "subject": ([subject_value], subject_basis),
+        "demand": (demand_values or ["需求待识别"], demand_basis),
+        "continuity": ([continuity_value], continuity_basis),
+        "progress": ([progress_value], progress_basis),
+        "capability": ([capability_value], capability_basis),
+        "experience": ([experience_value], experience_basis),
+    }
+    items = []
+    for dimension in PROFILE_DIMENSION_TAXONOMY:
+        values, basis = values_by_id[str(dimension["id"])]
+        items.append(
+            {
+                "id": dimension["id"],
+                "name": dimension["name"],
+                "values": values,
+                "value": "、".join(values),
+                "basis": basis,
+            }
+        )
+
+    unresolved_questions = [
+        item.core_question or item.topic_category or "历史未解决事项"
+        for item in trajectories
+        if item.resolved_status is False
+    ]
+    strategy = build_service_strategy(
+        total_calls=state["total_calls"],
+        repeated_issues=state["repeated_issues"],
+        unresolved=state["unresolved"],
+        work_orders=state["work_orders"],
+        abnormal_ends=state["abnormal_ends"],
+        dissatisfaction=state["dissatisfaction"],
+        has_pushback=has_pushback,
+        latest_resolved=latest_resolved,
+        proficiency_score=profile.proficiency_score,
+        latest_question=profile.latest_question,
+        recent_questions=[
+            item.core_question for item in reversed(trajectories) if item.core_question
+        ][:3],
+        unresolved_questions=unresolved_questions[:3],
+    )
+    selected_mode = next(
+        (
+            item
+            for item in SERVICE_MODE_CATALOG
+            if item["label"] == strategy.recommended_mode
+        ),
+        None,
+    )
+    unique_action_ids = (
+        list(selected_mode["actions"])
+        if selected_mode
+        else ["clarify", "confirm", "closure"]
+    )
+    action_by_id = {str(item["id"]): item for item in SERVICE_ACTION_CATALOG}
+
+    return {
+        "items": items,
+        "signature": " / ".join(item["value"] for item in items),
+        "active_category_count": sum(len(item["values"]) for item in items),
+        "service_mode": strategy.recommended_mode,
+        "service_actions": [action_by_id[action_id] for action_id in unique_action_ids],
+    }
+
+
 @dataclass
 class DemoService:
     database_path: Path
@@ -135,7 +464,7 @@ class DemoService:
             self.settings.llm_base_url,  # type: ignore[arg-type]
             self.settings.llm_api_key,  # type: ignore[arg-type]
             self.settings.llm_model,  # type: ignore[arg-type]
-            timeout_seconds=12.0,
+            timeout_seconds=REALTIME_ADVICE_TIMEOUT_SECONDS,
             max_attempts=1,
         )
 
@@ -186,7 +515,15 @@ class DemoService:
         daily_calls = Counter(item.call_time.date().isoformat() for item in trajectories)
         caller_types = Counter(item.caller_type or "暂未识别" for item in profiles)
         service_profile_types = Counter(
-            item.service_profile_type or "暂未分类" for item in profiles
+            classify_service_profile(
+                total_calls=item.total_call_count,
+                repeated_issues=item.repeated_issue_count,
+                unresolved=item.unresolved_count,
+                work_orders=item.work_order_count,
+                dissatisfaction=item.dissatisfaction_count,
+                proficiency_score=item.proficiency_score,
+            ).profile_type
+            for item in profiles
         )
         service_ratings = Counter(
             item.service_rating or "暂未评价" for item in trajectories
@@ -359,6 +696,14 @@ class DemoService:
 
         items: list[dict[str, object]] = []
         for profile in profiles:
+            classification = classify_service_profile(
+                total_calls=profile.total_call_count,
+                repeated_issues=profile.repeated_issue_count,
+                unresolved=profile.unresolved_count,
+                work_orders=profile.work_order_count,
+                dissatisfaction=profile.dissatisfaction_count,
+                proficiency_score=profile.proficiency_score,
+            )
             try:
                 masked_phone = _mask_phone(
                     self.protector.decrypt_phone(profile.phone_encrypted)
@@ -369,7 +714,7 @@ class DemoService:
                 {
                     "profile_key": _showcase_key(profile.phone_hash),
                     "masked_phone": masked_phone,
-                    "profile_type": profile.service_profile_type or "暂未分类",
+                    "profile_type": classification.profile_type,
                     "latest_question": profile.latest_question or "最近咨询事项未记录",
                     "total_calls": profile.total_call_count,
                     "repeated_issues": profile.repeated_issue_count,
@@ -400,14 +745,39 @@ class DemoService:
         )
         for item in items:
             item.pop("presentation_priority", None)
+        profile_counts = Counter(str(item["profile_type"]) for item in items)
+        composite_profiles = [
+            {
+                **item,
+                "current_count": profile_counts.get(str(item["type"]), 0),
+            }
+            for item in COMPOSITE_PROFILE_CATALOG
+        ]
+        dimension_category_count = sum(
+            len(item["categories"]) for item in PROFILE_DIMENSION_TAXONOMY
+        )
         return {
             "items": items,
             "scenarios": list(SHOWCASE_SCENARIOS),
+            "taxonomy": {
+                "version": "multidimensional-profile-v1",
+                "dimension_count": len(PROFILE_DIMENSION_TAXONOMY),
+                "dimension_category_count": dimension_category_count,
+                "composite_profile_count": len(COMPOSITE_PROFILE_CATALOG),
+                "service_mode_count": len(SERVICE_MODE_CATALOG),
+                "service_action_count": len(SERVICE_ACTION_CATALOG),
+                "dimensions": list(PROFILE_DIMENSION_TAXONOMY),
+                "composite_profiles": composite_profiles,
+                "service_modes": list(SERVICE_MODE_CATALOG),
+                "service_actions": list(SERVICE_ACTION_CATALOG),
+            },
             "methodology": [
                 "先区分重复来电和同一问题重复咨询，避免仅凭号码频次下结论。",
                 "核心问题保持具体到业务场景和实际诉求，再结合历史语义关系判断。",
+                "同一号码同时保留咨询主体、诉求形态、互动连续性、事项进展、业务认知和服务体验六个维度。",
+                "综合服务画像按服务关注、事项跟进、持续咨询、常规服务四级优先规则归类，不覆盖其他并存标签。",
+                "坐席接待模式在主画像之后，继续结合互动连续性和业务认知细分，因此不是简单的一类画像对应一种话术。",
                 "画像按新增来电逐次更新，每个结论均保留到单通来电的证据入口。",
-                "服务方式由画像事实映射生成，推演结果不写入数据库。",
             ],
         }
 
@@ -465,6 +835,12 @@ class DemoService:
             state=state,
             latest_resolved=profile.latest_resolved,
         )
+        before_profile_model = _profile_dimension_snapshot(
+            profile=profile,
+            trajectories=trajectories,
+            state=state,
+            latest_resolved=profile.latest_resolved,
+        )
         after_state = state.copy()
         after_resolved = profile.latest_resolved
         scenario_event = "当前仅回放数据库中的历史事实。"
@@ -489,6 +865,12 @@ class DemoService:
             after_resolved = None
             scenario_event = "新增一通来电，来电人对等待或转交过程表达不满。"
         after = _strategy_payload(
+            profile=profile,
+            trajectories=trajectories,
+            state=after_state,
+            latest_resolved=after_resolved,
+        )
+        after_profile_model = _profile_dimension_snapshot(
             profile=profile,
             trajectories=trajectories,
             state=after_state,
@@ -562,6 +944,26 @@ class DemoService:
             }
             for field, label in metric_labels.items()
         ]
+        before_dimensions = {
+            str(item["id"]): item
+            for item in before_profile_model["items"]  # type: ignore[union-attr]
+        }
+        after_dimensions = {
+            str(item["id"]): item
+            for item in after_profile_model["items"]  # type: ignore[union-attr]
+        }
+        for dimension in PROFILE_DIMENSION_TAXONOMY:
+            dimension_id = str(dimension["id"])
+            before_value = str(before_dimensions[dimension_id]["value"])
+            after_value = str(after_dimensions[dimension_id]["value"])
+            changes.append(
+                {
+                    "field": dimension["name"],
+                    "before": before_value,
+                    "after": after_value,
+                    "changed": before_value != after_value,
+                }
+            )
         changes.extend(
             [
                 {
@@ -611,8 +1013,16 @@ class DemoService:
                 "max_three_days": rolling_three_day,
             },
             "timeline": timeline,
-            "before": {"state": state, "result": before},
-            "after": {"state": after_state, "result": after},
+            "before": {
+                "state": state,
+                "result": before,
+                "profile_model": before_profile_model,
+            },
+            "after": {
+                "state": after_state,
+                "result": after,
+                "profile_model": after_profile_model,
+            },
             "changes": changes,
             "disclaimer": "该页面用于演示画像增量逻辑。模拟事件仅在本次页面请求中计算，不写入画像库或来电轨迹。",
         }

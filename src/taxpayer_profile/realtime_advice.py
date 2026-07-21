@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any, Protocol
 
 from taxpayer_profile.llm_client import (
@@ -19,6 +20,18 @@ class AdviceClient(Protocol):
     def generate_service_advice(
         self, payload: dict[str, object]
     ) -> RealtimeServiceAdviceResult: ...
+
+
+_LIST_NUMBER_PREFIX = re.compile(
+    r"^\s*(?:(?:\d+[.]\s*)+|\d+\s*[、．)）:：]\s*|[（(]\d+[）)]\s*)"
+)
+
+
+def _clean_list_number(value: str) -> str:
+    """Remove model-supplied numbering before an HTML list adds its own marker."""
+
+    cleaned = _LIST_NUMBER_PREFIX.sub("", value, count=1).strip()
+    return cleaned or value.strip()
 
 
 def _redact_context(value: Any) -> Any:
@@ -193,11 +206,15 @@ def generate_realtime_advice(
         return build_fallback_advice(
             context, fallback_reason=f"model_{_failure_type(exc)}"
         )
+    payload = result.model_dump()
+    payload["recommended_sequence"] = [
+        _clean_list_number(item) for item in result.recommended_sequence
+    ]
     return {
         "generation_status": "model_generated",
         "fallback_reason": None,
         "prompt_version": REALTIME_ADVICE_PROMPT_VERSION,
         "model_name": client.model,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        **result.model_dump(),
+        **payload,
     }

@@ -131,7 +131,7 @@ def classify_service_profile(
     dissatisfaction: int,
     proficiency_score: float | None,
 ) -> ServiceProfileClassification:
-    """Assign one explainable service segment using a stable priority order."""
+    """Assign one primary service profile; capability remains an independent dimension."""
 
     if dissatisfaction > 0:
         return ServiceProfileClassification(
@@ -145,7 +145,7 @@ def classify_service_profile(
         if work_orders:
             signals.append(f"{work_orders}次工单")
         return ServiceProfileClassification(
-            "事项待跟进型",
+            "事项跟进型",
             f"历史存在{'、'.join(signals)}，需要优先确认事项当前处理节点。",
         )
     if repeated_issues > 0 or total_calls >= 3:
@@ -153,24 +153,19 @@ def classify_service_profile(
             "持续咨询型",
             f"累计来电{total_calls}次、同类诉求{repeated_issues}次，已形成持续咨询特征。",
         )
-    if proficiency_score is not None and proficiency_score < 5:
-        return ServiceProfileClassification(
-            "引导辅助型",
-            f"历史业务熟练度为{proficiency_score:.1f}/10，适合采用通俗分步引导。",
-        )
-    if proficiency_score is not None and proficiency_score >= 8:
-        return ServiceProfileClassification(
-            "熟练自主型",
-            f"历史业务熟练度为{proficiency_score:.1f}/10，可优先提供结论和关键节点。",
-        )
     if total_calls <= 1:
         return ServiceProfileClassification(
-            "初次咨询型",
-            "当前仅有一次历史来电，稳定服务偏好和咨询模式仍需继续观察。",
+            "常规服务型",
+            "当前仅有一次历史来电，未出现优先关注信号；具体沟通方式由业务认知维度决定。",
         )
+    capability_basis = (
+        f"历史业务熟练度为{proficiency_score:.1f}/10，将作为接待模式的判定依据。"
+        if proficiency_score is not None
+        else "业务熟练度证据不足，接待中需动态确认理解程度。"
+    )
     return ServiceProfileClassification(
-        "常规咨询型",
-        f"累计来电{total_calls}次，暂未出现需优先跟进或特别调整沟通方式的稳定信号。",
+        "常规服务型",
+        f"累计来电{total_calls}次，暂未出现关注、跟进或持续咨询信号；{capability_basis}",
     )
 
 
@@ -200,20 +195,6 @@ def build_service_strategy(
     topic = latest_question or "最近咨询事项"
     unresolved_topic = (unresolved_questions or [topic])[0]
     recent_topic = (recent_questions or [topic])[0]
-    if unresolved >= 3 and repeated_issues >= 2:
-        return ServiceStrategy(
-            attention_level="重点关注",
-            recommended_mode="历史事项闭环优先型",
-            reason=(
-                f"累计来电{total_calls}次，其中{unresolved}次未直接解决、"
-                f"{repeated_issues}次确认为重复问题。"
-            ),
-            suggestion=(
-                f"接通后先核对历史未解决事项“{unresolved_topic}”的当前进度，"
-                "不要求来电人从头复述；明确本通可完成内容、后续责任对象和时间点，"
-                "结束前逐项确认仍待处理事项。"
-            ),
-        )
     risk_signals: list[str] = []
     if dissatisfaction:
         risk_signals.append(f"历史出现{dissatisfaction}次本通不满")
@@ -231,6 +212,20 @@ def build_service_strategy(
                 "预计时间和下一责任方；给出方案后确认来电人是否接受，避免直接结束或重复转接。"
             ),
         )
+    if unresolved >= 3 and repeated_issues >= 2:
+        return ServiceStrategy(
+            attention_level="重点关注",
+            recommended_mode="事项进度核验与闭环型",
+            reason=(
+                f"累计来电{total_calls}次，其中{unresolved}次未直接解决、"
+                f"{repeated_issues}次确认为重复问题。"
+            ),
+            suggestion=(
+                f"接通后先核对历史未解决事项“{unresolved_topic}”的当前进度，"
+                "不要求来电人从头复述；明确本通可完成内容、后续责任对象和时间点，"
+                "结束前逐项确认仍待处理事项。"
+            ),
+        )
     is_work_order_topic = "工单" in topic
     if work_orders > 0 or is_work_order_topic:
         work_order_reason = (
@@ -240,7 +235,7 @@ def build_service_strategy(
         )
         return ServiceStrategy(
             attention_level="待跟进",
-            recommended_mode="工单进度快速核验型",
+            recommended_mode="事项进度核验与闭环型",
             reason=work_order_reason,
             suggestion=(
                 f"优先核验“{topic}”对应工单的受理时间、当前状态和承办节点，"
@@ -250,7 +245,7 @@ def build_service_strategy(
     if unresolved >= 1 or latest_resolved is False:
         return ServiceStrategy(
             attention_level="多次未解决" if unresolved >= 2 else "待跟进",
-            recommended_mode="未解决事项进度闭环型",
+            recommended_mode="事项进度核验与闭环型",
             reason=f"累计{unresolved}次未直接解决，最近事项为“{unresolved_topic}”。",
             suggestion=(
                 f"优先询问历史事项“{unresolved_topic}”目前停在哪个处理节点，"
@@ -267,20 +262,10 @@ def build_service_strategy(
                 "材料、系统提示还是答复理解问题；只解释差异和下一步，并确认前次问题是否已经关闭。"
             ),
         )
-    if total_calls > 1:
-        return ServiceStrategy(
-            attention_level="重复来电",
-            recommended_mode="历史上下文衔接型",
-            reason=f"该号码已有{total_calls}次来电，最近咨询为“{recent_topic}”。",
-            suggestion=(
-                f"接通后先确认本次是否延续“{recent_topic}”；若是延续事项，直接从上次节点继续，"
-                "若是新问题则明确分开记录，避免把不同事项混为重复咨询。"
-            ),
-        )
     if proficiency_score is not None and proficiency_score >= 8:
         return ServiceStrategy(
             attention_level="普通",
-            recommended_mode="专业来电结论与例外优先型",
+            recommended_mode="结论条件优先型",
             reason=f"历史办税熟练度为{proficiency_score:.1f}/10，能够理解业务术语和办理环节。",
             suggestion=(
                 f"围绕“{topic}”先给结论、适用条件和例外，再列关键办理节点；"
@@ -295,6 +280,16 @@ def build_service_strategy(
             suggestion=(
                 f"围绕“{topic}”先用通俗语言说明目标，再一次给出1—2个操作步骤；"
                 "每完成一个页面或节点后再继续，并请来电人复述当前结果，避免连续堆叠术语。"
+            ),
+        )
+    if total_calls > 1:
+        return ServiceStrategy(
+            attention_level="重复来电",
+            recommended_mode="历史上下文衔接型",
+            reason=f"该号码已有{total_calls}次来电，最近咨询为“{recent_topic}”。",
+            suggestion=(
+                f"接通后先确认本次是否延续“{recent_topic}”；若是延续事项，直接从上次节点继续，"
+                "若是新问题则明确分开记录，避免把不同事项混为重复咨询。"
             ),
         )
     return ServiceStrategy(

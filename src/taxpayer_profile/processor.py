@@ -144,7 +144,7 @@ def _unresolved_summary(trajectories: list[CallTrajectory], limit: int = 3) -> s
 
 def _personalized_profile_summary(profile: CallerProfile) -> str:
     sentences = [
-        f"该号码当前呈现“{profile.service_profile_type or '常规咨询型'}”服务画像。"
+        f"该号码当前呈现“{profile.service_profile_type or '常规服务型'}”服务画像。"
     ]
     if profile.caller_type == "企业":
         if profile.enterprise_identity in {None, "无法判断"}:

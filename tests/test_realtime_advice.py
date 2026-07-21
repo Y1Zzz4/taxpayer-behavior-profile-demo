@@ -4,6 +4,7 @@ from taxpayer_profile.realtime_advice import (
     build_fallback_advice,
     generate_realtime_advice,
 )
+from taxpayer_profile.web_app import REALTIME_ADVICE_TIMEOUT_SECONDS
 
 
 def _context() -> dict[str, object]:
@@ -52,7 +53,7 @@ class FakeAdviceClient:
             history_followups=["核对历史未解决事项。"],
             risk_reminders=[],
             avoid_actions=["不要预设本次诉求。"],
-            recommended_sequence=["确认本次诉求。", "按本次问题提供服务。"],
+            recommended_sequence=["1. 确认本次诉求。", "2.1. 按本次问题提供服务。"],
             evidence=["历史存在一条未解决记录。"],
         )
 
@@ -65,6 +66,10 @@ def test_realtime_model_advice_is_structured_and_context_is_redacted() -> None:
     assert "未解决" in result["advice_summary"]
     assert result["service_mode"] == "历史衔接核对型"
     assert result["model_name"] == "fake-model"
+    assert result["recommended_sequence"] == [
+        "确认本次诉求。",
+        "按本次问题提供服务。",
+    ]
     assert client.payload is not None
     assert "13800000001" not in str(client.payload)
     assert "<手机号>" in str(client.payload)
@@ -75,10 +80,14 @@ def test_realtime_advice_uses_fast_rule_fallback() -> None:
 
     assert result["generation_status"] == "rules_fallback"
     assert result["fallback_reason"] == "model_ReadTimeout"
-    assert result["service_mode"] == "未解决事项进度闭环型"
+    assert result["service_mode"] == "事项进度核验与闭环型"
     assert "历史来电2次" in result["advice_summary"]
     assert "不要把历史问题直接当成本次来电问题" in result["avoid_actions"][0]
     assert result["recommended_sequence"]
+
+
+def test_realtime_advice_timeout_allows_normal_model_latency_variation() -> None:
+    assert REALTIME_ADVICE_TIMEOUT_SECONDS == 25.0
 
 
 def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
@@ -102,10 +111,28 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "历史问题衔接",
         "待衔接的未解决问题",
         "重复咨询问题与候选线索",
+        "画像补充信息",
+        "服务画像与依据",
         "重复来电不会自动视为同一问题",
         "画像证据回放",
+        "增量画像结果",
         "增量画像推演",
+        "多维画像图谱",
+        "整体画像逻辑",
+        "号码画像实例",
+        "knowledge-profile-select",
+        "当前展示完整画像方法论，不关联增量推演中的号码",
+        "多维画像三维关系图",
+        "拖拽旋转",
+        "knowledge-graph-canvas",
+        "完整分类总览",
+        "六维基础标签体系",
+        "四类综合服务画像",
+        "七类坐席接待模式",
+        "十项可组合服务动作",
+        "类别占比",
         "画像判定原则",
+        "六维标签",
         "/api/showcase",
         "信息速览",
         "近5个工作日",
@@ -119,6 +146,7 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "下一页",
         "查看依据",
         "renderStackedBars",
+        "profileMethodDefinitions",
     ):
         assert required in page
     assert '<span class="panel-icon">' not in page
@@ -127,3 +155,4 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
     assert "本地 Demo 在线" not in page
     assert "profileBox.append(profileTypeButton" not in page
     assert "appendInfo(primary" not in page
+    assert "inferenceOption.textContent = `${item.masked_phone} · ${item.profile_type}`" in page

@@ -40,7 +40,7 @@ DemandCategory = Literal[
 ]
 PROMPT_VERSION = "call-extraction-v7"
 REPEAT_PROMPT_VERSION = "repeat-issue-v4"
-REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v3"
+REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v4"
 
 AdviceText = Annotated[str, Field(min_length=1, max_length=300)]
 

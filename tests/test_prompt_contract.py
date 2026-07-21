@@ -56,7 +56,8 @@ def test_realtime_advice_prompt_is_phone_level_not_a_policy_answer() -> None:
     assert "advice_summary" in prompt
     assert "号码或其他个人标识" in prompt
     assert "不能只写“常规型”“澄清确认型”“耐心沟通型”" in prompt
-    assert REALTIME_ADVICE_PROMPT_VERSION == "realtime-service-advice-v3"
+    assert "不要自行添加" in prompt
+    assert REALTIME_ADVICE_PROMPT_VERSION == "realtime-service-advice-v4"
 
 
 def test_repeat_prompt_separates_contact_queries_from_business_repetition() -> None:

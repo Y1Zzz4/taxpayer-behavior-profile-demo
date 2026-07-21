@@ -84,9 +84,9 @@ def test_processing_is_idempotent_and_updates_latest_profile(tmp_path: Path) -> 
         assert profile.repeated_call_count == 1
         assert profile.unresolved_count == 1
         assert profile.profile_summary is not None
-        assert "事项待跟进型" in profile.profile_summary
+        assert "事项跟进型" in profile.profile_summary
         assert "最近关注" in profile.profile_summary
-        assert profile.service_profile_type == "事项待跟进型"
+        assert profile.service_profile_type == "事项跟进型"
         assert "电子税务局申报步骤" in (profile.recent_questions_summary or "")
         assert "电子税务局申报步骤" in (profile.unresolved_questions_summary or "")
         assert not hasattr(profile, "recommended_mode")

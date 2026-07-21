@@ -211,6 +211,11 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     catalog = service.profile_showcase_catalog()
     assert len(catalog["items"]) == 1
     assert catalog["items"][0]["masked_phone"] == "138****0001"
+    assert catalog["taxonomy"]["dimension_count"] == 6
+    assert catalog["taxonomy"]["dimension_category_count"] == 30
+    assert catalog["taxonomy"]["composite_profile_count"] == 4
+    assert catalog["taxonomy"]["service_mode_count"] == 7
+    assert catalog["taxonomy"]["service_action_count"] == 10
     assert "13800000001" not in str(catalog)
     showcase = service.profile_showcase(
         profile_key=catalog["items"][0]["profile_key"],
@@ -219,7 +224,10 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert showcase["before"]["state"]["total_calls"] == 1
     assert showcase["after"]["state"]["total_calls"] == 2
     assert showcase["after"]["state"]["unresolved"] == 1
-    assert showcase["after"]["result"]["profile_type"] == "事项待跟进型"
+    assert showcase["after"]["result"]["profile_type"] == "事项跟进型"
+    assert len(showcase["before"]["profile_model"]["items"]) == 6
+    assert showcase["before"]["profile_model"]["active_category_count"] >= 6
+    assert showcase["after"]["profile_model"]["service_actions"]
     assert showcase["changes"][-1]["field"] == "推荐服务方式"
     assert "不写入" in showcase["disclaimer"]
     assert "13800000001" not in str(showcase)

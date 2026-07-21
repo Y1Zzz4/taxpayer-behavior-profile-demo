@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from taxpayer_profile.database import make_engine, make_session_factory
 from taxpayer_profile.models import CallerProfile, CallTrajectory
+from taxpayer_profile.profiling import classify_service_profile
 from taxpayer_profile.security import PhoneProtector, normalize_phone
 
 
@@ -72,10 +73,18 @@ def build_agent_context(
     """Build a privacy-minimized, factual context for real-time service advice."""
 
     recent_history = trajectories[:history_limit]
+    classification = classify_service_profile(
+        total_calls=profile.total_call_count,
+        repeated_issues=profile.repeated_issue_count,
+        unresolved=profile.unresolved_count,
+        work_orders=profile.work_order_count,
+        dissatisfaction=profile.dissatisfaction_count,
+        proficiency_score=profile.proficiency_score,
+    )
     return {
         "profile_summary": profile.profile_summary,
-        "service_profile_type": profile.service_profile_type,
-        "service_profile_basis": profile.service_profile_basis,
+        "service_profile_type": classification.profile_type,
+        "service_profile_basis": classification.basis,
         "caller_type": profile.caller_type,
         "enterprise_identity": profile.enterprise_identity,
         "latest_topic_category": profile.latest_topic_category,
@@ -142,11 +151,19 @@ def query_profile(
                 .order_by(CallTrajectory.call_time.desc())
             )
         )
+        classification = classify_service_profile(
+            total_calls=profile.total_call_count,
+            repeated_issues=profile.repeated_issue_count,
+            unresolved=profile.unresolved_count,
+            work_orders=profile.work_order_count,
+            dissatisfaction=profile.dissatisfaction_count,
+            proficiency_score=profile.proficiency_score,
+        )
         return {
             "caller_type": profile.caller_type,
             "enterprise_identity": profile.enterprise_identity,
-            "service_profile_type": profile.service_profile_type,
-            "service_profile_basis": profile.service_profile_basis,
+            "service_profile_type": classification.profile_type,
+            "service_profile_basis": classification.basis,
             "proficiency_score": profile.proficiency_score,
             "proficiency_summary": profile.proficiency_summary,
             "first_call_time": profile.first_call_time.isoformat(sep=" "),
