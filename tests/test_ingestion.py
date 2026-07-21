@@ -26,6 +26,7 @@ class FakeAnalysisClient:
             core_question="新抽取核心问题" if is_raw else "模型不应覆盖可信问题",
             father_question="新父问题",
             father_question_2="新二级父问题",
+            demand_categories=["操作辅导类"],
             caller_type="企业",
             explicit_enterprise_identity="无法判断",
             model_abnormal_end=False,
@@ -36,6 +37,7 @@ class FakeAnalysisClient:
             contact_target=None,
             active_contacted_other_department=False,
             resolved_status=False if is_raw else True,
+            unresolved_reason="需等待后续处理" if is_raw else None,
             natural_qa_turns=2,
             core_question_turns=1,
             effective_qa_turns=1,
@@ -54,7 +56,9 @@ def _protector() -> PhoneProtector:
     return PhoneProtector("test-hash-key", Fernet.generate_key().decode())
 
 
-def test_raw_mode_ignores_every_existing_analysis_field(tmp_path: Path) -> None:
+def test_raw_mode_reuses_direct_core_question_but_reanalyzes_other_fields(
+    tmp_path: Path,
+) -> None:
     workbook = tmp_path / "new.xlsx"
     database = tmp_path / "profiles.sqlite3"
     pd.DataFrame(
@@ -68,7 +72,8 @@ def test_raw_mode_ignores_every_existing_analysis_field(tmp_path: Path) -> None:
             "答复内容": ["说明了后续处理路径"],
             "登记处理方式": ["1404"],
             "申请人员身份": ["cwfzr"],
-            "大模型核心问题": ["必须忽略的旧核心问题"],
+            "大模型核心问题": ["输入直用核心问题"],
+            "一级专题类别": ["增值税申报"],
             "father_question": ["必须忽略的旧父问题"],
             "咨询主体(大模型判断)": ["个人"],
             "是否未直接解决问题": [False],
@@ -92,13 +97,18 @@ def test_raw_mode_ignores_every_existing_analysis_field(tmp_path: Path) -> None:
             "transcript": "我是公司的财务人员，咨询申报，通话正常结束谢谢。",
             "business_content": "RAW",
             "answer_content": "说明了后续处理路径",
+            "core_question": "输入直用核心问题",
+            "topic_category": "增值税申报",
         }
     ]
     sessions = make_session_factory(make_engine(database))
     with sessions() as session:
         trajectory = session.scalar(select(CallTrajectory))
         assert trajectory is not None
-        assert trajectory.core_question == "新抽取核心问题"
+        assert trajectory.core_question == "输入直用核心问题"
+        assert trajectory.topic_category == "增值税申报"
+        assert trajectory.demand_category == "操作辅导类"
+        assert trajectory.unresolved_reason == "需等待后续处理"
         assert trajectory.father_question == "新父问题"
         assert trajectory.caller_type == "企业"
         assert trajectory.enterprise_identity == "财务负责人"
@@ -155,7 +165,7 @@ def test_bootstrap_mixed_trusts_history_but_reanalyzes_later_rows(
         assert history.caller_type == "个人"
         assert history.resolved_status is True
         assert history.input_mode == "trusted_import"
-        assert raw.core_question == "新抽取核心问题"
+        assert raw.core_question == "不可信6月10日问题"
         assert raw.caller_type == "企业"
         assert raw.resolved_status is False
         assert raw.input_mode == "raw_analysis"

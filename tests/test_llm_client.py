@@ -44,16 +44,20 @@ def test_repeat_payload_contains_only_whitelisted_anonymous_fields() -> None:
     }
 
 
-def test_call_extraction_payload_has_exactly_three_raw_text_fields() -> None:
+def test_call_extraction_payload_includes_direct_business_fields() -> None:
     payload = build_call_payload(
         transcript="转写文本",
         business_content="业务内容",
         answer_content="答复内容",
+        core_question="核心问题",
+        topic_category="专题类别",
     )
     assert payload == {
         "transcript": "转写文本",
         "business_content": "业务内容",
         "answer_content": "答复内容",
+        "core_question": "核心问题",
+        "topic_category": "专题类别",
     }
 
 
@@ -67,6 +71,8 @@ def test_model_payloads_redact_common_identifiers_before_sending() -> None:
         transcript=private_text,
         business_content="联系010-12345678",
         answer_content=None,
+        core_question=private_text,
+        topic_category=None,
     )
     repeat_payload = build_repeat_payload(
         core_question=private_text,
@@ -155,6 +161,7 @@ def test_call_extraction_schema_rejects_inconsistent_proficiency() -> None:
         "core_question": "如何申报",
         "father_question": "申报",
         "father_question_2": None,
+        "demand_categories": ["操作辅导类"],
         "caller_type": "企业",
         "explicit_enterprise_identity": "无法判断",
         "model_abnormal_end": False,
@@ -165,6 +172,7 @@ def test_call_extraction_schema_rejects_inconsistent_proficiency() -> None:
         "contact_target": None,
         "active_contacted_other_department": False,
         "resolved_status": True,
+        "unresolved_reason": None,
         "natural_qa_turns": 1,
         "core_question_turns": 1,
         "effective_qa_turns": 1,

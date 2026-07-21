@@ -166,16 +166,28 @@ class NormalizedCallInput:
     registration_time: datetime | None
     call_time: datetime | None
     call_time_source: str | None
+    raw_call_start_time: datetime | None
     call_end_time: datetime | None
     transcript: str | None
+    agent_id: str | None
+    agent_name: str | None
     business_content: str | None
     answer_content: str | None
+    recording_path: str | None
+    registration_unit: str | None
+    handling_method: str | None
+    business_category: str | None
+    satisfaction: str | None
+    call_serial_number: str | None
     core_question: str | None
+    topic_category: str | None
+    demand_category: str | None
     father_question: str | None
     father_question_2: str | None
     caller_type: str | None
     enterprise_identity: str
     resolved_status: bool | None
+    unresolved_reason: str | None
     work_order: bool
     rule_abnormal_end: bool
     model_abnormal_end: bool | None
@@ -234,15 +246,22 @@ def normalize_call_row(
             if registration_time is not None
             else None
         ),
+        raw_call_start_time=call_start,
         call_end_time=parse_datetime(row.get("通话结束时间")),
         transcript=transcript,
+        agent_id=text_or_none(row.get("坐席工号")),
+        agent_name=text_or_none(row.get("坐席姓名")),
         business_content=text_or_none(row.get("业务内容")),
         answer_content=text_or_none(row.get("答复内容")),
-        core_question=(
-            text_or_none(row.get("大模型核心问题"))
-            if trust_analyzed_fields
-            else None
-        ),
+        recording_path=text_or_none(row.get("录音路径")),
+        registration_unit=text_or_none(row.get("登记单位")),
+        handling_method=text_or_none(row.get("登记处理方式")),
+        business_category=text_or_none(row.get("业务类别")),
+        satisfaction=text_or_none(row.get("满意度")),
+        call_serial_number=text_or_none(row.get("呼叫流水号")),
+        core_question=text_or_none(row.get("大模型核心问题")),
+        topic_category=text_or_none(row.get("一级专题类别")),
+        demand_category=None,
         father_question=(
             text_or_none(row.get("father_question")) if trust_analyzed_fields else None
         ),
@@ -254,6 +273,7 @@ def normalize_call_row(
         caller_type=caller_type,
         enterprise_identity=enterprise_identity,
         resolved_status=(resolved if unresolved is None else not unresolved),
+        unresolved_reason=None,
         work_order=determine_work_order(
             row.get("是否工单") if trust_analyzed_fields else None,
             row.get("登记处理方式"),

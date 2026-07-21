@@ -28,9 +28,19 @@ EnterpriseIdentity = Literal[
     "法定代表人", "财务负责人", "办税人员", "其他", "无法判断", "不适用"
 ]
 ServiceRating = Literal["良好", "一般", "需关注", "无法判断"]
-PROMPT_VERSION = "call-extraction-v5"
+DemandCategory = Literal[
+    "政策咨询类",
+    "操作辅导类",
+    "工单/拉起类",
+    "涉税查询类",
+    "系统异常类",
+    "投诉举报类",
+    "意见建议类",
+    "其他类",
+]
+PROMPT_VERSION = "call-extraction-v6"
 REPEAT_PROMPT_VERSION = "repeat-issue-v3"
-REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v2"
+REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v3"
 
 AdviceText = Annotated[str, Field(min_length=1, max_length=300)]
 
@@ -41,6 +51,7 @@ class CallExtractionResult(BaseModel):
     core_question: str | None = Field(default=None, max_length=300)
     father_question: str | None = Field(default=None, max_length=300)
     father_question_2: str | None = Field(default=None, max_length=300)
+    demand_categories: list[DemandCategory] = Field(min_length=1, max_length=2)
     caller_type: CallerType
     explicit_enterprise_identity: EnterpriseIdentity
     model_abnormal_end: bool | None
@@ -51,6 +62,7 @@ class CallExtractionResult(BaseModel):
     contact_target: str | None = Field(default=None, max_length=200)
     active_contacted_other_department: bool | None
     resolved_status: bool | None
+    unresolved_reason: str | None = Field(default=None, max_length=300)
     natural_qa_turns: int | None = Field(default=None, ge=0)
     core_question_turns: int | None = Field(default=None, ge=0)
     effective_qa_turns: int | None = Field(default=None, ge=0)
@@ -70,6 +82,10 @@ class CallExtractionResult(BaseModel):
             and self.effective_qa_turns > self.natural_qa_turns
         ):
             raise ValueError("有效问答轮次不能大于自然问答轮次")
+        if self.resolved_status is False and not self.unresolved_reason:
+            raise ValueError("未直接解决时必须提供简要原因")
+        if self.resolved_status is not False and self.unresolved_reason is not None:
+            raise ValueError("直接解决或无法判断时未解决原因必须为空")
         return self
 
 
@@ -159,13 +175,17 @@ def build_call_payload(
     transcript: str | None,
     business_content: str | None,
     answer_content: str | None,
+    core_question: str | None,
+    topic_category: str | None,
 ) -> dict[str, str | None]:
-    """Build the exact three-field payload approved for call extraction."""
+    """Build a privacy-minimized payload for call extraction and classification."""
 
     return {
         "transcript": redact_sensitive_text(transcript),
         "business_content": redact_sensitive_text(business_content),
         "answer_content": redact_sensitive_text(answer_content),
+        "core_question": redact_sensitive_text(core_question),
+        "topic_category": redact_sensitive_text(topic_category),
     }
 
 

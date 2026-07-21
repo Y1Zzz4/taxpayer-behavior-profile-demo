@@ -86,24 +86,33 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
 
     for required in (
         "12366",
-        "纳税缴费服务热线",
+        "纳税服务热线",
         "涉税费咨询、信息查询、服务投诉、违法举报、意见建议",
         "来电服务工作台",
         "画像数据概览",
         "来电量趋势",
         "问题解决情况",
         "业务熟练度分层",
-        "数据覆盖质量",
+        "服务画像类型",
+        "专题类别与解决情况",
+        "需求类别与解决情况",
         "数据解读",
         "历史来电记录",
-        "接听前速览",
+        "信息速览",
+        "近5个工作日",
+        "原始登记信息（A—P列）",
+        "关键结构化分析结果",
         "advice.advice_summary",
         "优先执行事项",
         "查看详细接待建议",
         "查看全部来电",
         "上一页",
         "下一页",
+        "查看依据",
+        "renderStackedBars",
     ):
         assert required in page
+    assert '<span class="panel-icon">' not in page
+    assert '<h2>服务画像分类方法</h2>' not in page
     assert "radial-gradient" not in page
     assert "本地 Demo 在线" not in page

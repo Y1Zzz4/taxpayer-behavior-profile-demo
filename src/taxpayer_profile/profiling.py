@@ -115,6 +115,66 @@ def analyze_service(
 
 
 @dataclass(frozen=True)
+class ServiceProfileClassification:
+    """Transparent phone-level segment for service preparation, not tax risk."""
+
+    profile_type: str
+    basis: str
+
+
+def classify_service_profile(
+    *,
+    total_calls: int,
+    repeated_issues: int,
+    unresolved: int,
+    work_orders: int,
+    dissatisfaction: int,
+    proficiency_score: float | None,
+) -> ServiceProfileClassification:
+    """Assign one explainable service segment using a stable priority order."""
+
+    if dissatisfaction > 0:
+        return ServiceProfileClassification(
+            "服务关注型",
+            f"历史出现{dissatisfaction}次对本通热线服务不满记录，接待时应提高节点透明度。",
+        )
+    if unresolved > 0 or work_orders > 0:
+        signals = []
+        if unresolved:
+            signals.append(f"{unresolved}次未直接解决")
+        if work_orders:
+            signals.append(f"{work_orders}次工单")
+        return ServiceProfileClassification(
+            "事项待跟进型",
+            f"历史存在{'、'.join(signals)}，需要优先确认事项当前处理节点。",
+        )
+    if repeated_issues > 0 or total_calls >= 3:
+        return ServiceProfileClassification(
+            "持续咨询型",
+            f"累计来电{total_calls}次、同类诉求{repeated_issues}次，已形成持续咨询特征。",
+        )
+    if proficiency_score is not None and proficiency_score < 5:
+        return ServiceProfileClassification(
+            "引导辅助型",
+            f"历史业务熟练度为{proficiency_score:.1f}/10，适合采用通俗分步引导。",
+        )
+    if proficiency_score is not None and proficiency_score >= 8:
+        return ServiceProfileClassification(
+            "熟练自主型",
+            f"历史业务熟练度为{proficiency_score:.1f}/10，可优先提供结论和关键节点。",
+        )
+    if total_calls <= 1:
+        return ServiceProfileClassification(
+            "初次咨询型",
+            "当前仅有一次历史来电，稳定服务偏好和咨询模式仍需继续观察。",
+        )
+    return ServiceProfileClassification(
+        "常规咨询型",
+        f"累计来电{total_calls}次，暂未出现需优先跟进或特别调整沟通方式的稳定信号。",
+    )
+
+
+@dataclass(frozen=True)
 class ServiceStrategy:
     attention_level: str
     recommended_mode: str

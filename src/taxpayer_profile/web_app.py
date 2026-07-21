@@ -108,13 +108,37 @@ class DemoService:
         ]
         daily_calls = Counter(item.call_time.date().isoformat() for item in trajectories)
         caller_types = Counter(item.caller_type or "暂未识别" for item in profiles)
+        service_profile_types = Counter(
+            item.service_profile_type or "暂未分类" for item in profiles
+        )
         service_ratings = Counter(
             item.service_rating or "暂未评价" for item in trajectories
         )
-        question_categories = Counter(
-            item.father_question_2 or item.father_question or "暂未分类"
-            for item in trajectories
-        )
+        question_categories: Counter[str] = Counter()
+        demand_categories: Counter[str] = Counter()
+        question_resolution: dict[str, Counter[str]] = {}
+        demand_resolution: dict[str, Counter[str]] = {}
+        for item in trajectories:
+            resolution_key = (
+                "resolved"
+                if item.resolved_status is True
+                else "unresolved"
+                if item.resolved_status is False
+                else "unknown"
+            )
+            topic_label = item.topic_category or "暂未分类"
+            question_categories[topic_label] += 1
+            question_resolution.setdefault(topic_label, Counter())[resolution_key] += 1
+            labels = (
+                [part.strip() for part in item.demand_category.split(",")]
+                if item.demand_category
+                else ["暂未分类"]
+            )
+            for label in labels:
+                if not label:
+                    continue
+                demand_categories[label] += 1
+                demand_resolution.setdefault(label, Counter())[resolution_key] += 1
         resolution_status = Counter(
             "已直接解决"
             if item.resolved_status is True
@@ -133,19 +157,6 @@ class DemoService:
             else "暂未评估"
             for item in profiles
         )
-        classified_count = sum(
-            bool(item.father_question_2 or item.father_question)
-            for item in trajectories
-        )
-        analysis_completed = sum(
-            item.analysis_status == "completed" for item in trajectories
-        )
-        quality_rows = [
-            _quality_row("结构化分析完成度", analysis_completed, len(trajectories)),
-            _quality_row("咨询事项分类覆盖", classified_count, len(trajectories)),
-            _quality_row("解决状态判定覆盖", len(known_resolution), len(trajectories)),
-            _quality_row("画像熟练度评估覆盖", len(proficiency), len(profiles)),
-        ]
         if daily_calls:
             latest_date = max(item.call_time.date() for item in trajectories)
             first_date = min(item.call_time.date() for item in trajectories)
@@ -205,9 +216,15 @@ class DemoService:
                 for date in trend_dates
             ],
             "caller_types": _counter_rows(caller_types),
+            "service_profile_types": _counter_rows(service_profile_types),
             "resolution_status": _counter_rows(resolution_status),
             "service_ratings": _counter_rows(service_ratings),
-            "question_categories": _counter_rows(question_categories, limit=8),
+            "question_categories": _segmented_counter_rows(
+                question_categories, question_resolution, limit=8
+            ),
+            "demand_categories": _segmented_counter_rows(
+                demand_categories, demand_resolution
+            ),
             "proficiency_bands": _counter_rows(proficiency_bands),
             "service_signals": [
                 {
@@ -239,7 +256,6 @@ class DemoService:
                     ),
                 },
             ],
-            "data_quality": quality_rows,
             "latest_update": (
                 {
                     "data_date": latest_update.data_date,
@@ -314,13 +330,16 @@ class DemoService:
             items.append(
                 {
                     "masked_phone": masked_phone,
+                    "business_id": item.business_id,
                     "call_time": item.call_time,
                     "caller_type": item.caller_type,
                     "enterprise_identity": item.enterprise_identity,
                     "core_question": item.core_question,
-                    "question_category": item.father_question_2
-                    or item.father_question,
+                    "question_category": item.topic_category,
+                    "demand_category": item.demand_category,
+                    "registration_unit": item.registration_unit,
                     "resolved": item.resolved_status,
+                    "unresolved_reason": item.unresolved_reason,
                     "work_order": item.work_order,
                     "is_repeated_call": item.is_repeated_call,
                     "is_repeated_issue": item.is_repeated_issue,
@@ -337,6 +356,61 @@ class DemoService:
             "items": items,
         }
 
+    def history_detail(self, business_id: object) -> dict[str, object] | None:
+        identifier = str(business_id).strip()
+        if not identifier:
+            raise ValueError("缺少业务编号")
+        with self._sessions() as session:
+            item = session.get(CallTrajectory, identifier)
+        if item is None:
+            return None
+        masked_phone = "号码信息不可用"
+        if item.raw_phone_encrypted:
+            try:
+                masked_phone = _mask_phone(
+                    self.protector.decrypt_phone(item.raw_phone_encrypted)
+                )
+            except (ValueError, TypeError):
+                pass
+        return {
+            "original": {
+                "business_id": item.business_id,
+                "transcript": item.raw_transcript,
+                "registration_time": item.registration_time,
+                "call_start_time": item.raw_call_start_time,
+                "call_end_time": item.call_end_time,
+                "agent_id": item.agent_id,
+                "agent_name": item.agent_name,
+                "business_content": item.business_content,
+                "answer_content": item.answer_content,
+                "recording_path": item.recording_path,
+                "registration_unit": item.registration_unit,
+                "handling_method": item.handling_method,
+                "business_category": item.business_category,
+                "masked_phone": masked_phone,
+                "satisfaction": item.satisfaction,
+                "call_serial_number": item.call_serial_number,
+            },
+            "extracted": {
+                "caller_type": item.caller_type,
+                "detailed_subject": item.enterprise_identity,
+                "core_question": item.core_question,
+                "topic_category": item.topic_category,
+                "demand_category": item.demand_category,
+                "resolved": item.resolved_status,
+                "unresolved_reason": item.unresolved_reason,
+                "work_order": item.work_order,
+                "proficiency_score": item.proficiency_score,
+                "proficiency_summary": item.proficiency_summary,
+                "service_effect_rating": item.service_rating,
+                "service_effect_summary": item.service_summary,
+                "is_repeated_issue": item.is_repeated_issue,
+                "repeat_reason": item.repeat_reason,
+                "contact_target": item.contact_target,
+                "analysis_status": item.analysis_status,
+            },
+        }
+
 
 def _counter_rows(
     counter: Counter[str], limit: int | None = None
@@ -345,12 +419,21 @@ def _counter_rows(
     return [{"label": label, "value": value} for label, value in rows]
 
 
-def _quality_row(label: str, numerator: int, denominator: int) -> dict[str, object]:
-    return {
-        "label": label,
-        "value": round(100 * numerator / denominator, 1) if denominator else 0,
-        "detail": f"{numerator}/{denominator}",
-    }
+def _segmented_counter_rows(
+    counter: Counter[str],
+    resolution: dict[str, Counter[str]],
+    limit: int | None = None,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "label": label,
+            "value": value,
+            "resolved": resolution[label]["resolved"],
+            "unresolved": resolution[label]["unresolved"],
+            "unknown": resolution[label]["unknown"],
+        }
+        for label, value in counter.most_common(limit)
+    ]
 
 
 def _mask_phone(phone: str) -> str:
@@ -415,7 +498,12 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path not in {"/api/profile", "/api/advice", "/api/history"}:
+            if path not in {
+                "/api/profile",
+                "/api/advice",
+                "/api/history",
+                "/api/history/detail",
+            }:
                 self._error(404, "接口不存在")
                 return
             try:
@@ -435,7 +523,7 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                     if phone is None:
                         raise ValueError("缺少来电号码")
                     self._json(200, service.generate_advice(phone))
-                else:
+                elif path == "/api/history":
                     self._json(
                         200,
                         service.history_page(
@@ -444,6 +532,12 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
                             phone=body.get("phone"),
                         ),
                     )
+                else:
+                    business_id = body.get("business_id")
+                    if business_id is None:
+                        raise ValueError("缺少业务编号")
+                    detail = service.history_detail(business_id)
+                    self._json(200, {"found": detail is not None, "detail": detail})
             except ValueError as exc:
                 self._error(400, str(exc))
 

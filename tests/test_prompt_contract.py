@@ -23,12 +23,14 @@ def test_call_extraction_prompt_contains_required_business_rules() -> None:
         "caller_type": "咨询主体",
         "identity": "转写中明确的企业身份",
         "proficiency": "办税熟练程度",
-        "service": "服务评价",
+        "service": "服务效果评估",
+        "demand_category": "工单/拉起类",
+        "unresolved_reason": "unresolved_reason",
         "no_policy_claim": "不判断政策答案是否绝对正确",
     }
     missing = [name for name, text in required_rules.items() if text not in prompt]
     assert missing == []
-    assert PROMPT_VERSION == "call-extraction-v5"
+    assert PROMPT_VERSION == "call-extraction-v6"
 
 
 def test_prompt_does_not_request_prohibited_structured_identifiers() -> None:
@@ -48,4 +50,5 @@ def test_realtime_advice_prompt_is_phone_level_not_a_policy_answer() -> None:
     assert "不能直接认定为本次来电目的" in prompt
     assert "advice_summary" in prompt
     assert "号码或其他个人标识" in prompt
-    assert REALTIME_ADVICE_PROMPT_VERSION == "realtime-service-advice-v2"
+    assert "不能只写“常规型”“澄清确认型”“耐心沟通型”" in prompt
+    assert REALTIME_ADVICE_PROMPT_VERSION == "realtime-service-advice-v3"

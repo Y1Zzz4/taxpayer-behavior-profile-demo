@@ -21,24 +21,34 @@ def test_database_creates_only_three_core_tables(tmp_path: Path) -> None:
     }
 
 
-def test_call_trajectory_excludes_raw_and_enterprise_private_fields(
+def test_call_trajectory_stores_required_raw_fields_but_not_enterprise_private_fields(
     tmp_path: Path,
 ) -> None:
     engine = make_engine(tmp_path / "profiles.sqlite3")
     create_schema(engine)
     columns = {item["name"] for item in inspect(engine).get_columns("call_trajectories")}
 
-    assert columns.isdisjoint(
-        {
-            "transcript",
-            "转写结果",
-            "business_content",
-            "answer_content",
-            "recording_path",
-            "taxpayer_name",
-            "social_credit_code",
-        }
-    )
+    assert {
+        "registration_time",
+        "raw_call_start_time",
+        "call_end_time",
+        "raw_transcript",
+        "agent_id",
+        "agent_name",
+        "business_content",
+        "answer_content",
+        "recording_path",
+        "registration_unit",
+        "handling_method",
+        "business_category",
+        "raw_phone_encrypted",
+        "satisfaction",
+        "call_serial_number",
+        "topic_category",
+        "demand_category",
+        "unresolved_reason",
+    }.issubset(columns)
+    assert columns.isdisjoint({"taxpayer_name", "social_credit_code"})
 
 
 def test_profile_does_not_persist_realtime_advice(tmp_path: Path) -> None:

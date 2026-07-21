@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterable, Protocol
+from typing import Callable, Protocol
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -40,13 +40,14 @@ from taxpayer_profile.normalization import NormalizedCallInput, normalize_call_r
 from taxpayer_profile.profiling import (
     analyze_proficiency,
     analyze_service,
+    classify_service_profile,
     weighted_proficiency,
 )
 from taxpayer_profile.repeat_analysis import RepeatDecision, analyze_repeat_issue
 from taxpayer_profile.security import PhoneProtector
 
-ANALYSIS_VERSION = "profile-2026-07-20-v2"
-EXTRACTION_VERSION = "extraction-2026-07-20-v2"
+ANALYSIS_VERSION = "profile-2026-07-21-v3"
+EXTRACTION_VERSION = "extraction-2026-07-21-v3"
 
 
 class AnalysisClient(Protocol):
@@ -82,14 +83,6 @@ class EnrichmentMetadata:
     analysis_status: str
     model_name: str | None
     analysis_error: str | None = None
-
-
-def _latest_nonempty(trajectories: Iterable[CallTrajectory], field: str) -> object:
-    for trajectory in reversed(list(trajectories)):
-        value = getattr(trajectory, field)
-        if value is not None and value != "":
-            return value
-    return None
 
 
 def _trajectory_key(trajectory: CallTrajectory) -> tuple[datetime, str]:
@@ -134,6 +127,55 @@ def _question_summary(questions: list[str]) -> str | None:
     return "；".join(f"{index}. {question}" for index, question in enumerate(questions, 1))
 
 
+def _unresolved_summary(trajectories: list[CallTrajectory], limit: int = 3) -> str | None:
+    rows: list[str] = []
+    for item in reversed(trajectories):
+        if item.resolved_status is not False:
+            continue
+        question = item.core_question or item.topic_category or "该次咨询事项"
+        reason = item.unresolved_reason or "未直接解决原因未形成明确记录"
+        rendered = f"{question}（原因：{reason}）"
+        if rendered not in rows:
+            rows.append(rendered)
+        if len(rows) >= limit:
+            break
+    return _question_summary(rows)
+
+
+def _personalized_profile_summary(profile: CallerProfile) -> str:
+    sentences = [
+        f"该号码当前呈现“{profile.service_profile_type or '常规咨询型'}”服务画像。"
+    ]
+    if profile.caller_type == "企业":
+        if profile.enterprise_identity in {None, "无法判断"}:
+            sentences.append("最近一次为企业咨询，细化主体暂无法判断。")
+        else:
+            sentences.append(f"最近一次为企业咨询，细化主体为{profile.enterprise_identity}。")
+    elif profile.caller_type == "个人":
+        sentences.append("最近一次以个人身份咨询。")
+    if profile.latest_question:
+        categories = [
+            value
+            for value in (profile.latest_topic_category, profile.latest_demand_category)
+            if value
+        ]
+        suffix = f"，归入{'、'.join(categories)}" if categories else ""
+        sentences.append(f"最近关注“{profile.latest_question}”{suffix}。")
+    if profile.proficiency_score is not None:
+        sentences.append(
+            f"历史沟通显示其业务熟练度约为{profile.proficiency_score:.1f}/10，"
+            f"{profile.proficiency_summary or '建议在本次接待中继续观察理解程度'}"
+        )
+    if profile.unresolved_count:
+        reason = profile.latest_unresolved_reason or "仍需核对具体处理节点"
+        sentences.append(
+            f"历史有{profile.unresolved_count}次未直接解决，最近原因是“{reason}”。"
+        )
+    elif profile.latest_service_rating:
+        sentences.append(f"最近一次服务效果评估为“{profile.latest_service_rating}”。")
+    return "".join(sentences)
+
+
 def _update_profile(
     *, profile: CallerProfile, trajectories: list[CallTrajectory]
 ) -> None:
@@ -153,20 +195,11 @@ def _update_profile(
     profile.dissatisfaction_count = sum(
         item.taxpayer_dissatisfied is True for item in ordered
     )
-    profile.caller_type = _latest_nonempty(ordered, "caller_type")  # type: ignore[assignment]
+    profile.caller_type = latest.caller_type or "无法判断"
     if profile.caller_type == "个人":
         profile.enterprise_identity = "不适用"
     elif profile.caller_type == "企业":
-        profile.enterprise_identity = next(
-            (
-                item.enterprise_identity
-                for item in reversed(ordered)
-                if item.caller_type == "企业"
-                and item.enterprise_identity
-                in {"法定代表人", "财务负责人", "办税人员", "其他"}
-            ),
-            "无法判断",
-        )
+        profile.enterprise_identity = latest.enterprise_identity or "无法判断"
     else:
         profile.enterprise_identity = "无法判断"
     profile.proficiency_score = weighted_proficiency(
@@ -181,30 +214,37 @@ def _update_profile(
         "无法判断",
     )
     profile.latest_business_id = latest.business_id
-    profile.latest_question = _latest_nonempty(ordered, "core_question")  # type: ignore[assignment]
-    profile.latest_father_question = _latest_nonempty(ordered, "father_question")  # type: ignore[assignment]
+    profile.latest_question = latest.core_question
+    profile.latest_topic_category = latest.topic_category
+    profile.latest_demand_category = latest.demand_category
+    profile.latest_registration_unit = latest.registration_unit
+    profile.latest_father_question = latest.father_question
     profile.latest_resolved = latest.resolved_status
+    profile.latest_unresolved_reason = next(
+        (
+            item.unresolved_reason
+            for item in reversed(ordered)
+            if item.resolved_status is False and item.unresolved_reason
+        ),
+        None,
+    )
     profile.latest_service_rating = latest.service_rating
     recent_questions = _recent_unique_questions(ordered)
-    unresolved_questions = _recent_unique_questions(ordered, unresolved_only=True)
     repeated_questions = _recent_unique_questions(ordered, repeated_only=True)
     profile.recent_questions_summary = _question_summary(recent_questions)
-    profile.unresolved_questions_summary = _question_summary(unresolved_questions)
+    profile.unresolved_questions_summary = _unresolved_summary(ordered)
     profile.repeated_questions_summary = _question_summary(repeated_questions)
-    summary_parts = [f"累计来电{profile.total_call_count}次"]
-    if profile.repeated_call_count:
-        summary_parts.append(f"其中重复来电{profile.repeated_call_count}次")
-    if profile.unresolved_count:
-        summary_parts.append(f"未直接解决{profile.unresolved_count}次")
-    if profile.work_order_count:
-        summary_parts.append(f"工单{profile.work_order_count}次")
-    if profile.repeated_issue_count:
-        summary_parts.append(f"确认重复问题{profile.repeated_issue_count}次")
-    if profile.proficiency_score is not None:
-        summary_parts.append(f"办税熟练度{profile.proficiency_score:.1f}/10")
-    if profile.latest_question:
-        summary_parts.append(f"最近咨询“{profile.latest_question}”")
-    profile.profile_summary = "；".join(summary_parts) + "。"
+    classification = classify_service_profile(
+        total_calls=profile.total_call_count,
+        repeated_issues=profile.repeated_issue_count,
+        unresolved=profile.unresolved_count,
+        work_orders=profile.work_order_count,
+        dissatisfaction=profile.dissatisfaction_count,
+        proficiency_score=profile.proficiency_score,
+    )
+    profile.service_profile_type = classification.profile_type
+    profile.service_profile_basis = classification.basis
+    profile.profile_summary = _personalized_profile_summary(profile)
     profile.updated_at = datetime.now(timezone.utc)
 
 
@@ -264,8 +304,35 @@ def _local_trusted_enrichment(call: NormalizedCallInput) -> NormalizedCallInput:
         effective_qa_turns=call.effective_qa_turns,
         service_was_unclear=bool(call.potential_pushback),
     )
+    combined = " ".join(
+        value
+        for value in (call.core_question, call.business_content, call.answer_content)
+        if value
+    )
+    if call.work_order:
+        demand_category = "工单/拉起类"
+    elif any(term in combined for term in ("进度", "查询", "联系方式", "地址")):
+        demand_category = "涉税查询类"
+    elif any(term in combined for term in ("报错", "异常", "无法登录", "页面空白")):
+        demand_category = "系统异常类"
+    elif any(term in combined for term in ("投诉", "举报")):
+        demand_category = "投诉举报类"
+    elif any(term in combined for term in ("如何", "操作", "办理", "材料", "申报")):
+        demand_category = "操作辅导类"
+    else:
+        demand_category = "其他类"
+    unresolved_reason = None
+    if call.resolved_status is False:
+        if call.work_order:
+            unresolved_reason = "已转工单或内部流转，需等待后续处理"
+        elif call.contacted_other_department:
+            unresolved_reason = "需联系相关人员或部门继续办理"
+        else:
+            unresolved_reason = "本通记录显示问题未直接解决，具体原因未明确"
     return replace(
         call,
+        demand_category=demand_category,
+        unresolved_reason=unresolved_reason,
         proficiency_score=proficiency.score,
         proficiency_summary=proficiency.summary,
         service_rating=service.rating,
@@ -293,11 +360,24 @@ def _merge_extraction(
     def trusted_or_extracted(existing: object, extracted: object) -> object:
         return existing if trusted and existing is not None else extracted
 
+    resolved_status = trusted_or_extracted(
+        call.resolved_status, extraction.resolved_status
+    )
+    unresolved_reason = None
+    if resolved_status is False:
+        unresolved_reason = extraction.unresolved_reason
+        if not unresolved_reason:
+            if call.work_order:
+                unresolved_reason = "已转工单或内部流转，需等待后续处理"
+            elif extraction.contacted_other_department:
+                unresolved_reason = "需联系相关人员或部门继续办理"
+            else:
+                unresolved_reason = "本通未形成明确处理路径"
+
     return replace(
         call,
-        core_question=trusted_or_extracted(  # type: ignore[arg-type]
-            call.core_question, extraction.core_question
-        ),
+        core_question=call.core_question or extraction.core_question,
+        demand_category=", ".join(extraction.demand_categories),
         father_question=trusted_or_extracted(  # type: ignore[arg-type]
             call.father_question, extraction.father_question
         ),
@@ -306,9 +386,8 @@ def _merge_extraction(
         ),
         caller_type=caller_type,
         enterprise_identity=identity.identity,
-        resolved_status=trusted_or_extracted(  # type: ignore[arg-type]
-            call.resolved_status, extraction.resolved_status
-        ),
+        resolved_status=resolved_status,  # type: ignore[arg-type]
+        unresolved_reason=unresolved_reason,
         model_abnormal_end=trusted_or_extracted(  # type: ignore[arg-type]
             call.model_abnormal_end, extraction.model_abnormal_end
         ),
@@ -358,13 +437,20 @@ def _enrich_call(
     mode: InputMode,
     client: AnalysisClient | None,
 ) -> tuple[NormalizedCallInput, EnrichmentMetadata]:
-    has_text = bool(call.transcript or call.business_content or call.answer_content)
+    has_text = bool(
+        call.transcript
+        or call.business_content
+        or call.answer_content
+        or call.core_question
+        or call.topic_category
+    )
     if not has_text:
         if mode == InputMode.TRUSTED_IMPORT:
             enriched = _local_trusted_enrichment(call)
         else:
             enriched = replace(
                 call,
+                demand_category="其他类",
                 service_rating="无法判断",
                 service_summary="无法判断：可用文本不足。",
             )
@@ -390,6 +476,8 @@ def _enrich_call(
             transcript=call.transcript,
             business_content=call.business_content,
             answer_content=call.answer_content,
+            core_question=call.core_question,
+            topic_category=call.topic_category,
         )
     )
     enriched = _merge_extraction(call, extraction, mode)
@@ -549,10 +637,21 @@ def _source_record_fingerprint(call: NormalizedCallInput) -> str:
             "phone": call.phone,
             "registration_time": str(call.registration_time),
             "call_time": str(call.call_time),
+            "raw_call_start_time": str(call.raw_call_start_time),
             "call_end_time": str(call.call_end_time),
             "transcript": call.transcript,
+            "agent_id": call.agent_id,
+            "agent_name": call.agent_name,
             "business_content": call.business_content,
             "answer_content": call.answer_content,
+            "recording_path": call.recording_path,
+            "registration_unit": call.registration_unit,
+            "handling_method": call.handling_method,
+            "business_category": call.business_category,
+            "satisfaction": call.satisfaction,
+            "call_serial_number": call.call_serial_number,
+            "core_question": call.core_question,
+            "topic_category": call.topic_category,
             "raw_identity_label": call.raw_identity_label,
             "work_order": call.work_order,
             "rule_abnormal_end": call.rule_abnormal_end,
@@ -567,6 +666,7 @@ def _trajectory_from_call(
     *,
     call: NormalizedCallInput,
     phone_hash: str,
+    raw_phone_encrypted: str,
     histories: list[CallTrajectory],
     repeat: RepeatDecision,
     metadata: EnrichmentMetadata,
@@ -589,14 +689,30 @@ def _trajectory_from_call(
         phone_hash=phone_hash,
         call_time=call.call_time,
         registration_time=call.registration_time,
+        raw_call_start_time=call.raw_call_start_time,
         call_end_time=call.call_end_time,
         call_time_source=call.call_time_source,
+        raw_phone_encrypted=raw_phone_encrypted,
+        raw_transcript=call.transcript,
+        agent_id=call.agent_id,
+        agent_name=call.agent_name,
+        business_content=call.business_content,
+        answer_content=call.answer_content,
+        recording_path=call.recording_path,
+        registration_unit=call.registration_unit,
+        handling_method=call.handling_method,
+        business_category=call.business_category,
+        satisfaction=call.satisfaction,
+        call_serial_number=call.call_serial_number,
         caller_type=call.caller_type,
         enterprise_identity=call.enterprise_identity,
         core_question=call.core_question,
+        topic_category=call.topic_category,
+        demand_category=call.demand_category,
         father_question=call.father_question,
         father_question_2=call.father_question_2,
         resolved_status=call.resolved_status,
+        unresolved_reason=call.unresolved_reason,
         work_order=call.work_order,
         rule_abnormal_end=call.rule_abnormal_end,
         model_abnormal_end=call.model_abnormal_end,
@@ -766,9 +882,11 @@ def process_workbook(
             if progress_callback is not None:
                 progress_callback(position, total_calls, "处理失败")
             continue
+        encrypted_phone = protector.encrypt_phone(call.phone)
         trajectory = _trajectory_from_call(
             call=enriched,
             phone_hash=phone_hash,
+            raw_phone_encrypted=encrypted_phone,
             histories=histories,
             repeat=repeat,
             metadata=metadata,
@@ -780,7 +898,7 @@ def process_workbook(
         all_phone_histories.sort(key=_trajectory_key)
         existing_by_business[call.business_id] = trajectory
         affected_hashes.add(phone_hash)
-        encrypted_phones.setdefault(phone_hash, protector.encrypt_phone(call.phone))
+        encrypted_phones.setdefault(phone_hash, encrypted_phone)
         repeated_calls += int(trajectory.is_repeated_call)
         repeated_issues += int(trajectory.is_repeated_issue is True)
         unresolved += int(trajectory.resolved_status is False)

@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from cryptography.fernet import Fernet
 from openpyxl import load_workbook
@@ -13,7 +14,11 @@ from taxpayer_profile.database import (
 )
 from taxpayer_profile.exporter import export_results
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
-from taxpayer_profile.query import query_profile
+from taxpayer_profile.query import (
+    _five_workdays,
+    _recent_workday_statistics,
+    query_profile,
+)
 from taxpayer_profile.security import PhoneProtector
 from taxpayer_profile.web_app import DemoService
 
@@ -45,6 +50,13 @@ def _seed_database(path: Path, protector: PhoneProtector) -> None:
                 business_id="BIZ-1",
                 phone_hash=phone_hash,
                 call_time=call_time,
+                registration_time=call_time,
+                raw_call_start_time=call_time,
+                raw_phone_encrypted=protector.encrypt_phone("13800000001"),
+                raw_transcript="纳税人咨询申报问题，坐席给出办理路径。",
+                business_content="咨询申报问题",
+                answer_content="已告知办理路径",
+                registration_unit="第一税务所",
                 caller_type="个人",
                 enterprise_identity="不适用",
                 core_question='=HYPERLINK("https://example.invalid","申报问题")',
@@ -96,6 +108,24 @@ def test_export_has_three_formatted_worksheets_and_query_interface(
     assert workbook["号码画像"]["A2"].value == "13800000001"
     trajectory_sheet = workbook["来电轨迹"]
     trajectory_headers = [cell.value for cell in trajectory_sheet[1]]
+    assert trajectory_headers[:16] == [
+        "业务编号",
+        "转写结果",
+        "登记日期",
+        "通话开始时间",
+        "通话结束时间",
+        "坐席工号",
+        "坐席姓名",
+        "业务内容",
+        "答复内容",
+        "录音路径",
+        "登记单位",
+        "登记处理方式",
+        "业务类别",
+        "来电号码",
+        "满意度",
+        "呼叫流水号",
+    ]
     resolved_column = trajectory_headers.index("是否直接解决") + 1
     assert trajectory_sheet.cell(row=2, column=resolved_column).value == "是"
     profile_sheet = workbook["号码画像"]
@@ -113,6 +143,7 @@ def test_export_has_three_formatted_worksheets_and_query_interface(
         phone="13800000001", database_path=database, protector=protector
     )
     assert result is not None
+    assert "phone" not in result
     assert result["total_call_count"] == 1
     assert result["agent_context"]["statistics"]["total_calls"] == 1
     assert "recommended_mode" not in result["agent_context"]
@@ -146,7 +177,16 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert dashboard["resolution_status"] == [
         {"label": "已直接解决", "value": 1}
     ]
-    assert dashboard["data_quality"][0]["value"] == 100.0
+    assert dashboard["question_categories"] == [
+        {
+            "label": "暂未分类",
+            "value": 1,
+            "resolved": 1,
+            "unresolved": 0,
+            "unknown": 0,
+        }
+    ]
+    assert "data_quality" not in dashboard
     assert dashboard["service_signals"][0]["value"] == 0
     assert dashboard["latest_update"]["input_filename"] == "synthetic.xlsx"
 
@@ -156,3 +196,65 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert history["total_pages"] == 1
     assert history["items"][0]["masked_phone"] == "138****0001"
     assert "13800000001" not in str(history)
+
+    detail = service.history_detail("BIZ-1")
+    assert detail is not None
+    assert detail["original"]["masked_phone"] == "138****0001"
+    assert detail["original"]["transcript"] == "纳税人咨询申报问题，坐席给出办理路径。"
+    assert detail["original"]["registration_unit"] == "第一税务所"
+    assert detail["extracted"]["resolved"] is True
+    assert "13800000001" not in str(detail)
+
+
+def test_information_overview_uses_five_workdays_and_overlapping_demand_labels() -> None:
+    assert [item.isoformat() for item in _five_workdays(datetime(2026, 6, 22).date())] == [
+        "2026-06-16",
+        "2026-06-17",
+        "2026-06-18",
+        "2026-06-19",
+        "2026-06-22",
+    ]
+    trajectories = [
+        SimpleNamespace(
+            call_time=datetime(2026, 6, 22, 9),
+            demand_category="政策咨询类, 操作辅导类",
+            topic_category="个税汇算",
+            work_order=False,
+            resolved_status=True,
+            taxpayer_dissatisfied=False,
+        ),
+        SimpleNamespace(
+            call_time=datetime(2026, 6, 21, 9),
+            demand_category="政策咨询类",
+            topic_category="个税汇算",
+            work_order=True,
+            resolved_status=False,
+            taxpayer_dissatisfied=True,
+        ),
+        SimpleNamespace(
+            call_time=datetime(2026, 6, 19, 9),
+            demand_category="操作辅导类",
+            topic_category="个税汇算",
+            work_order=False,
+            resolved_status=True,
+            taxpayer_dissatisfied=False,
+        ),
+        SimpleNamespace(
+            call_time=datetime(2026, 6, 16, 9),
+            demand_category="涉税查询类",
+            topic_category="其他",
+            work_order=True,
+            resolved_status=False,
+            taxpayer_dissatisfied=False,
+        ),
+    ]
+
+    assert _recent_workday_statistics(trajectories) == {
+        "start_date": "2026-06-16",
+        "end_date": "2026-06-22",
+        "call_count": 3,
+        "same_demand_count": 2,
+        "work_order_count": 1,
+        "unresolved_count": 1,
+        "dissatisfaction_count": 0,
+    }

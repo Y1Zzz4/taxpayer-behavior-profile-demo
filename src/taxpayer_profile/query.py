@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,59 @@ from taxpayer_profile.models import CallerProfile, CallTrajectory
 from taxpayer_profile.security import PhoneProtector, normalize_phone
 
 
+def _five_workdays(anchor: date) -> list[date]:
+    days: list[date] = []
+    current = anchor
+    while len(days) < 5:
+        if current.weekday() < 5:
+            days.append(current)
+        current -= timedelta(days=1)
+    return sorted(days)
+
+
+def _recent_workday_statistics(
+    trajectories: list[CallTrajectory],
+) -> dict[str, Any]:
+    latest = trajectories[0]
+    workdays = _five_workdays(latest.call_time.date())
+    allowed = set(workdays)
+    recent = [item for item in trajectories if item.call_time.date() in allowed]
+    latest_demands = {
+        label.strip()
+        for label in (latest.demand_category or "").split(",")
+        if label.strip()
+    }
+    if latest_demands:
+        same_kind = sum(
+            bool(
+                latest_demands
+                & {
+                    label.strip()
+                    for label in (item.demand_category or "").split(",")
+                    if label.strip()
+                }
+            )
+            for item in recent
+        )
+    elif latest.topic_category:
+        same_kind = sum(
+            item.topic_category == latest.topic_category for item in recent
+        )
+    else:
+        same_kind = 0
+    return {
+        "start_date": workdays[0].isoformat(),
+        "end_date": workdays[-1].isoformat(),
+        "call_count": len(recent),
+        "same_demand_count": same_kind,
+        "work_order_count": sum(item.work_order is True for item in recent),
+        "unresolved_count": sum(item.resolved_status is False for item in recent),
+        "dissatisfaction_count": sum(
+            item.taxpayer_dissatisfied is True for item in recent
+        ),
+    }
+
+
 def build_agent_context(
     profile: CallerProfile, trajectories: list[CallTrajectory], *, history_limit: int = 5
 ) -> dict[str, Any]:
@@ -20,8 +74,12 @@ def build_agent_context(
     recent_history = trajectories[:history_limit]
     return {
         "profile_summary": profile.profile_summary,
+        "service_profile_type": profile.service_profile_type,
+        "service_profile_basis": profile.service_profile_basis,
         "caller_type": profile.caller_type,
         "enterprise_identity": profile.enterprise_identity,
+        "latest_topic_category": profile.latest_topic_category,
+        "latest_demand_category": profile.latest_demand_category,
         "proficiency_score": profile.proficiency_score,
         "proficiency_summary": profile.proficiency_summary,
         "statistics": {
@@ -37,13 +95,17 @@ def build_agent_context(
         "unresolved_questions": profile.unresolved_questions_summary,
         "repeated_questions": profile.repeated_questions_summary,
         "latest_resolved": profile.latest_resolved,
+        "latest_unresolved_reason": profile.latest_unresolved_reason,
         "latest_service_rating": profile.latest_service_rating,
         "recent_trajectories": [
             {
                 "call_time": item.call_time.isoformat(sep=" "),
                 "question": item.core_question,
                 "question_category": item.father_question,
+                "topic_category": item.topic_category,
+                "demand_category": item.demand_category,
                 "resolved": item.resolved_status,
+                "unresolved_reason": item.unresolved_reason,
                 "work_order": item.work_order,
                 "repeated_issue": item.is_repeated_issue,
                 "waiting": item.waiting_expression,
@@ -81,9 +143,10 @@ def query_profile(
             )
         )
         return {
-            "phone": protector.decrypt_phone(profile.phone_encrypted),
             "caller_type": profile.caller_type,
             "enterprise_identity": profile.enterprise_identity,
+            "service_profile_type": profile.service_profile_type,
+            "service_profile_basis": profile.service_profile_basis,
             "proficiency_score": profile.proficiency_score,
             "proficiency_summary": profile.proficiency_summary,
             "first_call_time": profile.first_call_time.isoformat(sep=" "),
@@ -96,13 +159,18 @@ def query_profile(
             "abnormal_end_count": profile.abnormal_end_count,
             "dissatisfaction_count": profile.dissatisfaction_count,
             "latest_question": profile.latest_question,
+            "latest_topic_category": profile.latest_topic_category,
+            "latest_demand_category": profile.latest_demand_category,
+            "latest_registration_unit": profile.latest_registration_unit,
             "latest_father_question": profile.latest_father_question,
             "latest_resolved": profile.latest_resolved,
+            "latest_unresolved_reason": profile.latest_unresolved_reason,
             "latest_service_rating": profile.latest_service_rating,
             "profile_summary": profile.profile_summary,
             "recent_questions_summary": profile.recent_questions_summary,
             "unresolved_questions_summary": profile.unresolved_questions_summary,
             "repeated_questions_summary": profile.repeated_questions_summary,
+            "recent_workday_statistics": _recent_workday_statistics(trajectories),
             "agent_context": build_agent_context(profile, trajectories),
             "trajectories": [
                 {
@@ -120,11 +188,15 @@ def query_profile(
                     ),
                     "call_time_source": item.call_time_source,
                     "core_question": item.core_question,
+                    "topic_category": item.topic_category,
+                    "demand_category": item.demand_category,
+                    "registration_unit": item.registration_unit,
                     "natural_qa_turns": item.natural_qa_turns,
                     "core_question_turns": item.core_question_turns,
                     "effective_qa_turns": item.effective_qa_turns,
                     "effective_qa_content": item.effective_qa_content,
                     "resolved": item.resolved_status,
+                    "unresolved_reason": item.unresolved_reason,
                     "is_repeated_call": item.is_repeated_call,
                     "is_repeated_issue": item.is_repeated_issue,
                     "repeat_candidate_score": item.repeat_candidate_score,
@@ -132,6 +204,7 @@ def query_profile(
                     "repeat_review_status": item.repeat_review_status,
                     "repeat_reason": item.repeat_reason,
                     "service_rating": item.service_rating,
+                    "service_summary": item.service_summary,
                     "analysis_status": item.analysis_status,
                     "analysis_source": item.analysis_source,
                     "analysis_version": item.analysis_version,
