@@ -1,0 +1,38 @@
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual environments and local secrets
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# IDE and operating-system files
+.vscode/
+.idea/
+.DS_Store
+
+# Sensitive source data and generated artifacts
+data/raw/*
+!data/raw/.gitkeep
+data/output/*
+!data/output/.gitkeep
+data/database/*
+!data/database/.gitkeep
+*.xlsx
+*.xls
+*.xlsm
+*.db
+*.sqlite
+*.sqlite3
+*.log

@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>12366坐席服务辅助系统</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --nav: #102f4b;
+      --nav-deep: #0b2439;
+      --primary: #1c527d;
+      --primary-2: #2d6b9b;
+      --primary-soft: #eaf1f7;
+      --ink: #1c2a38;
+      --muted: #607080;
+      --line: #d6dee5;
+      --bg: #f1f4f7;
+      --paper: #fff;
+      --success: #327052;
+      --success-soft: #eaf5ef;
+      --warning: #93621b;
+      --warning-soft: #fff5e4;
+      --danger: #9a413d;
+      --danger-soft: #faeceb;
+      --shadow: 0 2px 9px rgba(19, 46, 70, .07);
+      --sidebar-width: 248px;
+    }
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--bg); }
+    body {
+      margin: 0; min-height: 100vh; color: var(--ink); background: var(--bg);
+      font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    .hidden { display: none !important; }
+    .sidebar {
+      position: fixed; inset: 0 auto 0 0; z-index: 20; width: var(--sidebar-width);
+      display: flex; flex-direction: column; color: #fff; background: var(--nav);
+      border-right: 1px solid #0a2940;
+    }
+    .side-brand { padding: 27px 23px 24px; border-bottom: 1px solid rgba(255,255,255,.12); }
+    .hotline { font-size: 30px; font-weight: 800; letter-spacing: .04em; line-height: 1; }
+    .hotline-name { margin-top: 9px; font-size: 13px; font-weight: 700; letter-spacing: .06em; }
+    .system-name { margin-top: 5px; color: #afc3d4; font-size: 12px; }
+    .nav-label { margin: 23px 23px 8px; color: #8fa9bd; font-size: 11px; letter-spacing: .12em; }
+    .side-nav { display: grid; gap: 4px; padding: 0 12px; }
+    .nav-link {
+      display: grid; grid-template-columns: 31px 1fr; gap: 7px; align-items: center;
+      min-height: 52px; padding: 0 12px; color: #cbd8e2; background: transparent;
+      border: 0; border-left: 3px solid transparent; border-radius: 3px; text-align: left;
+    }
+    .nav-link:hover { color: #fff; background: rgba(255,255,255,.07); }
+    .nav-link.active { color: #fff; background: rgba(255,255,255,.11); border-left-color: #74a9d1; }
+    .nav-index { color: #83a2b8; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .nav-link.active .nav-index { color: #bcd7eb; }
+    .nav-title { font-size: 14px; font-weight: 700; }
+    .side-foot { margin-top: auto; padding: 20px 23px; border-top: 1px solid rgba(255,255,255,.12); }
+    .service-status { display: flex; align-items: center; gap: 9px; color: #c5d5e1; font-size: 12px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #66ad88; box-shadow: 0 0 0 3px rgba(102,173,136,.13); }
+    .side-note { margin-top: 8px; color: #809caf; font-size: 11px; }
+    .main { min-height: 100vh; margin-left: var(--sidebar-width); }
+    .page-view { width: min(1360px, calc(100% - 52px)); margin: 0 auto; padding: 31px 0 52px; }
+    .page-header {
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 22px;
+      min-height: 73px; margin-bottom: 21px; padding-bottom: 18px; border-bottom: 1px solid #ccd5dd;
+    }
+    .eyebrow { margin-bottom: 7px; color: var(--primary-2); font-size: 12px; font-weight: 750; letter-spacing: .08em; }
+    h1 { margin: 0; color: #183a57; font-size: clamp(25px, 3vw, 33px); line-height: 1.2; }
+    .page-subtitle { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+    .page-context { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
+    .scope {
+      margin: 0 0 17px; padding: 10px 14px; color: #405970; background: var(--primary-soft);
+      border: 1px solid #cddce8; border-radius: 4px; font-size: 12px;
+    }
+    .lookup, .filter-bar {
+      display: grid; grid-template-columns: auto minmax(240px, 1fr) auto; align-items: end; gap: 12px;
+      margin-bottom: 18px; padding: 16px; background: var(--paper); border: 1px solid var(--line);
+      border-radius: 5px; box-shadow: var(--shadow);
+    }
+    .filter-bar { grid-template-columns: minmax(250px, 480px) auto auto 1fr; align-items: center; }
+    .field-label { align-self: center; color: #344b60; font-size: 13px; font-weight: 750; }
+    .input-wrap label { display: block; margin-bottom: 7px; color: #41566a; font-size: 12px; font-weight: 700; }
+    input, select {
+      width: 100%; min-height: 42px; padding: 9px 12px; color: var(--ink); background: white;
+      border: 1px solid #b9c5cf; border-radius: 4px; outline: none;
+    }
+    input:focus, select:focus { border-color: var(--primary-2); box-shadow: 0 0 0 3px rgba(45,107,155,.12); }
+    .button {
+      min-height: 42px; padding: 0 19px; color: #fff; background: var(--primary);
+      border: 1px solid var(--primary); border-radius: 4px; font-weight: 700;
+    }
+    .button:hover { background: #143f61; }
+    .button:disabled { opacity: .55; cursor: wait; }
+    .button.secondary { color: var(--primary); background: #fff; border-color: #9eb3c4; }
+    .button.secondary:hover { background: var(--primary-soft); }
+    .button.ghost { color: #52697c; background: transparent; border-color: transparent; }
+    .button.compact { min-height: 32px; padding: 0 11px; font-size: 12px; }
+    .notice { grid-column: 2 / -1; min-height: 17px; color: var(--muted); font-size: 12px; }
+    .notice.error { color: var(--danger); }
+    .panel { overflow: hidden; background: var(--paper); border: 1px solid var(--line); border-radius: 5px; box-shadow: var(--shadow); }
+    .panel-head {
+      min-height: 54px; padding: 13px 17px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .panel-head h2 { margin: 0; color: #263d51; font-size: 16px; }
+    .panel-head-note { color: var(--muted); font-size: 11px; }
+    .panel-body { padding: 17px; }
+    .placeholder { min-height: 230px; display: grid; place-items: center; color: var(--muted); text-align: center; line-height: 1.7; }
+    .badge { padding: 4px 8px; color: var(--primary); background: var(--primary-soft); border-radius: 3px; font-size: 11px; font-weight: 750; }
+    .badge.fallback { color: var(--warning); background: var(--warning-soft); }
+    .overview-panel { margin-bottom: 18px; }
+    .overview-body { display: grid; grid-template-columns: minmax(230px, .75fr) minmax(0, 1.25fr); gap: 17px; }
+    .caller-identity { padding-right: 17px; border-right: 1px solid var(--line); }
+    .caller-identity strong { display: block; color: var(--primary); font-size: 18px; }
+    .caller-identity span { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .metric { padding: 10px 11px; background: #f6f8fa; border-left: 3px solid #9dafbf; }
+    .metric span { display: block; color: var(--muted); font-size: 11px; }
+    .metric b { display: block; margin-top: 3px; color: #263c51; font-size: 20px; font-variant-numeric: tabular-nums; }
+    .priority { grid-column: 1 / -1; padding: 11px 13px; border-left: 4px solid var(--primary-2); background: #f2f7fa; line-height: 1.6; font-size: 13px; }
+    .priority.warning { color: #70490f; background: var(--warning-soft); border-left-color: var(--warning); }
+    .work-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); gap: 18px; align-items: start; }
+    .advice-summary { padding: 14px 15px; background: var(--primary-soft); border-left: 4px solid var(--primary-2); line-height: 1.75; font-size: 15px; font-weight: 650; }
+    .advice-mode { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; color: var(--muted); font-size: 12px; }
+    .advice-mode strong { color: var(--primary); font-size: 14px; }
+    h3 { margin: 17px 0 8px; color: #47596a; font-size: 13px; }
+    ol, ul { margin: 7px 0 0; padding-left: 21px; }
+    li { padding: 4px 0; line-height: 1.65; font-size: 13px; }
+    .risk-alert { margin: 14px 0 0; padding: 10px 12px; color: #70490f; background: var(--warning-soft); border-left: 4px solid var(--warning); font-size: 12px; line-height: 1.6; }
+    details.advice-details { margin-top: 16px; border-top: 1px solid var(--line); }
+    details.advice-details > summary { padding: 14px 0 0; color: var(--primary-2); font-size: 13px; font-weight: 700; cursor: pointer; }
+    .advice-block { margin: 14px 0; }
+    .advice-block label { color: #40566b; font-size: 12px; font-weight: 750; }
+    .advice-block p { margin: 6px 0 0; line-height: 1.7; font-size: 13px; }
+    .service-note { margin-top: 16px; padding: 10px 12px; color: var(--muted); background: #f6f8fa; font-size: 11px; line-height: 1.65; }
+    .info-list { display: grid; }
+    .info-row { padding: 11px 0; border-bottom: 1px solid #e6eaee; }
+    .info-row:first-child { padding-top: 0; }
+    .info-row:last-child { padding-bottom: 0; border-bottom: 0; }
+    .info-row span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
+    .info-row strong { display: block; font-size: 13px; font-weight: 600; line-height: 1.6; }
+    .loading { min-height: 280px; display: grid; place-items: center; color: var(--muted); text-align: center; }
+    .spinner { width: 26px; height: 26px; margin: 0 auto 11px; border: 3px solid #d9e2e9; border-top-color: var(--primary-2); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .dashboard-context {
+      display: flex; align-items: center; justify-content: space-between; gap: 18px;
+      margin-bottom: 14px; padding: 11px 14px; color: #486074; background: #e9f0f5;
+      border: 1px solid #cfdae3; border-left: 4px solid var(--primary-2); border-radius: 4px; font-size: 12px;
+    }
+    .dashboard-context strong { color: #234761; }
+    .dashboard-context-note { color: #758593; white-space: nowrap; }
+    .dashboard-metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px; }
+    .stat-card {
+      position: relative; min-height: 116px; overflow: hidden; padding: 17px;
+      background: var(--paper); border: 1px solid var(--line); border-radius: 5px; box-shadow: var(--shadow);
+    }
+    .stat-card::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--card-color, #4e7899); }
+    .stat-card::after { content: ""; position: absolute; right: -23px; bottom: -30px; width: 78px; height: 78px; border-radius: 50%; background: color-mix(in srgb, var(--card-color, #4e7899) 9%, transparent); }
+    .stat-label { position: relative; z-index: 1; color: var(--muted); font-size: 12px; }
+    .stat-value { position: relative; z-index: 1; margin-top: 11px; color: #183e5e; font-size: 28px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .stat-note { position: relative; z-index: 1; margin-top: 4px; color: #84919d; font-size: 10px; }
+    .dashboard-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-7 { grid-column: span 7; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: 1 / -1; }
+    .chart-body { min-height: 285px; padding: 18px; }
+    .chart-body.compact-chart { min-height: 245px; }
+    .line-chart-shell { min-height: 248px; display: flex; flex-direction: column; }
+    .line-chart { width: 100%; height: 235px; overflow: visible; }
+    .line-grid { stroke: #dce4ea; stroke-width: 1; stroke-dasharray: 3 4; }
+    .line-axis-text { fill: #788794; font-size: 10px; }
+    .line-path { fill: none; stroke: #2c6d9d; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+    .line-area { fill: url(#callArea); }
+    .line-dot { fill: #fff; stroke: #2c6d9d; stroke-width: 2.5; }
+    .line-dot:hover { fill: #2c6d9d; }
+    .chart-caption { margin-top: 2px; color: #82909b; font-size: 10px; text-align: right; }
+    .donut-layout { min-height: 235px; display: grid; grid-template-columns: 142px minmax(0, 1fr); gap: 20px; align-items: center; }
+    .donut {
+      position: relative; width: 140px; aspect-ratio: 1; border-radius: 50%;
+      background: conic-gradient(#dce4ea 0 100%); box-shadow: inset 0 0 0 1px rgba(42,70,92,.05);
+    }
+    .donut::after { content: ""; position: absolute; inset: 27px; background: #fff; border-radius: 50%; box-shadow: 0 0 0 1px #e4e9ed; }
+    .donut-center { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; text-align: center; }
+    .donut-center strong { color: #264761; font-size: 25px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .donut-center span { margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .chart-legend { display: grid; gap: 11px; }
+    .legend-row { display: grid; grid-template-columns: 9px 1fr auto; gap: 8px; align-items: center; }
+    .legend-swatch { width: 9px; height: 9px; border-radius: 2px; }
+    .legend-label { overflow: hidden; color: #405569; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .legend-value { color: #526879; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .legend-percent { margin-left: 4px; color: #8a97a2; font-size: 9px; }
+    .bar-list { display: grid; gap: 14px; }
+    .bar-row { display: grid; grid-template-columns: minmax(105px, 34%) 1fr 60px; gap: 11px; align-items: center; }
+    .bar-label { overflow: hidden; color: #43576a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-track { height: 10px; overflow: hidden; background: #e9eef2; border-radius: 3px; }
+    .bar-fill { height: 100%; border-radius: 3px; transition: width .35s ease; }
+    .bar-value { color: #53697a; font-size: 10px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .quality-list { display: grid; gap: 18px; }
+    .quality-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 7px; }
+    .quality-label { color: #40566a; font-size: 12px; }
+    .quality-value { color: #214d6e; font-size: 12px; font-weight: 750; }
+    .quality-value small { margin-left: 5px; color: #8996a1; font-size: 9px; font-weight: 500; }
+    .quality-track { height: 7px; overflow: hidden; background: #e6ecef; border-radius: 5px; }
+    .quality-fill { height: 100%; background: #368078; border-radius: 5px; }
+    .signal-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+    .signal-card { min-height: 67px; padding: 11px 12px; background: #f5f7f9; border: 1px solid #e0e5e9; border-left: 3px solid #8ea2b2; border-radius: 3px; }
+    .signal-card.active { background: #fff8ed; border-left-color: #b17627; }
+    .signal-card strong { display: block; color: #2c475d; font-size: 20px; font-variant-numeric: tabular-nums; }
+    .signal-card span { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .insight-list { display: grid; gap: 10px; }
+    .insight-item { position: relative; padding: 11px 12px 11px 36px; color: #3f5568; background: #f5f8fa; border: 1px solid #e0e6eb; border-radius: 3px; font-size: 11px; line-height: 1.65; }
+    .insight-item::before { content: attr(data-index); position: absolute; left: 11px; top: 11px; width: 16px; height: 16px; display: grid; place-items: center; color: #fff; background: #557e9d; border-radius: 50%; font-size: 8px; }
+    .empty-chart { min-height: 170px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+    .update-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
+    .update-item { min-height: 78px; padding: 10px 15px; border-right: 1px solid var(--line); }
+    .update-item:last-child { border-right: 0; }
+    .update-item span { display: block; color: var(--muted); font-size: 11px; }
+    .update-item strong { display: block; margin-top: 7px; color: #31485c; font-size: 13px; line-height: 1.5; word-break: break-word; }
+
+    .result-summary { align-self: center; justify-self: end; color: var(--muted); font-size: 12px; }
+    .table-panel { overflow: visible; }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th { padding: 12px 13px; color: #465a6c; background: #f2f5f7; border-bottom: 1px solid #cbd5dd; font-size: 11px; text-align: left; }
+    td { padding: 13px; border-bottom: 1px solid #e1e6ea; font-size: 12px; line-height: 1.55; vertical-align: top; }
+    tbody tr:hover { background: #f8fafb; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .phone-code { color: #234e70; font-weight: 700; letter-spacing: .03em; }
+    .cell-primary { color: #263b4d; font-weight: 600; }
+    .cell-secondary { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .state-stack { display: flex; flex-wrap: wrap; gap: 5px; }
+    .state { padding: 3px 6px; color: #5b6975; background: #edf1f4; border-radius: 2px; font-size: 10px; white-space: nowrap; }
+    .state.success { color: var(--success); background: var(--success-soft); }
+    .state.warning { color: var(--warning); background: var(--warning-soft); }
+    .state.danger { color: var(--danger); background: var(--danger-soft); }
+    .table-empty { height: 260px; color: var(--muted); text-align: center; }
+    .pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 14px 16px; border-top: 1px solid var(--line); }
+    .page-status { min-width: 94px; color: var(--muted); font-size: 11px; text-align: center; }
+
+    @media (max-width: 1160px) {
+      .dashboard-metrics { grid-template-columns: repeat(3, 1fr); }
+      .span-4, .span-5, .span-7 { grid-column: span 6; }
+      .span-8 { grid-column: 1 / -1; }
+      .update-grid { grid-template-columns: repeat(3, 1fr); }
+      .update-item:nth-child(3) { border-right: 0; }
+      .work-layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 800px) {
+      .sidebar { position: sticky; top: 0; width: 100%; height: auto; }
+      .side-brand { display: flex; align-items: baseline; gap: 10px; padding: 13px 16px; }
+      .hotline { font-size: 20px; }
+      .hotline-name { margin: 0; }
+      .system-name, .nav-label, .side-foot { display: none; }
+      .side-nav { display: flex; gap: 4px; overflow-x: auto; padding: 0 8px 8px; }
+      .nav-link { flex: 1 0 150px; min-height: 40px; grid-template-columns: 24px 1fr; }
+      .main { margin-left: 0; }
+      .page-view { width: min(100% - 24px, 1360px); padding-top: 22px; }
+      .overview-body { grid-template-columns: 1fr; }
+      .caller-identity { padding-right: 0; padding-bottom: 13px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .filter-bar { grid-template-columns: 1fr auto auto; }
+      .filter-bar .input-wrap { grid-column: 1 / -1; }
+      .result-summary { grid-column: 1 / -1; justify-self: start; }
+      .span-4, .span-5, .span-7, .span-8 { grid-column: 1 / -1; }
+    }
+    @media (max-width: 590px) {
+      .page-header { align-items: flex-start; flex-direction: column; }
+      .page-context { text-align: left; }
+      .lookup { grid-template-columns: 1fr; }
+      .notice { grid-column: 1; }
+      .metrics, .dashboard-metrics { grid-template-columns: repeat(2, 1fr); }
+      .dashboard-context { align-items: flex-start; flex-direction: column; }
+      .dashboard-context-note { white-space: normal; }
+      .donut-layout { grid-template-columns: 118px minmax(0, 1fr); gap: 14px; }
+      .donut { width: 116px; }
+      .donut::after { inset: 23px; }
+      .filter-bar { grid-template-columns: 1fr 1fr; }
+      .button { width: 100%; }
+      .update-grid { grid-template-columns: 1fr; }
+      .update-item, .update-item:nth-child(3) { border-right: 0; border-bottom: 1px solid var(--line); }
+      .update-item:last-child { border-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="side-brand">
+      <div class="hotline">12366</div>
+      <div class="hotline-name">纳税缴费服务热线</div>
+      <div class="system-name">坐席服务辅助系统</div>
+    </div>
+    <div class="nav-label">服务功能</div>
+    <nav class="side-nav" aria-label="系统页面">
+      <button class="nav-link active" type="button" data-page="workbench">
+        <span class="nav-index">01</span><span class="nav-title">来电服务工作台</span>
+      </button>
+      <button class="nav-link" type="button" data-page="dashboard">
+        <span class="nav-index">02</span><span class="nav-title">画像数据概览</span>
+      </button>
+      <button class="nav-link" type="button" data-page="history">
+        <span class="nav-index">03</span><span class="nav-title">历史来电记录</span>
+      </button>
+    </nav>
+    <div class="side-foot">
+      <div class="service-status"><span class="status-dot"></span>系统服务正常</div>
+      <div class="side-note">数据查询与建议生成服务已就绪</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section id="page-workbench" class="page-view">
+      <header class="page-header">
+        <div>
+          <div class="eyebrow">12366 来电辅助</div>
+          <h1>来电服务工作台</h1>
+          <p class="page-subtitle">快速确认历史服务信息，获取本次号码级接待策略</p>
+        </div>
+        <div class="page-context">当前页面 · 坐席接听辅助</div>
+      </header>
+
+      <div class="scope">服务范围：涉税费咨询、信息查询、服务投诉、违法举报、意见建议等12366来电服务</div>
+      <form id="lookup-form" class="lookup">
+        <label class="field-label" for="phone">来电号码</label>
+        <input id="phone" name="phone" autocomplete="tel" inputmode="tel" placeholder="请输入完整来电号码">
+        <button id="submit" class="button" type="submit">调取历史信息</button>
+        <div id="notice" class="notice">号码仅用于本地安全匹配；提交模型前会对历史文本中的敏感信息进行脱敏。</div>
+      </form>
+
+      <section id="overview-panel" class="panel overview-panel hidden">
+        <div class="panel-head"><h2>接听前速览</h2><span class="badge">已匹配历史记录</span></div>
+        <div id="overview" class="panel-body overview-body"></div>
+      </section>
+
+      <section class="work-layout">
+        <article class="panel advice-panel">
+          <div class="panel-head"><h2>本次接待建议</h2><span id="advice-badge" class="badge hidden"></span></div>
+          <div id="advice" class="panel-body placeholder">调取历史信息后，系统将实时生成号码级接待策略。</div>
+        </article>
+        <article class="panel profile-panel">
+          <div class="panel-head">
+            <h2>历史服务信息</h2>
+            <button id="view-current-history" class="button secondary compact hidden" type="button">查看全部来电</button>
+          </div>
+          <div id="profile" class="panel-body placeholder">请输入来电号码查询历史记录。</div>
+        </article>
+      </section>
+    </section>
+
+    <section id="page-dashboard" class="page-view hidden">
+      <header class="page-header">
+        <div>
+          <div class="eyebrow">画像数据库</div>
+          <h1>画像数据概览</h1>
+          <p class="page-subtitle">查看当前号码画像与来电轨迹数据的覆盖范围和主要特征</p>
+        </div>
+        <button id="refresh-dashboard" class="button secondary compact" type="button">刷新数据</button>
+      </header>
+
+      <div id="dashboard-context" class="dashboard-context">
+        <strong>正在汇总当前画像数据库…</strong>
+        <span class="dashboard-context-note">统计结果随数据库增量更新</span>
+      </div>
+      <div id="dashboard-metrics" class="dashboard-metrics"></div>
+      <section class="dashboard-grid">
+        <article class="panel span-8">
+          <div class="panel-head"><h2>来电量趋势</h2><span class="panel-head-note">最近14个自然日（以库内最新日期为准）</span></div>
+          <div id="daily-chart" class="chart-body"></div>
+        </article>
+        <article class="panel span-4">
+          <div class="panel-head"><h2>来电主体构成</h2><span class="panel-head-note">按号码画像</span></div>
+          <div id="caller-chart" class="chart-body"></div>
+        </article>
+        <article class="panel span-8">
+          <div class="panel-head"><h2>主要咨询事项</h2><span class="panel-head-note">按来电记录统计</span></div>
+          <div id="category-chart" class="chart-body"></div>
+        </article>
+        <article class="panel span-4">
+          <div class="panel-head"><h2>问题解决情况</h2><span class="panel-head-note">按来电记录</span></div>
+          <div id="resolution-chart" class="chart-body"></div>
+        </article>
+        <article class="panel span-4">
+          <div class="panel-head"><h2>服务评价</h2><span class="panel-head-note">含暂未评价</span></div>
+          <div id="rating-chart" class="chart-body"></div>
+        </article>
+        <article class="panel span-4">
+          <div class="panel-head"><h2>业务熟练度分层</h2><span class="panel-head-note">按号码画像</span></div>
+          <div id="proficiency-chart" class="chart-body"></div>
+        </article>
+        <article class="panel span-4">
+          <div class="panel-head"><h2>服务关注信号</h2><span class="panel-head-note">同一来电可重复计数</span></div>
+          <div id="signal-chart" class="chart-body compact-chart"></div>
+        </article>
+        <article class="panel span-7">
+          <div class="panel-head"><h2>数据覆盖质量</h2><span class="panel-head-note">关键字段有效覆盖率</span></div>
+          <div id="quality-chart" class="chart-body compact-chart"></div>
+        </article>
+        <article class="panel span-5">
+          <div class="panel-head"><h2>数据解读</h2><span class="panel-head-note">基于当前统计自动归纳</span></div>
+          <div id="insight-list" class="chart-body compact-chart"></div>
+        </article>
+        <article class="panel span-12">
+          <div class="panel-head"><h2>最近数据更新</h2><span id="update-status" class="badge">等待加载</span></div>
+          <div id="update-grid" class="panel-body update-grid"></div>
+        </article>
+      </section>
+    </section>
+
+    <section id="page-history" class="page-view hidden">
+      <header class="page-header">
+        <div>
+          <div class="eyebrow">来电轨迹</div>
+          <h1>历史来电记录</h1>
+          <p class="page-subtitle">分页查看全部记录，或按完整来电号码进行本地安全筛选</p>
+        </div>
+        <div class="page-context">列表号码统一脱敏展示</div>
+      </header>
+
+      <form id="history-filter" class="filter-bar">
+        <div class="input-wrap">
+          <label for="history-phone">按来电号码筛选（可选）</label>
+          <input id="history-phone" inputmode="tel" autocomplete="tel" placeholder="留空则查看全部来电记录">
+        </div>
+        <button id="history-search" class="button" type="submit">查询记录</button>
+        <button id="history-clear" class="button secondary" type="button">清除筛选</button>
+        <div id="history-summary" class="result-summary">正在读取来电记录…</div>
+      </form>
+
+      <section class="panel table-panel">
+        <div class="table-scroll">
+          <table>
+            <colgroup>
+              <col style="width:15%"><col style="width:14%"><col style="width:36%"><col style="width:21%"><col style="width:14%">
+            </colgroup>
+            <thead><tr><th>来电号码 / 时间</th><th>主体信息</th><th>咨询事项</th><th>处理情况</th><th>服务情况</th></tr></thead>
+            <tbody id="history-body"><tr><td class="table-empty" colspan="5">正在读取来电记录…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <button id="history-prev" class="button secondary compact" type="button">上一页</button>
+          <span id="history-page-status" class="page-status">第 0 / 0 页</span>
+          <button id="history-next" class="button secondary compact" type="button">下一页</button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const text = (value, fallback = '暂无记录') => value === null || value === undefined || value === '' ? fallback : String(value);
+    const resolvedText = value => value === true ? '已直接解决' : value === false ? '未直接解决' : '无法判断';
+    const pages = new Set(['workbench', 'dashboard', 'history']);
+    const pageTitles = {workbench: '来电服务工作台', dashboard: '画像数据概览', history: '历史来电记录'};
+    let currentPhone = '';
+    let dashboardLoaded = false;
+    let dashboardLoading = false;
+    const historyState = {page: 1, pageSize: 10, phone: '', totalPages: 0, loaded: false, loading: false};
+
+    const form = document.querySelector('#lookup-form');
+    const phoneInput = document.querySelector('#phone');
+    const submit = document.querySelector('#submit');
+    const notice = document.querySelector('#notice');
+    const overviewPanel = document.querySelector('#overview-panel');
+    const overviewBox = document.querySelector('#overview');
+    const profileBox = document.querySelector('#profile');
+    const adviceBox = document.querySelector('#advice');
+    const adviceBadge = document.querySelector('#advice-badge');
+    const viewCurrentHistory = document.querySelector('#view-current-history');
+    const historyInput = document.querySelector('#history-phone');
+    const historyBody = document.querySelector('#history-body');
+    const historySummary = document.querySelector('#history-summary');
+    const historyPageStatus = document.querySelector('#history-page-status');
+    const historyPrev = document.querySelector('#history-prev');
+    const historyNext = document.querySelector('#history-next');
+
+    function el(tag, className, content) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (content !== undefined) node.textContent = content;
+      return node;
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || '请求失败');
+      return body;
+    }
+
+    function showPage(name, updateHash = true) {
+      const page = pages.has(name) ? name : 'workbench';
+      document.querySelectorAll('.page-view').forEach(node => node.classList.toggle('hidden', node.id !== `page-${page}`));
+      document.querySelectorAll('.nav-link').forEach(node => node.classList.toggle('active', node.dataset.page === page));
+      document.title = `${pageTitles[page]}｜12366坐席服务辅助系统`;
+      if (updateHash && location.hash !== `#${page}`) location.hash = page;
+      if (page === 'dashboard' && !dashboardLoaded) loadDashboard();
+      if (page === 'history' && !historyState.loaded) loadHistory(1);
+      window.scrollTo({top: 0, behavior: 'smooth'});
+    }
+
+    document.querySelectorAll('.nav-link').forEach(node => node.addEventListener('click', () => showPage(node.dataset.page)));
+    window.addEventListener('hashchange', () => showPage(location.hash.slice(1), false));
+
+    function appendMetric(parent, label, value) {
+      const card = el('div', 'metric');
+      card.append(el('span', '', label), el('b', '', text(value, '0')));
+      parent.append(card);
+    }
+
+    function renderOverview(profile) {
+      overviewBox.replaceChildren();
+      const identity = el('div', 'caller-identity');
+      const identityText = [profile.caller_type, profile.enterprise_identity].filter(value => value && value !== '不适用').join(' · ');
+      identity.append(
+        el('strong', '', identityText || '主体身份暂无法判断'),
+        el('span', '', `最近来电时间：${text(profile.latest_call_time)}`),
+        el('span', '', `最近咨询：${text(profile.latest_question)}`)
+      );
+      const metrics = el('div', 'metrics');
+      appendMetric(metrics, '历史来电', profile.total_call_count);
+      appendMetric(metrics, '未直接解决', profile.unresolved_count);
+      appendMetric(metrics, '重复咨询', profile.repeated_issue_count);
+      appendMetric(metrics, '历史工单', profile.work_order_count);
+      overviewBox.append(identity, metrics);
+
+      let priorityText = '暂无需要优先衔接的历史事项，接通后先确认本次实际诉求。';
+      let warning = false;
+      if (profile.unresolved_count > 0) {
+        priorityText = `优先关注：历史存在 ${profile.unresolved_count} 项未直接解决记录，需先确认本次是否延续相关事项。`;
+        warning = true;
+      } else if (profile.work_order_count > 0) {
+        priorityText = `优先关注：历史存在 ${profile.work_order_count} 项工单记录，如本次涉及原工单，应先核对当前处理节点。`;
+        warning = true;
+      } else if (profile.repeated_issue_count > 0) {
+        priorityText = `优先关注：历史存在 ${profile.repeated_issue_count} 次重复咨询，需先确认本次新增变化。`;
+        warning = true;
+      }
+      overviewBox.append(el('div', `priority${warning ? ' warning' : ''}`, priorityText));
+      overviewPanel.classList.remove('hidden');
+    }
+
+    function appendInfo(parent, label, value) {
+      const row = el('div', 'info-row');
+      row.append(el('span', '', label), el('strong', '', text(value)));
+      parent.append(row);
+    }
+
+    function renderProfile(profile) {
+      profileBox.className = 'panel-body';
+      profileBox.replaceChildren();
+      const list = el('div', 'info-list');
+      appendInfo(list, '最近咨询事项', profile.latest_question);
+      appendInfo(list, '历史未解决事项', profile.unresolved_questions_summary);
+      appendInfo(list, '历史重复咨询', profile.repeated_questions_summary);
+      appendInfo(list, '业务熟练度', profile.proficiency_score == null ? '无法判断' : `${profile.proficiency_score}/10`);
+      appendInfo(list, '熟练度说明', profile.proficiency_summary);
+      appendInfo(list, '最近服务情况', profile.latest_service_rating);
+      appendInfo(list, '历史特征摘要', profile.profile_summary);
+      profileBox.append(list);
+      viewCurrentHistory.classList.remove('hidden');
+    }
+
+    function appendList(parent, label, items, ordered = false) {
+      if (!items || !items.length) return;
+      const block = el('div', 'advice-block');
+      block.append(el('label', '', label));
+      const list = el(ordered ? 'ol' : 'ul');
+      items.forEach(item => list.append(el('li', '', item)));
+      block.append(list);
+      parent.append(block);
+    }
+
+    function renderAdvice(advice) {
+      adviceBox.className = 'panel-body';
+      adviceBox.replaceChildren();
+      adviceBox.append(el('div', 'advice-summary', text(advice.advice_summary, '请先确认本次实际诉求，再结合历史信息制定服务方式。')));
+      const mode = el('div', 'advice-mode');
+      mode.append(el('span', '', '建议接待模式'), el('strong', '', text(advice.service_mode)));
+      adviceBox.append(mode);
+      appendList(adviceBox, '优先执行事项', (advice.recommended_sequence || []).slice(0, 3), true);
+      if (advice.risk_reminders && advice.risk_reminders.length) adviceBox.append(el('div', 'risk-alert', advice.risk_reminders[0]));
+
+      const details = el('details', 'advice-details');
+      details.append(el('summary', '', '查看详细接待建议'));
+      [['诉求确认建议', advice.opening_strategy], ['沟通策略', advice.communication_style]].forEach(([label, value]) => {
+        const block = el('div', 'advice-block');
+        block.append(el('label', '', label), el('p', '', text(value)));
+        details.append(block);
+      });
+      appendList(details, '完整执行顺序', advice.recommended_sequence, true);
+      appendList(details, '需核对的历史事项', advice.history_followups);
+      appendList(details, '服务风险提示', advice.risk_reminders);
+      appendList(details, '服务注意事项', advice.avoid_actions);
+      appendList(details, '建议依据', advice.evidence);
+      adviceBox.append(details, el('div', 'service-note', '本建议用于辅助坐席组织服务过程。具体业务答复应结合本次实际诉求，并以现行法律法规及相关规定为准。'));
+      const modelGenerated = advice.generation_status === 'model_generated';
+      adviceBadge.textContent = modelGenerated ? '实时生成' : '规则辅助';
+      adviceBadge.className = `badge${modelGenerated ? '' : ' fallback'}`;
+    }
+
+    function loadingAdvice() {
+      adviceBadge.classList.add('hidden');
+      adviceBox.className = 'panel-body loading';
+      adviceBox.replaceChildren();
+      const wrap = el('div');
+      wrap.append(el('div', 'spinner'), el('div', '', '正在分析历史服务信息并生成接待策略…'));
+      adviceBox.append(wrap);
+    }
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const phone = phoneInput.value.trim();
+      if (!phone) {
+        notice.textContent = '请输入来电号码。';
+        notice.className = 'notice error';
+        return;
+      }
+      submit.disabled = true;
+      currentPhone = phone;
+      overviewPanel.classList.add('hidden');
+      adviceBadge.classList.add('hidden');
+      viewCurrentHistory.classList.add('hidden');
+      notice.textContent = '正在调取来电历史信息…';
+      notice.className = 'notice';
+      profileBox.className = 'panel-body placeholder';
+      profileBox.textContent = '正在匹配历史记录…';
+      adviceBox.className = 'panel-body placeholder';
+      adviceBox.textContent = '历史信息返回后将生成接待策略。';
+      try {
+        const result = await fetchJson('/api/profile', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone})
+        });
+        if (result.found) {
+          renderOverview(result.profile);
+          renderProfile(result.profile);
+          notice.textContent = '历史信息已展示，正在生成本次接待建议。';
+        } else {
+          profileBox.className = 'panel-body placeholder';
+          profileBox.textContent = '该号码暂无历史记录，建议按照首次来电流程确认服务事项和实际诉求。';
+          notice.textContent = '未查询到历史记录，正在生成首次来电接待建议。';
+        }
+        loadingAdvice();
+        const adviceResult = await fetchJson('/api/advice', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone})
+        });
+        renderAdvice(adviceResult.advice);
+        notice.textContent = adviceResult.advice.generation_status === 'model_generated'
+          ? '本次接待建议已生成。'
+          : '实时模型未在时限内返回，已展示规则辅助建议。';
+      } catch (error) {
+        notice.textContent = error.message;
+        notice.className = 'notice error';
+        adviceBox.className = 'panel-body placeholder';
+        adviceBox.textContent = '接待建议生成失败，请结合历史信息和本次实际诉求进行服务。';
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    viewCurrentHistory.addEventListener('click', () => {
+      historyState.phone = currentPhone;
+      historyState.page = 1;
+      historyState.loaded = false;
+      historyInput.value = currentPhone;
+      showPage('history');
+    });
+
+    const chartColors = ['#2d6f9e', '#39827b', '#c08a3e', '#985d5b', '#6c6f9f', '#668d5e', '#a16383', '#657b8b'];
+
+    function appendStatCard(parent, label, value, note, color = chartColors[0]) {
+      const card = el('div', 'stat-card');
+      card.style.setProperty('--card-color', color);
+      card.append(el('div', 'stat-label', label), el('div', 'stat-value', text(value, '—')), el('div', 'stat-note', note));
+      parent.append(card);
+    }
+
+    function renderHorizontalBars(container, rows, colors = chartColors) {
+      container.replaceChildren();
+      if (!rows || !rows.length) {
+        container.append(el('div', 'empty-chart', '当前暂无可展示的数据'));
+        return;
+      }
+      const list = el('div', 'bar-list');
+      const max = Math.max(...rows.map(item => item.value), 1);
+      const total = rows.reduce((sum, item) => sum + item.value, 0);
+      rows.forEach((item, index) => {
+        const row = el('div', 'bar-row');
+        const label = el('div', 'bar-label', item.label);
+        label.title = item.label;
+        const track = el('div', 'bar-track');
+        const fill = el('div', 'bar-fill');
+        fill.style.width = `${Math.max(4, item.value / max * 100)}%`;
+        fill.style.background = colors[index % colors.length];
+        track.append(fill);
+        const percent = total ? Math.round(item.value / total * 100) : 0;
+        row.append(label, track, el('div', 'bar-value', `${item.value} · ${percent}%`));
+        list.append(row);
+      });
+      container.append(list);
+    }
+
+    function svgEl(tag, attributes = {}) {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      Object.entries(attributes).forEach(([name, value]) => node.setAttribute(name, value));
+      return node;
+    }
+
+    function renderTrend(container, rows) {
+      container.replaceChildren();
+      if (!rows || !rows.length) {
+        container.append(el('div', 'empty-chart', '当前暂无来电趋势数据'));
+        return;
+      }
+      const width = 760;
+      const height = 240;
+      const left = 42;
+      const right = 18;
+      const top = 18;
+      const bottom = 38;
+      const plotWidth = width - left - right;
+      const plotHeight = height - top - bottom;
+      const maxValue = Math.max(...rows.map(item => item.value), 1);
+      const yMax = Math.max(1, Math.ceil(maxValue / 2) * 2);
+      const shell = el('div', 'line-chart-shell');
+      const svg = svgEl('svg', {class: 'line-chart', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': '来电量趋势折线图'});
+      const defs = svgEl('defs');
+      const gradient = svgEl('linearGradient', {id: 'callArea', x1: '0', y1: '0', x2: '0', y2: '1'});
+      gradient.append(svgEl('stop', {offset: '0%', 'stop-color': '#4381ad', 'stop-opacity': '.3'}), svgEl('stop', {offset: '100%', 'stop-color': '#4381ad', 'stop-opacity': '.02'}));
+      defs.append(gradient);
+      svg.append(defs);
+
+      for (let index = 0; index <= 4; index += 1) {
+        const y = top + plotHeight * index / 4;
+        svg.append(svgEl('line', {class: 'line-grid', x1: left, x2: width - right, y1: y, y2: y}));
+        const label = svgEl('text', {class: 'line-axis-text', x: left - 9, y: y + 3, 'text-anchor': 'end'});
+        label.textContent = Math.round(yMax * (4 - index) / 4);
+        svg.append(label);
+      }
+
+      const points = rows.map((item, index) => ({
+        ...item,
+        x: rows.length === 1 ? left + plotWidth / 2 : left + plotWidth * index / (rows.length - 1),
+        y: top + plotHeight * (1 - item.value / yMax),
+      }));
+      if (points.length > 1) {
+        const areaPath = `M ${points[0].x} ${top + plotHeight} L ${points.map(point => `${point.x} ${point.y}`).join(' L ')} L ${points[points.length - 1].x} ${top + plotHeight} Z`;
+        svg.append(svgEl('path', {class: 'line-area', d: areaPath}));
+      }
+      const linePath = points.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
+      svg.append(svgEl('path', {class: 'line-path', d: linePath}));
+      const labelStep = Math.max(1, Math.ceil(rows.length / 7));
+      points.forEach((point, index) => {
+        const circle = svgEl('circle', {class: 'line-dot', cx: point.x, cy: point.y, r: 4.5});
+        const title = svgEl('title');
+        title.textContent = `${point.date}：${point.value} 通`;
+        circle.append(title);
+        svg.append(circle);
+        if (index % labelStep === 0 || index === points.length - 1) {
+          const label = svgEl('text', {class: 'line-axis-text', x: point.x, y: height - 13, 'text-anchor': 'middle'});
+          label.textContent = point.label;
+          svg.append(label);
+        }
+      });
+      shell.append(svg, el('div', 'chart-caption', `区间累计 ${rows.reduce((sum, item) => sum + item.value, 0)} 通 · 峰值 ${maxValue} 通/日`));
+      container.append(shell);
+    }
+
+    function renderDonut(container, rows, colorMap = {}) {
+      container.replaceChildren();
+      if (!rows || !rows.length) {
+        container.append(el('div', 'empty-chart', '当前暂无可展示的数据'));
+        return;
+      }
+      const total = rows.reduce((sum, item) => sum + item.value, 0);
+      if (!total) {
+        container.append(el('div', 'empty-chart', '当前统计值均为 0'));
+        return;
+      }
+      const layout = el('div', 'donut-layout');
+      const donut = el('div', 'donut');
+      const center = el('div', 'donut-center');
+      center.append(el('strong', '', total), el('span', '', '统计总量'));
+      donut.append(center);
+      let cursor = 0;
+      const stops = [];
+      const legend = el('div', 'chart-legend');
+      rows.forEach((item, index) => {
+        const color = colorMap[item.label] || chartColors[index % chartColors.length];
+        const start = cursor;
+        cursor += item.value / total * 100;
+        stops.push(`${color} ${start}% ${cursor}%`);
+        const row = el('div', 'legend-row');
+        const swatch = el('span', 'legend-swatch');
+        swatch.style.background = color;
+        const value = el('span', 'legend-value', item.value);
+        value.append(el('span', 'legend-percent', `${Math.round(item.value / total * 100)}%`));
+        row.append(swatch, el('span', 'legend-label', item.label), value);
+        legend.append(row);
+      });
+      donut.style.background = `conic-gradient(${stops.join(', ')})`;
+      layout.append(donut, legend);
+      container.append(layout);
+    }
+
+    function renderQuality(container, rows) {
+      container.replaceChildren();
+      const list = el('div', 'quality-list');
+      (rows || []).forEach(item => {
+        const block = el('div');
+        const head = el('div', 'quality-head');
+        const value = el('div', 'quality-value', `${item.value}%`);
+        value.append(el('small', '', item.detail));
+        head.append(el('div', 'quality-label', item.label), value);
+        const track = el('div', 'quality-track');
+        const fill = el('div', 'quality-fill');
+        fill.style.width = `${Math.max(0, Math.min(100, item.value))}%`;
+        track.append(fill);
+        block.append(head, track);
+        list.append(block);
+      });
+      container.append(list.children.length ? list : el('div', 'empty-chart', '当前暂无覆盖质量数据'));
+    }
+
+    function renderSignals(container, rows) {
+      container.replaceChildren();
+      const grid = el('div', 'signal-grid');
+      (rows || []).forEach(item => {
+        const card = el('div', `signal-card${item.value > 0 ? ' active' : ''}`);
+        card.append(el('strong', '', item.value), el('span', '', item.label));
+        grid.append(card);
+      });
+      container.append(grid.children.length ? grid : el('div', 'empty-chart', '当前暂无服务关注信号'));
+    }
+
+    function renderInsights(container, data) {
+      container.replaceChildren();
+      const overview = data.overview || {};
+      const categories = data.question_categories || [];
+      const callers = data.caller_types || [];
+      const quality = data.data_quality || [];
+      const signals = data.service_signals || [];
+      const insights = [];
+      if (categories.length) insights.push(`当前记录最多的咨询事项是“${categories[0].label}”，共 ${categories[0].value} 通。`);
+      if (overview.total_calls) insights.push(`已判定来电的直接解决率为 ${text(overview.resolved_rate, '暂无')}%；未直接解决 ${overview.unresolved_calls || 0} 通。`);
+      if (callers.length) insights.push(`画像主体以“${callers[0].label}”为主，共 ${callers[0].value} 个号码画像。`);
+      const activeSignals = signals.filter(item => item.value > 0);
+      if (activeSignals.length) insights.push(`当前需重点留意：${activeSignals.map(item => `${item.label} ${item.value} 通`).join('、')}。`);
+      const lowestQuality = quality.reduce((lowest, item) => !lowest || item.value < lowest.value ? item : lowest, null);
+      if (lowestQuality) insights.push(`关键字段中“${lowestQuality.label}”覆盖率相对最低，为 ${lowestQuality.value}%（${lowestQuality.detail}）。`);
+      const list = el('div', 'insight-list');
+      insights.slice(0, 5).forEach((item, index) => {
+        const row = el('div', 'insight-item', item);
+        row.dataset.index = index + 1;
+        list.append(row);
+      });
+      container.append(list.children.length ? list : el('div', 'empty-chart', '数据量不足，暂无法形成统计解读'));
+    }
+
+    function appendUpdate(parent, label, value) {
+      const item = el('div', 'update-item');
+      item.append(el('span', '', label), el('strong', '', text(value)));
+      parent.append(item);
+    }
+
+    async function loadDashboard(force = false) {
+      if (dashboardLoading || (dashboardLoaded && !force)) return;
+      dashboardLoading = true;
+      const metrics = document.querySelector('#dashboard-metrics');
+      metrics.replaceChildren();
+      appendStatCard(metrics, '正在读取数据', '—', '请稍候');
+      try {
+        const data = await fetchJson('/api/dashboard');
+        const overview = data.overview || {};
+        const context = document.querySelector('#dashboard-context');
+        context.replaceChildren(
+          el('strong', '', overview.data_date_range ? `数据覆盖：${overview.data_date_range}` : '当前数据库暂无有效来电日期'),
+          el('span', 'dashboard-context-note', `平均每个画像 ${overview.average_calls_per_profile || 0} 通来电 · 已识别 ${overview.question_category_count || 0} 类咨询事项`)
+        );
+        metrics.replaceChildren();
+        appendStatCard(metrics, '画像号码', overview.total_profiles, '当前可匹配号码数', chartColors[0]);
+        appendStatCard(metrics, '累计来电', overview.total_calls, '已入库来电轨迹', chartColors[1]);
+        appendStatCard(metrics, '直接解决率', overview.resolved_rate == null ? '—' : `${overview.resolved_rate}%`, '按已判定记录计算', '#4b8a69');
+        appendStatCard(metrics, '未直接解决', overview.unresolved_calls, '需关注历史衔接', chartColors[3]);
+        appendStatCard(metrics, '重复咨询', overview.repeated_issues, '识别为相同事项', chartColors[2]);
+        appendStatCard(metrics, '平均熟练度', overview.average_proficiency == null ? '—' : `${overview.average_proficiency}/10`, `${overview.profiles_with_proficiency || 0} 个画像已评估`, chartColors[4]);
+        renderTrend(document.querySelector('#daily-chart'), data.daily_calls);
+        renderDonut(document.querySelector('#caller-chart'), data.caller_types, {'个人': '#2d6f9e', '企业': '#39827b', '暂未识别': '#a1abb3'});
+        renderDonut(document.querySelector('#resolution-chart'), data.resolution_status, {'已直接解决': '#41846a', '未直接解决': '#a95852', '状态待判定': '#98a5af'});
+        renderHorizontalBars(document.querySelector('#category-chart'), data.question_categories);
+        renderHorizontalBars(document.querySelector('#rating-chart'), data.service_ratings, ['#41846a', '#c08a3e', '#a95852', '#8696a3']);
+        renderDonut(document.querySelector('#proficiency-chart'), data.proficiency_bands, {'较熟练（8-10分）': '#39827b', '一般（5-7.9分）': '#3f78a1', '需更多引导（0-4.9分）': '#c08a3e', '暂未评估': '#9aa6af'});
+        renderSignals(document.querySelector('#signal-chart'), data.service_signals);
+        renderQuality(document.querySelector('#quality-chart'), data.data_quality);
+        renderInsights(document.querySelector('#insight-list'), data);
+        const updateGrid = document.querySelector('#update-grid');
+        updateGrid.replaceChildren();
+        const update = data.latest_update;
+        const updateBadge = document.querySelector('#update-status');
+        if (update) {
+          appendUpdate(updateGrid, '数据覆盖日期', update.data_date);
+          appendUpdate(updateGrid, '来源文件', update.input_filename);
+          appendUpdate(updateGrid, '新增来电', update.new_call_count);
+          appendUpdate(updateGrid, '新增号码', update.new_phone_count);
+          appendUpdate(updateGrid, '完成时间', update.finished_at);
+          updateBadge.textContent = update.status === 'completed' ? '更新完成' : text(update.status);
+          updateBadge.className = `badge${update.failed_count ? ' fallback' : ''}`;
+        } else {
+          updateGrid.append(el('div', 'empty-chart', '当前没有数据更新批次记录'));
+          updateBadge.textContent = '暂无批次';
+        }
+        dashboardLoaded = true;
+      } catch (error) {
+        metrics.replaceChildren(el('div', 'stat-card', `数据概览读取失败：${error.message}`));
+      } finally {
+        dashboardLoading = false;
+      }
+    }
+
+    document.querySelector('#refresh-dashboard').addEventListener('click', () => loadDashboard(true));
+
+    function stateTag(label, kind = '') { return el('span', `state${kind ? ` ${kind}` : ''}`, label); }
+
+    function renderHistory(result) {
+      historyBody.replaceChildren();
+      if (!result.items.length) {
+        const row = document.createElement('tr');
+        const cell = el('td', 'table-empty', result.filtered ? '该号码暂无历史来电记录' : '当前数据库暂无来电记录');
+        cell.colSpan = 5;
+        row.append(cell);
+        historyBody.append(row);
+      }
+      result.items.forEach(item => {
+        const row = document.createElement('tr');
+        const phoneCell = document.createElement('td');
+        phoneCell.append(el('div', 'phone-code', item.masked_phone), el('span', 'cell-secondary', text(item.call_time)));
+        const subjectCell = document.createElement('td');
+        subjectCell.append(el('div', 'cell-primary', text(item.caller_type, '主体待识别')), el('span', 'cell-secondary', text(item.enterprise_identity)));
+        const questionCell = document.createElement('td');
+        questionCell.append(el('div', 'cell-primary', text(item.core_question, '该次来电未形成问题摘要')), el('span', 'cell-secondary', `事项分类：${text(item.question_category, '暂未分类')}`));
+        const stateCell = document.createElement('td');
+        const states = el('div', 'state-stack');
+        states.append(item.resolved === true ? stateTag('已直接解决', 'success') : item.resolved === false ? stateTag('未直接解决', 'danger') : stateTag('解决状态待判定'));
+        if (item.work_order) states.append(stateTag('已形成工单', 'warning'));
+        if (item.is_repeated_call) states.append(stateTag('重复来电'));
+        if (item.is_repeated_issue) states.append(stateTag('重复事项', 'warning'));
+        stateCell.append(states);
+        const ratingCell = document.createElement('td');
+        ratingCell.append(el('div', 'cell-primary', text(item.service_rating, '暂未评价')), el('span', 'cell-secondary', item.analysis_status === 'completed' ? '分析已完成' : text(item.analysis_status, '分析状态未知')));
+        row.append(phoneCell, subjectCell, questionCell, stateCell, ratingCell);
+        historyBody.append(row);
+      });
+      historyState.page = result.page;
+      historyState.totalPages = result.total_pages;
+      historyState.loaded = true;
+      historySummary.textContent = result.filtered ? `当前号码共 ${result.total} 条历史来电` : `数据库共 ${result.total} 条来电记录`;
+      historyPageStatus.textContent = `第 ${result.total_pages ? result.page : 0} / ${result.total_pages} 页`;
+      historyPrev.disabled = result.page <= 1;
+      historyNext.disabled = !result.total_pages || result.page >= result.total_pages;
+    }
+
+    async function loadHistory(page) {
+      if (historyState.loading) return;
+      historyState.loading = true;
+      historyBody.replaceChildren();
+      const row = document.createElement('tr');
+      const cell = el('td', 'table-empty', '正在读取来电记录…');
+      cell.colSpan = 5;
+      row.append(cell);
+      historyBody.append(row);
+      historyPrev.disabled = true;
+      historyNext.disabled = true;
+      historySummary.textContent = '正在读取来电记录…';
+      try {
+        const result = await fetchJson('/api/history', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({page, page_size: historyState.pageSize, phone: historyState.phone || null})
+        });
+        renderHistory(result);
+      } catch (error) {
+        historyBody.replaceChildren();
+        const errorRow = document.createElement('tr');
+        const errorCell = el('td', 'table-empty', `来电记录读取失败：${error.message}`);
+        errorCell.colSpan = 5;
+        errorRow.append(errorCell);
+        historyBody.append(errorRow);
+        historySummary.textContent = '查询失败';
+      } finally {
+        historyState.loading = false;
+      }
+    }
+
+    document.querySelector('#history-filter').addEventListener('submit', event => {
+      event.preventDefault();
+      historyState.phone = historyInput.value.trim();
+      loadHistory(1);
+    });
+    document.querySelector('#history-clear').addEventListener('click', () => {
+      historyInput.value = '';
+      historyState.phone = '';
+      loadHistory(1);
+    });
+    historyPrev.addEventListener('click', () => { if (historyState.page > 1) loadHistory(historyState.page - 1); });
+    historyNext.addEventListener('click', () => { if (historyState.page < historyState.totalPages) loadHistory(historyState.page + 1); });
+
+    showPage(location.hash.slice(1) || 'workbench', false);
+  </script>
+</body>
+</html>
