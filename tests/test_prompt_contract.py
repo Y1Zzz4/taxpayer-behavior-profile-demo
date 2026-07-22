@@ -2,6 +2,7 @@ from pathlib import Path
 
 from taxpayer_profile.config import PROJECT_ROOT
 from taxpayer_profile.llm_client import (
+    HISTORY_ENRICHMENT_PROMPT_VERSION,
     PROMPT_VERSION,
     REALTIME_ADVICE_PROMPT_VERSION,
     REPEAT_PROMPT_VERSION,
@@ -48,6 +49,26 @@ def test_prompt_does_not_request_prohibited_structured_identifiers() -> None:
     )
     prohibited = ["业务编号：", "来电号码：", "坐席工号：", "纳税人名称："]
     assert all(item not in prompt for item in prohibited)
+
+
+def test_history_enrichment_prompt_is_compact_and_keeps_core_evidence_rules() -> None:
+    prompt = (
+        PROJECT_ROOT / "prompts/history_enrichment_system.txt"
+    ).read_text(encoding="utf-8")
+
+    for required in (
+        "历史来电补充分析器",
+        "agent_answer_summary",
+        "answer_content 非空时",
+        "业务专业度",
+        "近期情绪状态",
+        "demand_categories",
+        "不判断政策答案绝对正确",
+    ):
+        assert required in prompt
+    assert "natural_qa_turns" not in prompt
+    assert "model_abnormal_end" not in prompt
+    assert HISTORY_ENRICHMENT_PROMPT_VERSION == "history-enrichment-v1"
 
 
 def test_realtime_advice_prompt_is_phone_level_not_a_policy_answer() -> None:

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 from pathlib import Path
 
-from taxpayer_profile.config import load_settings
+from taxpayer_profile.config import PROJECT_ROOT, load_settings
 from taxpayer_profile.excel_reader import InputMode
 from taxpayer_profile.llm_client import OpenAICompatibleClient
 from taxpayer_profile.processor import process_workbook
@@ -22,7 +23,16 @@ def main() -> None:
         help="指定一个待增量分析的新 Excel",
     )
     parser.add_argument("--database", type=Path)
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument(
+        "--cache",
+        type=Path,
+        default=PROJECT_ROOT / "data/cache/model_extractions.sqlite3",
+    )
+    parser.add_argument("--no-cache", action="store_true")
     args = parser.parse_args()
+    if not 1 <= args.workers <= 16:
+        parser.error("--workers 必须在1—16之间")
     settings = load_settings()
     hash_key, encryption_key = settings.require_phone_keys()
     if not settings.llm_configured:
@@ -30,8 +40,12 @@ def main() -> None:
     client = OpenAICompatibleClient(
         settings.llm_base_url, settings.llm_api_key, settings.llm_model  # type: ignore[arg-type]
     )
+    atexit.register(client.close)
     protector = PhoneProtector(hash_key, encryption_key)
-    database = args.database or settings.database_path
+    database = (args.database or settings.database_path).expanduser().resolve()
+    cache_path = None if args.no_cache else args.cache.expanduser().resolve()
+    if cache_path == database:
+        parser.error("模型缓存文件不能与画像数据库使用同一路径")
     summaries = [
         process_workbook(
             input_path=args.input,
@@ -39,6 +53,8 @@ def main() -> None:
             protector=protector,
             llm_client=client,
             input_mode=InputMode.RAW_ANALYSIS,
+            model_workers=args.workers,
+            extraction_cache_path=cache_path,
             progress_callback=lambda current, total, status: print(
                 f"[{current}/{total}] {status}", flush=True
             ),

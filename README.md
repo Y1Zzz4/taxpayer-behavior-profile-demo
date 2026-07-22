@@ -98,8 +98,14 @@ python scripts/run_demo.py --database data/database/raw_data_rules_preview.sqlit
 ```bash
 python scripts/init_database.py data/raw/raw_data.xlsx \
   --database data/database/taxpayer_profiles.sqlite3 \
-  --analyze-history-with-model --rebuild
+  --analyze-history-with-model --workers 4 --rebuild
 ```
+
+模型提取默认使用4路有限并发和长连接，并把每条已验证结果即时写入
+`data/cache/model_extractions.sqlite3`。如果运行中断，重新执行同一命令即可复用缓存，
+只补跑尚未完成的记录；`--rebuild`只重建画像数据库，不会删除模型缓存。
+程序遇到429、服务端错误或持续超时时会自动降低并发，连续稳定后逐步恢复；服务稳定时也可将初始并发调为`--workers 6`。
+单通字段提取和需要模型判断的重复诉求语义复核都会使用该并发与缓存机制，画像聚合仍按来电时间顺序执行。
 
 构建完成后直接启动：
 
@@ -114,6 +120,9 @@ python scripts/run_demo.py
 ```bash
 python scripts/update_database.py data/raw/新增来电.xlsx
 ```
+
+增量更新同样默认使用4路并发和上述断点缓存；可通过`--workers`调整并发，或用
+`--no-cache`显式关闭缓存。
 
 ## 规则表与结果导出
 

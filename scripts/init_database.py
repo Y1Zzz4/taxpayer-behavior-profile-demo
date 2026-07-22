@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 from datetime import date
 from pathlib import Path
 
@@ -39,7 +40,26 @@ def main() -> None:
         action="store_true",
         help="在复用 1—9 日已有字段的同时，调用模型补齐画像字段",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="并行执行的模型请求数，建议从4开始，允许1—16",
+    )
+    parser.add_argument(
+        "--cache",
+        type=Path,
+        default=PROJECT_ROOT / "data/cache/model_extractions.sqlite3",
+        help="模型结果断点缓存文件",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="禁用模型结果断点缓存",
+    )
     args = parser.parse_args()
+    if not 1 <= args.workers <= 16:
+        parser.error("--workers 必须在1—16之间")
     settings = load_settings()
     hash_key, encryption_key = settings.require_phone_keys()
     model_required = not args.history_only or args.analyze_history_with_model
@@ -54,7 +74,12 @@ def main() -> None:
         if settings.llm_configured
         else None
     )
+    if client is not None:
+        atexit.register(client.close)
     database = (args.database or settings.database_path).expanduser().resolve()
+    cache_path = None if args.no_cache else args.cache.expanduser().resolve()
+    if cache_path == database:
+        parser.error("模型缓存文件不能与画像数据库使用同一路径")
     if args.rebuild and database.exists():
         database.unlink()
 
@@ -62,10 +87,11 @@ def main() -> None:
         def report(current: int, total: int, status: str) -> None:
             noteworthy = status in {
                 "模型分析失败",
+                "模型提取失败",
                 "处理失败",
                 "输入字段无效",
                 "业务编号冲突",
-            }
+            } or status.startswith("模型压力过高")
             if status != "开始处理" and (
                 noteworthy or current == 1 or current == total or current % 500 == 0
             ):
@@ -80,6 +106,8 @@ def main() -> None:
         llm_client=client if args.analyze_history_with_model else None,
         input_mode=InputMode.TRUSTED_IMPORT,
         end_date=date(2026, 6, 9),
+        model_workers=args.workers,
+        extraction_cache_path=cache_path,
         progress_callback=progress("历史基底"),
     )
     print(
@@ -100,6 +128,8 @@ def main() -> None:
         llm_client=client,
         input_mode=InputMode.RAW_ANALYSIS,
         start_date=date(2026, 6, 10),
+        model_workers=args.workers,
+        extraction_cache_path=cache_path,
         progress_callback=progress("增量分析"),
     )
     print(

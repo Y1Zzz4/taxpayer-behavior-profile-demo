@@ -118,7 +118,7 @@ def test_client_uses_temperature_zero_and_validates_json(
     prompt.write_text("test prompt", encoding="utf-8")
     captured = {}
 
-    def fake_post(url, **kwargs):
+    def fake_post(_client, url, **kwargs):
         captured.update(kwargs["json"])
         return httpx.Response(
             200,
@@ -143,7 +143,7 @@ def test_client_uses_temperature_zero_and_validates_json(
             },
         )
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
     client = OpenAICompatibleClient(
         "https://example.invalid/v1", "secret", "model", prompt_path=prompt
     )
@@ -154,6 +154,7 @@ def test_client_uses_temperature_zero_and_validates_json(
     assert captured["response_format"] == {"type": "json_object"}
     assert result.is_repeated_issue is True
     assert result.confidence == 0.93
+    client.close()
 
 
 def test_call_extraction_schema_rejects_inconsistent_proficiency() -> None:
@@ -194,7 +195,7 @@ def test_deepseek_v4_disables_thinking_and_bounds_output(
     prompt.write_text("test prompt", encoding="utf-8")
     captured = {}
 
-    def fake_post(url, **kwargs):
+    def fake_post(_client, url, **kwargs):
         captured.update(kwargs["json"])
         return httpx.Response(
             200,
@@ -219,7 +220,7 @@ def test_deepseek_v4_disables_thinking_and_bounds_output(
             },
         )
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
     client = OpenAICompatibleClient(
         "https://example.invalid", "secret", "DeepSeek-V4-Pro", prompt_path=prompt
     )
@@ -228,3 +229,4 @@ def test_deepseek_v4_disables_thinking_and_bounds_output(
 
     assert captured["thinking"] == {"type": "disabled"}
     assert captured["max_tokens"] == 768
+    client.close()

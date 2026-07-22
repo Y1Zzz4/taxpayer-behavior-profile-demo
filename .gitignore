@@ -30,6 +30,7 @@ data/output/*
 !data/output/.gitkeep
 data/database/*
 !data/database/.gitkeep
+data/cache/*
 *.xlsx
 *.xls
 *.xlsm

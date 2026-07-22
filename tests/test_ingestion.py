@@ -1,5 +1,7 @@
 from datetime import date
 from pathlib import Path
+import threading
+import time
 
 from cryptography.fernet import Fernet
 import pandas as pd
@@ -7,7 +9,11 @@ from sqlalchemy import select
 
 from taxpayer_profile.database import make_engine, make_session_factory
 from taxpayer_profile.excel_reader import InputMode, discover_workbooks
-from taxpayer_profile.llm_client import CallExtractionResult
+from taxpayer_profile.llm_client import (
+    CallExtractionResult,
+    HistoryEnrichmentResult,
+    RepeatIssueModelResult,
+)
 from taxpayer_profile.models import CallTrajectory, UpdateLog
 from taxpayer_profile.processor import process_workbook
 from taxpayer_profile.security import PhoneProtector
@@ -18,6 +24,7 @@ class FakeAnalysisClient:
 
     def __init__(self) -> None:
         self.payloads: list[dict[str, str | None]] = []
+        self.history_payloads: list[dict[str, str | None]] = []
 
     def analyze_call(self, payload: dict[str, str | None]) -> CallExtractionResult:
         self.payloads.append(payload)
@@ -47,6 +54,31 @@ class FakeAnalysisClient:
             proficiency_summary="能够说明具体办理事项。",
             service_rating="一般" if is_raw else "良好",
             service_summary="给出了相关处理路径。",
+        )
+
+    def analyze_history(
+        self, payload: dict[str, str | None]
+    ) -> HistoryEnrichmentResult:
+        self.payloads.append(payload)
+        self.history_payloads.append(payload)
+        return HistoryEnrichmentResult(
+            core_question="模型不应覆盖可信问题",
+            father_question="模型不应覆盖可信父问题",
+            father_question_2="历史事项",
+            agent_answer_summary="坐席提炼了历史答复和办理路径。",
+            demand_categories=["操作辅导类"],
+            caller_type="企业",
+            explicit_enterprise_identity="无法判断",
+            resolved_status=True,
+            unresolved_reason=None,
+            proficiency_score=7,
+            proficiency_summary="能够说明具体办理事项。",
+            proficiency_level="了解",
+            proficiency_basis="能够说明业务事项，但仍需确认办理路径。",
+            emotion_state="平稳",
+            emotion_basis="表达有序且正常确认答复。",
+            service_rating="良好",
+            service_summary="答复相关并给出处理路径。",
         )
 
     def analyze_repeat_issue(self, payload):  # pragma: no cover - no ambiguous case here
@@ -169,16 +201,177 @@ def test_bootstrap_mixed_keeps_trusted_fields_and_can_model_enrich_history(
         assert history.father_question == "可信历史父问题"
         assert history.caller_type == "个人"
         assert history.resolved_status is True
+        assert history.agent_answer_summary == "坐席提炼了历史答复和办理路径。"
         assert history.input_mode == "trusted_import"
         assert raw.core_question == "不可信6月10日问题"
         assert raw.caller_type == "企业"
         assert raw.resolved_status is False
         assert raw.input_mode == "raw_analysis"
         assert len(client.payloads) == 2
+        assert len(client.history_payloads) == 1
         assert [item["business_content"] for item in client.payloads] == [
             "HISTORY",
             "RAW",
         ]
+
+
+def test_model_extraction_cache_resumes_without_repeating_successful_call(
+    tmp_path: Path,
+) -> None:
+    workbook = tmp_path / "cached.xlsx"
+    cache = tmp_path / "model-cache.sqlite3"
+    pd.DataFrame(
+        {
+            "业务编号": ["CACHE-1"],
+            "来电号码": ["13800000001"],
+            "登记日期": ["2026/6/10 09:00"],
+            "转写结果": ["咨询申报操作。"],
+            "业务内容": ["RAW"],
+            "答复内容": ["说明操作路径。"],
+        }
+    ).to_excel(workbook, index=False)
+
+    first_client = FakeAnalysisClient()
+    process_workbook(
+        input_path=workbook,
+        database_path=tmp_path / "first.sqlite3",
+        protector=_protector(),
+        llm_client=first_client,
+        input_mode=InputMode.RAW_ANALYSIS,
+        model_workers=2,
+        extraction_cache_path=cache,
+    )
+    second_client = FakeAnalysisClient()
+    process_workbook(
+        input_path=workbook,
+        database_path=tmp_path / "second.sqlite3",
+        protector=_protector(),
+        llm_client=second_client,
+        input_mode=InputMode.RAW_ANALYSIS,
+        model_workers=2,
+        extraction_cache_path=cache,
+    )
+
+    assert len(first_client.payloads) == 1
+    assert second_client.payloads == []
+    assert b"13800000001" not in cache.read_bytes()
+
+
+def test_model_extraction_uses_bounded_parallel_workers(tmp_path: Path) -> None:
+    workbook = tmp_path / "parallel.xlsx"
+    rows = 6
+    pd.DataFrame(
+        {
+            "业务编号": [f"P-{index}" for index in range(rows)],
+            "来电号码": [f"138000000{index + 1:02d}" for index in range(rows)],
+            "登记日期": [f"2026/6/10 {9 + index:02d}:00" for index in range(rows)],
+            "转写结果": ["咨询申报操作。"] * rows,
+            "业务内容": ["RAW"] * rows,
+            "答复内容": ["说明操作路径。"] * rows,
+        }
+    ).to_excel(workbook, index=False)
+
+    class TrackingClient(FakeAnalysisClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.active = 0
+            self.peak = 0
+            self.lock = threading.Lock()
+
+        def analyze_call(self, payload):
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            try:
+                time.sleep(0.03)
+                return super().analyze_call(payload)
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+    client = TrackingClient()
+    process_workbook(
+        input_path=workbook,
+        database_path=tmp_path / "parallel.sqlite3",
+        protector=_protector(),
+        llm_client=client,
+        input_mode=InputMode.RAW_ANALYSIS,
+        model_workers=3,
+    )
+
+    assert client.peak == 3
+
+
+def test_repeat_model_reviews_are_parallel_and_resume_from_cache(
+    tmp_path: Path,
+) -> None:
+    workbook = tmp_path / "repeat-parallel.xlsx"
+    cache = tmp_path / "repeat-cache.sqlite3"
+    phone_numbers = [f"138000000{index + 1:02d}" for index in range(4)]
+    pd.DataFrame(
+        {
+            "业务编号": [f"R-{index}" for index in range(8)],
+            "来电号码": phone_numbers + phone_numbers,
+            "登记日期": [
+                f"2026/6/10 {9 + index:02d}:00" for index in range(8)
+            ],
+            "转写结果": ["继续咨询同一申报问题。"] * 8,
+            "业务内容": ["RAW"] * 8,
+            "答复内容": ["说明操作路径。"] * 8,
+        }
+    ).to_excel(workbook, index=False)
+
+    class RepeatTrackingClient(FakeAnalysisClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.repeat_calls = 0
+            self.repeat_active = 0
+            self.repeat_peak = 0
+            self.lock = threading.Lock()
+
+        def analyze_repeat_issue(self, payload):
+            with self.lock:
+                self.repeat_calls += 1
+                self.repeat_active += 1
+                self.repeat_peak = max(self.repeat_peak, self.repeat_active)
+            try:
+                time.sleep(0.03)
+                return RepeatIssueModelResult(
+                    is_repeated_issue=False,
+                    matched_history_index=None,
+                    repeat_reason="无法判断",
+                    explanation="语义复核后未确认属于重复诉求。",
+                    confidence=0.8,
+                )
+            finally:
+                with self.lock:
+                    self.repeat_active -= 1
+
+    first_client = RepeatTrackingClient()
+    process_workbook(
+        input_path=workbook,
+        database_path=tmp_path / "repeat-first.sqlite3",
+        protector=_protector(),
+        llm_client=first_client,
+        input_mode=InputMode.RAW_ANALYSIS,
+        model_workers=3,
+        extraction_cache_path=cache,
+    )
+    second_client = RepeatTrackingClient()
+    process_workbook(
+        input_path=workbook,
+        database_path=tmp_path / "repeat-second.sqlite3",
+        protector=_protector(),
+        llm_client=second_client,
+        input_mode=InputMode.RAW_ANALYSIS,
+        model_workers=3,
+        extraction_cache_path=cache,
+    )
+
+    assert first_client.repeat_calls == 4
+    assert first_client.repeat_peak == 3
+    assert second_client.payloads == []
+    assert second_client.repeat_calls == 0
 
 
 def test_workbook_discovery_ignores_temporary_and_non_excel_files(

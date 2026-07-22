@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from collections import Counter, defaultdict
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Protocol
 from uuid import uuid4
 
+import httpx
 from sqlalchemy import select
 
 from taxpayer_profile.database import (
@@ -28,9 +31,11 @@ from taxpayer_profile.excel_reader import (
 )
 from taxpayer_profile.identity import resolve_enterprise_identity
 from taxpayer_profile.llm_client import (
+    HISTORY_ENRICHMENT_PROMPT_VERSION,
     PROMPT_VERSION,
     REPEAT_PROMPT_VERSION,
     CallExtractionResult,
+    HistoryEnrichmentResult,
     RepeatIssueModelResult,
     build_call_payload,
     build_repeat_payload,
@@ -47,14 +52,18 @@ from taxpayer_profile.profiling import (
 from taxpayer_profile.repeat_analysis import RepeatDecision, analyze_repeat_issue
 from taxpayer_profile.security import PhoneProtector
 
-ANALYSIS_VERSION = "profile-2026-07-22-v5"
-EXTRACTION_VERSION = "extraction-2026-07-22-v5"
+ANALYSIS_VERSION = "profile-2026-07-22-v6"
+EXTRACTION_VERSION = "extraction-2026-07-22-v6"
 
 
 class AnalysisClient(Protocol):
     model: str
 
     def analyze_call(self, payload: dict[str, str | None]) -> CallExtractionResult: ...
+
+    def analyze_history(
+        self, payload: dict[str, str | None]
+    ) -> HistoryEnrichmentResult: ...
 
     def analyze_repeat_issue(
         self, payload: dict[str, object]
@@ -84,6 +93,83 @@ class EnrichmentMetadata:
     analysis_status: str
     model_name: str | None
     analysis_error: str | None = None
+
+
+CachedModelResult = (
+    CallExtractionResult | HistoryEnrichmentResult | RepeatIssueModelResult
+)
+ModelExtraction = CallExtractionResult | HistoryEnrichmentResult
+
+
+class ModelExtractionCache:
+    """Persistent, privacy-minimized cache for validated per-call model outputs."""
+
+    def __init__(self, path: Path | str) -> None:
+        self.path = Path(path).expanduser().resolve()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._connection = sqlite3.connect(self.path)
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA synchronous=NORMAL")
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS extraction_cache (
+                cache_key TEXT PRIMARY KEY,
+                result_kind TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self._connection.commit()
+
+    def get(
+        self, cache_key: str, result_type: type[CachedModelResult]
+    ) -> CachedModelResult | None:
+        row = self._connection.execute(
+            "SELECT result_kind, result_json FROM extraction_cache WHERE cache_key = ?",
+            (cache_key,),
+        ).fetchone()
+        if row is None or row[0] != result_type.__name__:
+            return None
+        try:
+            return result_type.model_validate_json(row[1])
+        except ValueError:
+            self._connection.execute(
+                "DELETE FROM extraction_cache WHERE cache_key = ?", (cache_key,)
+            )
+            self._connection.commit()
+            return None
+
+    def put(
+        self,
+        cache_key: str,
+        result: CachedModelResult,
+        *,
+        model_name: str,
+        prompt_version: str,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT OR REPLACE INTO extraction_cache (
+                cache_key, result_kind, result_json, model_name,
+                prompt_version, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                cache_key,
+                type(result).__name__,
+                result.model_dump_json(),
+                model_name,
+                prompt_version,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self._connection.commit()
+
+    def close(self) -> None:
+        self._connection.close()
 
 
 def _trajectory_key(trajectory: CallTrajectory) -> tuple[datetime, str]:
@@ -529,10 +615,78 @@ def _merge_extraction(
     )
 
 
+def _merge_history_enrichment(
+    call: NormalizedCallInput,
+    extraction: HistoryEnrichmentResult,
+) -> NormalizedCallInput:
+    caller_type = call.caller_type or (
+        None if extraction.caller_type == "无法判断" else extraction.caller_type
+    )
+    identity = resolve_enterprise_identity(
+        caller_type=caller_type,
+        raw_identity=call.raw_identity_label,
+        explicit_identity=extraction.explicit_enterprise_identity,
+    )
+
+    def existing_label_or(extracted: str, existing: str) -> str:
+        return (
+            existing
+            if existing not in {"", "无法判断", "暂无法判断"}
+            else extracted
+        )
+
+    proficiency_level = existing_label_or(
+        extraction.proficiency_level, call.proficiency_level
+    )
+    emotion_state = existing_label_or(extraction.emotion_state, call.emotion_state)
+    resolved_status = (
+        call.resolved_status
+        if call.resolved_status is not None
+        else extraction.resolved_status
+    )
+    return replace(
+        call,
+        core_question=call.core_question or extraction.core_question,
+        father_question=call.father_question or extraction.father_question,
+        father_question_2=call.father_question_2 or extraction.father_question_2,
+        agent_answer_summary=extraction.agent_answer_summary,
+        demand_category=(
+            call.demand_category or ", ".join(extraction.demand_categories)
+        ),
+        caller_type=caller_type,
+        enterprise_identity=identity.identity,
+        resolved_status=resolved_status,
+        unresolved_reason=(
+            (call.unresolved_reason or extraction.unresolved_reason)
+            if resolved_status is False
+            else None
+        ),
+        proficiency_score=extraction.proficiency_score,
+        proficiency_summary=extraction.proficiency_summary,
+        proficiency_level=proficiency_level,
+        proficiency_basis=(
+            call.proficiency_basis
+            if call.proficiency_level not in {"", "无法判断", "暂无法判断"}
+            else extraction.proficiency_basis
+        ),
+        emotion_state=emotion_state,
+        emotion_basis=(
+            call.emotion_basis
+            if call.emotion_state not in {"", "无法判断", "暂无法判断"}
+            else extraction.emotion_basis
+        ),
+        service_rating=extraction.service_rating,
+        service_summary=extraction.service_summary,
+        enterprise_identity_source=identity.source,
+        enterprise_identity_conflict=identity.conflict,
+    )
+
+
 def _enrich_call(
     call: NormalizedCallInput,
     mode: InputMode,
     client: AnalysisClient | None,
+    extraction_override: ModelExtraction | None = None,
 ) -> tuple[NormalizedCallInput, EnrichmentMetadata]:
     has_text = bool(
         call.transcript
@@ -572,16 +726,28 @@ def _enrich_call(
             model_name=None,
         )
 
-    extraction = client.analyze_call(
-        build_call_payload(
-            transcript=call.transcript,
-            business_content=call.business_content,
-            answer_content=call.answer_content,
-            core_question=call.core_question,
-            topic_category=call.topic_category,
-        )
+    payload = build_call_payload(
+        transcript=call.transcript,
+        business_content=call.business_content,
+        answer_content=call.answer_content,
+        core_question=call.core_question,
+        topic_category=call.topic_category,
     )
-    enriched = _merge_extraction(call, extraction, mode)
+    extraction = extraction_override
+    if extraction is None:
+        extraction = (
+            client.analyze_history(payload)
+            if mode == InputMode.TRUSTED_IMPORT
+            else client.analyze_call(payload)
+        )
+    if mode == InputMode.TRUSTED_IMPORT:
+        if not isinstance(extraction, HistoryEnrichmentResult):
+            raise TypeError("历史基底模型结果类型不正确")
+        enriched = _merge_history_enrichment(call, extraction)
+    else:
+        if not isinstance(extraction, CallExtractionResult):
+            raise TypeError("原始来电模型结果类型不正确")
+        enriched = _merge_extraction(call, extraction, mode)
     return enriched, EnrichmentMetadata(
         input_mode=mode,
         analysis_source=(
@@ -602,6 +768,7 @@ def _analyze_repeat_values(
     business_content: str | None,
     histories: list[CallTrajectory],
     client: AnalysisClient | None,
+    result_override: RepeatIssueModelResult | None = None,
 ) -> RepeatDecision:
     repeat = analyze_repeat_issue(
         core_question=core_question,
@@ -614,15 +781,17 @@ def _analyze_repeat_values(
         return repeat
     if client is None:
         return repeat
-    result = client.analyze_repeat_issue(
-        build_repeat_payload(
-            core_question=core_question,
-            father_question=father_question,
-            father_question_2=father_question_2,
-            business_content=business_content,
-            histories=histories,
+    result = result_override
+    if result is None:
+        result = client.analyze_repeat_issue(
+            build_repeat_payload(
+                core_question=core_question,
+                father_question=father_question,
+                father_question_2=father_question_2,
+                business_content=business_content,
+                histories=histories,
+            )
         )
-    )
     if not result.is_repeated_issue:
         return RepeatDecision(
             False,
@@ -656,6 +825,7 @@ def _analyze_repeat(
     call: NormalizedCallInput,
     histories: list[CallTrajectory],
     client: AnalysisClient | None,
+    result_override: RepeatIssueModelResult | None = None,
 ) -> RepeatDecision:
     return _analyze_repeat_values(
         core_question=call.core_question,
@@ -664,6 +834,7 @@ def _analyze_repeat(
         business_content=call.business_content,
         histories=histories,
         client=client,
+        result_override=result_override,
     )
 
 
@@ -764,6 +935,372 @@ def _source_record_fingerprint(call: NormalizedCallInput) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _model_cache_key(
+    call: NormalizedCallInput, mode: InputMode, client: AnalysisClient
+) -> tuple[str, str]:
+    prompt_version = (
+        HISTORY_ENRICHMENT_PROMPT_VERSION
+        if mode == InputMode.TRUSTED_IMPORT
+        else PROMPT_VERSION
+    )
+    value = "|".join(
+        (
+            _source_record_fingerprint(call),
+            mode.value,
+            client.model,
+            prompt_version,
+        )
+    )
+    return hashlib.sha256(value.encode("utf-8")).hexdigest(), prompt_version
+
+
+def _extract_model_fields(
+    call: NormalizedCallInput,
+    mode: InputMode,
+    client: AnalysisClient,
+) -> ModelExtraction:
+    payload = build_call_payload(
+        transcript=call.transcript,
+        business_content=call.business_content,
+        answer_content=call.answer_content,
+        core_question=call.core_question,
+        topic_category=call.topic_category,
+    )
+    return (
+        client.analyze_history(payload)
+        if mode == InputMode.TRUSTED_IMPORT
+        else client.analyze_call(payload)
+    )
+
+
+def _is_model_pressure_error(error: Exception) -> bool:
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, httpx.TimeoutException):
+            return True
+        if isinstance(current, httpx.HTTPStatusError) and (
+            current.response.status_code == 429
+            or current.response.status_code >= 500
+        ):
+            return True
+        current = current.__cause__
+    return False
+
+
+def _prefetch_model_extractions(
+    *,
+    calls: list[tuple[NormalizedCallInput, InputMode]],
+    existing_business_ids: set[str],
+    client: AnalysisClient | None,
+    workers: int,
+    cache_path: Path | str | None,
+    progress_callback: Callable[[int, int, str], None] | None,
+) -> dict[str, ModelExtraction | Exception]:
+    if client is None:
+        return {}
+    if not 1 <= workers <= 16:
+        raise ValueError("模型并发数必须在 1—16 之间")
+    pending: list[tuple[str, NormalizedCallInput, InputMode]] = []
+    seen: set[str] = set()
+    for call, mode in calls:
+        business_id = call.business_id
+        if (
+            business_id is None
+            or business_id in seen
+            or business_id in existing_business_ids
+            or call.phone is None
+            or call.call_time is None
+            or not (
+                call.transcript
+                or call.business_content
+                or call.answer_content
+                or call.core_question
+                or call.topic_category
+            )
+        ):
+            continue
+        seen.add(business_id)
+        pending.append((business_id, call, mode))
+    if not pending:
+        return {}
+
+    cache = ModelExtractionCache(cache_path) if cache_path is not None else None
+    results: dict[str, ModelExtraction | Exception] = {}
+    futures: dict[Future[ModelExtraction], tuple[str, str, str]] = {}
+    uncached: list[
+        tuple[str, NormalizedCallInput, InputMode, str, str]
+    ] = []
+    completed = 0
+    total = len(pending)
+    try:
+        for business_id, call, mode in pending:
+            cache_key, prompt_version = _model_cache_key(call, mode, client)
+            result_type: type[CachedModelResult] = (
+                HistoryEnrichmentResult
+                if mode == InputMode.TRUSTED_IMPORT
+                else CallExtractionResult
+            )
+            cached = cache.get(cache_key, result_type) if cache else None
+            if cached is not None:
+                results[business_id] = cached
+                completed += 1
+                if progress_callback is not None:
+                    progress_callback(completed, total, "模型缓存命中")
+                continue
+            uncached.append(
+                (business_id, call, mode, cache_key, prompt_version)
+            )
+
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="model") as pool:
+            queued = iter(uncached)
+
+            def submit_next() -> bool:
+                try:
+                    business_id, call, mode, cache_key, prompt_version = next(queued)
+                except StopIteration:
+                    return False
+                future = pool.submit(_extract_model_fields, call, mode, client)
+                futures[future] = (business_id, cache_key, prompt_version)
+                return True
+
+            for _ in range(min(workers, len(uncached))):
+                submit_next()
+            consecutive_failures = 0
+            active_limit = workers
+            success_streak = 0
+            while futures:
+                done, _ = wait(tuple(futures), return_when=FIRST_COMPLETED)
+                for future in done:
+                    business_id, cache_key, prompt_version = futures.pop(future)
+                    try:
+                        result = future.result()
+                        results[business_id] = result
+                        if cache is not None:
+                            cache.put(
+                                cache_key,
+                                result,
+                                model_name=client.model,
+                                prompt_version=prompt_version,
+                            )
+                        status = "模型提取完成"
+                        consecutive_failures = 0
+                        success_streak += 1
+                        if success_streak >= 25 and active_limit < workers:
+                            active_limit += 1
+                            success_streak = 0
+                    except Exception as exc:
+                        results[business_id] = exc
+                        status = "模型提取失败"
+                        consecutive_failures += 1
+                        success_streak = 0
+                        if _is_model_pressure_error(exc) and active_limit > 1:
+                            active_limit -= 1
+                            status = f"模型压力过高，并发已降至{active_limit}"
+                    completed += 1
+                    if progress_callback is not None:
+                        progress_callback(completed, total, status)
+                    if consecutive_failures >= 3:
+                        for queued_future in futures:
+                            queued_future.cancel()
+                        raise RuntimeError(
+                            "连续 3 条模型提取失败，已熔断"
+                            + ("；成功结果已写入断点缓存" if cache else "")
+                        ) from results[business_id]
+                while len(futures) < active_limit and submit_next():
+                    pass
+    finally:
+        if cache is not None:
+            cache.close()
+    return results
+
+
+PreparedEnrichment = tuple[NormalizedCallInput, EnrichmentMetadata]
+
+
+def _prepare_enrichments_and_repeat_payloads(
+    *,
+    calls: list[tuple[NormalizedCallInput, InputMode]],
+    existing_trajectories: list[CallTrajectory],
+    existing_business_ids: set[str],
+    prefetched_extractions: dict[str, ModelExtraction | Exception],
+    client: AnalysisClient | None,
+    protector: PhoneProtector,
+) -> tuple[
+    dict[str, PreparedEnrichment | Exception],
+    dict[str, dict[str, object]],
+]:
+    if client is None:
+        return {}, {}
+    histories_by_phone: dict[str, list[CallTrajectory]] = defaultdict(list)
+    for trajectory in existing_trajectories:
+        histories_by_phone[trajectory.phone_hash].append(trajectory)
+    prepared: dict[str, PreparedEnrichment | Exception] = {}
+    repeat_payloads: dict[str, dict[str, object]] = {}
+    seen = set(existing_business_ids)
+    for call, mode in calls:
+        business_id = call.business_id
+        if (
+            business_id is None
+            or business_id in seen
+            or call.phone is None
+            or call.call_time is None
+        ):
+            continue
+        seen.add(business_id)
+        prefetched = prefetched_extractions.get(business_id)
+        if isinstance(prefetched, Exception):
+            prepared[business_id] = prefetched
+            continue
+        try:
+            enriched, metadata = _enrich_call(
+                call,
+                mode,
+                client,
+                extraction_override=prefetched,
+            )
+        except Exception as exc:
+            prepared[business_id] = exc
+            continue
+        prepared[business_id] = (enriched, metadata)
+        phone_hash = protector.hash_phone(call.phone)
+        current_key = (call.call_time, business_id)
+        histories = [
+            item
+            for item in histories_by_phone[phone_hash]
+            if _trajectory_key(item) < current_key
+        ]
+        local_repeat = analyze_repeat_issue(
+            core_question=enriched.core_question,
+            father_question=enriched.father_question,
+            father_question_2=enriched.father_question_2,
+            business_content=enriched.business_content,
+            histories=histories,
+        )
+        if local_repeat.needs_model_review:
+            repeat_payloads[business_id] = build_repeat_payload(
+                core_question=enriched.core_question,
+                father_question=enriched.father_question,
+                father_question_2=enriched.father_question_2,
+                business_content=enriched.business_content,
+                histories=histories,
+            )
+        placeholder = CallTrajectory(
+            business_id=business_id,
+            phone_hash=phone_hash,
+            call_time=call.call_time,
+            core_question=enriched.core_question,
+            father_question=enriched.father_question,
+            father_question_2=enriched.father_question_2,
+            resolved_status=enriched.resolved_status,
+            analysis_status="prepared",
+            analysis_version=ANALYSIS_VERSION,
+        )
+        histories_by_phone[phone_hash].append(placeholder)
+        histories_by_phone[phone_hash].sort(key=_trajectory_key)
+    return prepared, repeat_payloads
+
+
+def _repeat_cache_key(
+    payload: dict[str, object], client: AnalysisClient
+) -> str:
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    value = "|".join((canonical, client.model, REPEAT_PROMPT_VERSION))
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _prefetch_repeat_reviews(
+    *,
+    payloads: dict[str, dict[str, object]],
+    client: AnalysisClient | None,
+    workers: int,
+    cache_path: Path | str | None,
+    progress_callback: Callable[[int, int, str], None] | None,
+) -> dict[str, RepeatIssueModelResult | Exception]:
+    if client is None or not payloads:
+        return {}
+    cache = ModelExtractionCache(cache_path) if cache_path is not None else None
+    results: dict[str, RepeatIssueModelResult | Exception] = {}
+    pending: list[tuple[str, dict[str, object], str]] = []
+    completed = 0
+    total = len(payloads)
+    try:
+        for business_id, payload in payloads.items():
+            cache_key = _repeat_cache_key(payload, client)
+            cached = cache.get(cache_key, RepeatIssueModelResult) if cache else None
+            if isinstance(cached, RepeatIssueModelResult):
+                results[business_id] = cached
+                completed += 1
+                if progress_callback is not None:
+                    progress_callback(completed, total, "重复诉求缓存命中")
+            else:
+                pending.append((business_id, payload, cache_key))
+
+        futures: dict[
+            Future[RepeatIssueModelResult], tuple[str, str]
+        ] = {}
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="repeat") as pool:
+            queued = iter(pending)
+
+            def submit_next() -> bool:
+                try:
+                    business_id, payload, cache_key = next(queued)
+                except StopIteration:
+                    return False
+                future = pool.submit(client.analyze_repeat_issue, payload)
+                futures[future] = (business_id, cache_key)
+                return True
+
+            for _ in range(min(workers, len(pending))):
+                submit_next()
+            active_limit = workers
+            success_streak = 0
+            consecutive_failures = 0
+            while futures:
+                done, _ = wait(tuple(futures), return_when=FIRST_COMPLETED)
+                for future in done:
+                    business_id, cache_key = futures.pop(future)
+                    try:
+                        result = future.result()
+                        results[business_id] = result
+                        if cache is not None:
+                            cache.put(
+                                cache_key,
+                                result,
+                                model_name=client.model,
+                                prompt_version=REPEAT_PROMPT_VERSION,
+                            )
+                        status = "重复诉求复核完成"
+                        consecutive_failures = 0
+                        success_streak += 1
+                        if success_streak >= 25 and active_limit < workers:
+                            active_limit += 1
+                            success_streak = 0
+                    except Exception as exc:
+                        results[business_id] = exc
+                        status = "重复诉求复核失败"
+                        consecutive_failures += 1
+                        success_streak = 0
+                        if _is_model_pressure_error(exc) and active_limit > 1:
+                            active_limit -= 1
+                            status = f"模型压力过高，并发已降至{active_limit}"
+                    completed += 1
+                    if progress_callback is not None:
+                        progress_callback(completed, total, status)
+                    if consecutive_failures >= 3:
+                        for queued_future in futures:
+                            queued_future.cancel()
+                        raise RuntimeError(
+                            "连续 3 条重复诉求模型复核失败，已熔断"
+                            + ("；成功结果已写入断点缓存" if cache else "")
+                        ) from results[business_id]
+                while len(futures) < active_limit and submit_next():
+                    pass
+    finally:
+        if cache is not None:
+            cache.close()
+    return results
+
+
 def _trajectory_from_call(
     *,
     call: NormalizedCallInput,
@@ -856,7 +1393,8 @@ def _trajectory_from_call(
         analysis_source=metadata.analysis_source,
         model_name=metadata.model_name,
         prompt_version=(
-            f"{PROMPT_VERSION};{REPEAT_PROMPT_VERSION}"
+            f"{HISTORY_ENRICHMENT_PROMPT_VERSION if metadata.input_mode == InputMode.TRUSTED_IMPORT else PROMPT_VERSION};"
+            f"{REPEAT_PROMPT_VERSION}"
             if metadata.model_name
             else None
         ),
@@ -882,6 +1420,8 @@ def process_workbook(
     trusted_through: date | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
+    model_workers: int = 1,
+    extraction_cache_path: Path | str | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> ProcessingSummary:
     """Analyze and atomically ingest one independent workbook."""
@@ -943,6 +1483,29 @@ def process_workbook(
     for trajectory in existing_trajectories:
         histories_by_phone[trajectory.phone_hash].append(trajectory)
     existing_by_business = {item.business_id: item for item in existing_trajectories}
+    prefetched_extractions = _prefetch_model_extractions(
+        calls=calls,
+        existing_business_ids=set(existing_by_business),
+        client=llm_client,
+        workers=model_workers,
+        cache_path=extraction_cache_path,
+        progress_callback=progress_callback,
+    )
+    prepared_enrichments, repeat_payloads = _prepare_enrichments_and_repeat_payloads(
+        calls=calls,
+        existing_trajectories=existing_trajectories,
+        existing_business_ids=set(existing_by_business),
+        prefetched_extractions=prefetched_extractions,
+        client=llm_client,
+        protector=protector,
+    )
+    prefetched_repeat_reviews = _prefetch_repeat_reviews(
+        payloads=repeat_payloads,
+        client=llm_client,
+        workers=model_workers,
+        cache_path=extraction_cache_path,
+        progress_callback=progress_callback,
+    )
 
     new_trajectories: list[CallTrajectory] = []
     encrypted_phones: dict[str, str] = {}
@@ -981,8 +1544,30 @@ def process_workbook(
             item for item in all_phone_histories if _trajectory_key(item) < current_key
         ]
         try:
-            enriched, metadata = _enrich_call(call, row_mode, llm_client)
-            repeat = _analyze_repeat(enriched, histories, llm_client)
+            prepared = prepared_enrichments.get(call.business_id)
+            if isinstance(prepared, Exception):
+                raise prepared
+            if prepared is None:
+                prefetched = prefetched_extractions.get(call.business_id)
+                if isinstance(prefetched, Exception):
+                    raise prefetched
+                enriched, metadata = _enrich_call(
+                    call,
+                    row_mode,
+                    llm_client,
+                    extraction_override=prefetched,
+                )
+            else:
+                enriched, metadata = prepared
+            repeat_review = prefetched_repeat_reviews.get(call.business_id)
+            if isinstance(repeat_review, Exception):
+                raise repeat_review
+            repeat = _analyze_repeat(
+                enriched,
+                histories,
+                llm_client,
+                result_override=repeat_review,
+            )
             consecutive_model_failures = 0
         except RuntimeError as exc:
             failed += 1
