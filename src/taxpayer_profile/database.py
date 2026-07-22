@@ -11,13 +11,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from taxpayer_profile.models import Base
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Only nullable, additive columns are migrated in place so an existing demo
 # database remains readable after a display-oriented schema extension.
 ADDITIVE_MIGRATIONS = {
     "call_trajectories": {
         "secondary_topic": "TEXT",
+        "agent_answer_summary": "TEXT",
     },
 }
 

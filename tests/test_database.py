@@ -39,6 +39,7 @@ def test_call_trajectory_stores_required_raw_fields_but_not_enterprise_private_f
         "agent_name",
         "business_content",
         "answer_content",
+        "agent_answer_summary",
         "recording_path",
         "registration_unit",
         "handling_method",

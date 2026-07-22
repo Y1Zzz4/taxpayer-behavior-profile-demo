@@ -31,6 +31,7 @@ def test_call_extraction_prompt_contains_required_business_rules() -> None:
         "demand_category": "工单/拉起类",
         "unresolved_reason": "unresolved_reason",
         "specific_core_issue": "问题发生的业务场景 + 来电人真正要解决的事项",
+        "agent_answer_summary": "agent_answer_summary 必须由模型",
         "no_policy_claim": "不判断政策答案是否绝对正确",
     }
     missing = [name for name, text in required_rules.items() if text not in prompt]
@@ -38,7 +39,7 @@ def test_call_extraction_prompt_contains_required_business_rules() -> None:
     assert "近期情绪状态" in prompt
     assert "业务专业度" in prompt
     assert "专业" in prompt and "了解" in prompt and "小白" in prompt
-    assert PROMPT_VERSION == "call-extraction-v8"
+    assert PROMPT_VERSION == "call-extraction-v9"
 
 
 def test_prompt_does_not_request_prohibited_structured_identifiers() -> None:

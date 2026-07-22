@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -43,43 +42,14 @@ def _contact_unresolved(item: CallTrajectory) -> bool:
     ) is False
 
 
-def _concise_text(value: str | None, *, limit: int = 160) -> str | None:
-    """Create a deterministic, display-sized summary without another model call."""
-
-    if not value:
-        return None
-    compact = re.sub(r"\s+", " ", value).strip(" ，。；;")
-    if not compact:
-        return None
-    sentences = [
-        part.strip()
-        for part in re.split(r"(?<=[。！？；])", compact)
-        if part.strip()
-    ]
-    rendered = "".join(sentences[:2]) if sentences else compact
-    return rendered if len(rendered) <= limit else rendered[: limit - 1].rstrip() + "…"
-
-
 def _agent_answer_summary(item: CallTrajectory) -> str:
-    """Prefer the manually registered answer; use marked agent turns as fallback."""
+    """Expose only the persisted model extraction; never synthesize it locally."""
 
-    registered = _concise_text(item.answer_content)
-    transcript = item.raw_transcript or ""
-    agent_turns: list[str] = []
-    for line in re.split(r"[\r\n]+", transcript):
-        match = re.search(r"(?:坐席|客服|话务员|税务局)\s*[:：]　?(.+)", line)
-        if match:
-            turn = _concise_text(match.group(1), limit=90)
-            if turn and turn not in agent_turns:
-                agent_turns.append(turn)
-    transcript_summary = _concise_text("；".join(agent_turns[:2]))
-    if registered:
-        if transcript_summary and len(registered) < 24 and transcript_summary not in registered:
-            return _concise_text(f"{registered}；{transcript_summary}") or registered
-        return registered
-    if transcript_summary:
-        return transcript_summary
-    return "最近一次来电未形成可明确提炼的坐席答复。"
+    if item.agent_answer_summary:
+        return item.agent_answer_summary
+    if item.model_name:
+        return "模型未识别出可明确提炼的坐席答复。"
+    return "该通记录尚未完成坐席答复的模型提炼。"
 
 
 def _recent_workday_statistics(
@@ -175,6 +145,7 @@ def _trajectory_context(item: CallTrajectory) -> dict[str, Any]:
         "topic_category": item.topic_category,
         "secondary_topic": item.secondary_topic,
         "demand_category": item.demand_category,
+        "agent_answer_summary": item.agent_answer_summary,
         "resolved": item.resolved_status,
         "unresolved_reason": item.unresolved_reason,
         "work_order": item.work_order,
@@ -260,6 +231,7 @@ def _full_trajectory(item: CallTrajectory) -> dict[str, Any]:
         "topic_category": item.topic_category,
         "secondary_topic": item.secondary_topic,
         "demand_category": item.demand_category,
+        "agent_answer_summary": item.agent_answer_summary,
         "registration_unit": item.registration_unit,
         "natural_qa_turns": item.natural_qa_turns,
         "core_question_turns": item.core_question_turns,

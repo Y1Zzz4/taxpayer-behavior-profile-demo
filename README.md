@@ -93,8 +93,11 @@ python scripts/run_demo.py --database data/database/raw_data_rules_preview.sqlit
 
 ### 5. 从正式数据重新构建
 
+该命令会复用 1—9 日已有可信字段，同时调用模型补齐业务专业度、近期情绪状态、坐席答复提炼等字段；10 日及之后记录按原始来电重新分析。
+
 ```bash
 python scripts/init_database.py data/raw/raw_data.xlsx \
+  --database data/database/taxpayer_profiles.sqlite3 \
   --analyze-history-with-model --rebuild
 ```
 

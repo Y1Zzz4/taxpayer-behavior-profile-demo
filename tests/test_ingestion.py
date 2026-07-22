@@ -26,6 +26,7 @@ class FakeAnalysisClient:
             core_question="新抽取核心问题" if is_raw else "模型不应覆盖可信问题",
             father_question="新父问题",
             father_question_2="新二级父问题",
+            agent_answer_summary="坐席说明了后续处理路径和等待节点。",
             demand_categories=["操作辅导类"],
             caller_type="企业",
             explicit_enterprise_identity="无法判断",
@@ -110,6 +111,7 @@ def test_raw_mode_reuses_direct_core_question_but_reanalyzes_other_fields(
         assert trajectory.topic_category == "增值税申报"
         assert trajectory.secondary_topic == "增值税申报-一般纳税人申报"
         assert trajectory.demand_category == "操作辅导类"
+        assert trajectory.agent_answer_summary == "坐席说明了后续处理路径和等待节点。"
         assert trajectory.unresolved_reason == "需等待后续处理"
         assert trajectory.father_question == "新父问题"
         assert trajectory.caller_type == "企业"

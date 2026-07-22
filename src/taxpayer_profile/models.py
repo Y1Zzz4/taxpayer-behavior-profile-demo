@@ -72,6 +72,7 @@ class CallTrajectory(Base):
     agent_name: Mapped[str | None] = mapped_column(String(100))
     business_content: Mapped[str | None] = mapped_column(Text)
     answer_content: Mapped[str | None] = mapped_column(Text)
+    agent_answer_summary: Mapped[str | None] = mapped_column(Text)
     recording_path: Mapped[str | None] = mapped_column(Text)
     registration_unit: Mapped[str | None] = mapped_column(String(300))
     handling_method: Mapped[str | None] = mapped_column(String(300))

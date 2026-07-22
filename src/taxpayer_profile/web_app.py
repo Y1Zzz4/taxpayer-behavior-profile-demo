@@ -201,11 +201,30 @@ def _resolution_rows(items: list[CallTrajectory]) -> list[dict[str, object]]:
 
 def _district_unit_label(value: str | None) -> str:
     label = (value or "").strip() or "登记单位待识别"
-    if not label.endswith("税务局"):
-        return label
-    base = label.removesuffix("税务局")
-    district = base.rsplit("市", 1)[-1]
-    return district if district.endswith("区") else label
+    display_names = {
+        "上海市税务局": "中心",
+        "国家税务总局上海市税务局": "中心",
+        "第三税务分局": "三分局",
+        "第三分局": "三分局",
+        "自贸区分局": "自贸区",
+        "浦东新区税务局": "浦东",
+        "奉贤区税务局": "奉贤",
+        "闵行区税务局": "闵行",
+        "宝山区税务局": "宝山",
+        "金山区税务局": "金山",
+        "长宁区税务局": "长宁",
+        "崇明区税务局": "崇明",
+        "普陀区税务局": "普陀",
+        "杨浦区税务局": "杨浦",
+        "静安区税务局": "静安",
+        "松江区税务局": "松江",
+        "嘉定区税务局": "嘉定",
+        "青浦区税务局": "青浦",
+        "徐汇区税务局": "徐汇",
+        "虹口区税务局": "虹口",
+        "黄浦区税务局": "黄浦",
+    }
+    return display_names.get(label, label)
 
 
 def _secondary_labels_for_topic(
@@ -1011,6 +1030,7 @@ class DemoService:
                 "topic_category": item.topic_category,
                 "secondary_topic": item.secondary_topic,
                 "demand_category": item.demand_category,
+                "agent_answer_summary": item.agent_answer_summary,
                 "resolved": item.resolved_status,
                 "unresolved_reason": item.unresolved_reason,
                 "work_order": item.work_order,

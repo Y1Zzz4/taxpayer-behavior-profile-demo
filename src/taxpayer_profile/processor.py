@@ -47,8 +47,8 @@ from taxpayer_profile.profiling import (
 from taxpayer_profile.repeat_analysis import RepeatDecision, analyze_repeat_issue
 from taxpayer_profile.security import PhoneProtector
 
-ANALYSIS_VERSION = "profile-2026-07-21-v4"
-EXTRACTION_VERSION = "extraction-2026-07-21-v4"
+ANALYSIS_VERSION = "profile-2026-07-22-v5"
+EXTRACTION_VERSION = "extraction-2026-07-22-v5"
 
 
 class AnalysisClient(Protocol):
@@ -453,6 +453,7 @@ def _merge_extraction(
     return replace(
         call,
         core_question=call.core_question or extraction.core_question,
+        agent_answer_summary=extraction.agent_answer_summary,
         demand_category=(
             call.demand_category
             if trusted and call.demand_category
@@ -799,6 +800,7 @@ def _trajectory_from_call(
         agent_name=call.agent_name,
         business_content=call.business_content,
         answer_content=call.answer_content,
+        agent_answer_summary=call.agent_answer_summary,
         recording_path=call.recording_path,
         registration_unit=call.registration_unit,
         handling_method=call.handling_method,

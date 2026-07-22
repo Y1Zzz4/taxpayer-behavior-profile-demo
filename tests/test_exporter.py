@@ -16,12 +16,13 @@ from taxpayer_profile.database import (
 from taxpayer_profile.exporter import export_profile_rule_workbooks, export_results
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
 from taxpayer_profile.query import (
+    _agent_answer_summary,
     _five_workdays,
     _recent_workday_statistics,
     query_profile,
 )
 from taxpayer_profile.security import PhoneProtector
-from taxpayer_profile.web_app import DemoService, _segmented_rows
+from taxpayer_profile.web_app import DemoService, _district_unit_label, _segmented_rows
 
 
 def _seed_database(path: Path, protector: PhoneProtector) -> None:
@@ -57,6 +58,7 @@ def _seed_database(path: Path, protector: PhoneProtector) -> None:
                 raw_transcript="纳税人咨询申报问题，坐席给出办理路径。",
                 business_content="咨询申报问题",
                 answer_content="已告知办理路径",
+                agent_answer_summary="坐席说明了申报办理路径。",
                 registration_unit="第一税务所",
                 caller_type="个人",
                 enterprise_identity="不适用",
@@ -129,6 +131,10 @@ def test_export_has_three_formatted_worksheets_and_query_interface(
     ]
     resolved_column = trajectory_headers.index("是否直接解决") + 1
     assert trajectory_sheet.cell(row=2, column=resolved_column).value == "是"
+    answer_summary_column = trajectory_headers.index("坐席答复提炼") + 1
+    assert trajectory_sheet.cell(row=2, column=answer_summary_column).value == (
+        "坐席说明了申报办理路径。"
+    )
     profile_sheet = workbook["号码画像"]
     profile_headers = [cell.value for cell in profile_sheet[1]]
     latest_question_column = profile_headers.index("最近核心问题") + 1
@@ -147,7 +153,7 @@ def test_export_has_three_formatted_worksheets_and_query_interface(
     assert "phone" not in result
     assert result["total_call_count"] == 1
     assert result["agent_context"]["statistics"]["total_calls"] == 1
-    assert result["latest_agent_answer"] == "已告知办理路径"
+    assert result["latest_agent_answer"] == "坐席说明了申报办理路径。"
     assert "知识库暂未接入" in result["standard_answer"]
     assert result["agent_context"]["recommended_mode"] == (
         "通俗引导 · 平稳接待 · 当前诉求确认"
@@ -315,6 +321,17 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert "13800000001" not in str(showcase)
 
 
+def test_agent_answer_summary_never_falls_back_to_local_text_rules() -> None:
+    pending = SimpleNamespace(
+        agent_answer_summary=None,
+        model_name=None,
+        answer_content="本地原始答复内容",
+        raw_transcript="坐席：本地转写内容",
+    )
+
+    assert _agent_answer_summary(pending) == "该通记录尚未完成坐席答复的模型提炼。"
+
+
 def test_dashboard_top_five_skips_other_and_backfills_next_category() -> None:
     counts = Counter(
         {"其他": 20, "类别一": 9, "类别二": 8, "类别三": 7, "类别四": 6, "类别五": 5, "类别六": 4}
@@ -333,6 +350,35 @@ def test_dashboard_top_five_skips_other_and_backfills_next_category() -> None:
         "类别五",
     ]
     assert rows[0]["share"] == round(9 * 100 / sum(counts.values()), 1)
+
+
+def test_registration_unit_visual_labels_use_required_short_names() -> None:
+    expected = {
+        "上海市税务局": "中心",
+        "第三税务分局": "三分局",
+        "自贸区分局": "自贸区",
+        "浦东新区税务局": "浦东",
+        "奉贤区税务局": "奉贤",
+        "闵行区税务局": "闵行",
+        "宝山区税务局": "宝山",
+        "金山区税务局": "金山",
+        "长宁区税务局": "长宁",
+        "崇明区税务局": "崇明",
+        "普陀区税务局": "普陀",
+        "杨浦区税务局": "杨浦",
+        "静安区税务局": "静安",
+        "松江区税务局": "松江",
+        "嘉定区税务局": "嘉定",
+        "青浦区税务局": "青浦",
+        "徐汇区税务局": "徐汇",
+        "虹口区税务局": "虹口",
+        "黄浦区税务局": "黄浦",
+    }
+
+    assert {
+        source: _district_unit_label(source) for source in expected
+    } == expected
+    assert _district_unit_label("第一税务所") == "第一税务所"
 
 
 def test_showcase_catalog_returns_five_defaults_and_searches_all_profiles(

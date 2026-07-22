@@ -156,6 +156,7 @@ def export_results(
             "来电号码": phones.get(item.phone_hash, ""),
             "满意度": item.satisfaction,
             "呼叫流水号": item.call_serial_number,
+            "坐席答复提炼": item.agent_answer_summary,
             "画像来电时间": _datetime(item.call_time),
             "来电时间来源": item.call_time_source,
             "咨询主体": item.caller_type,

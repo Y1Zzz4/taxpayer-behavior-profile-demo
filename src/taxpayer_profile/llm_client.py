@@ -40,7 +40,7 @@ DemandCategory = Literal[
     "意见建议类",
     "其他类",
 ]
-PROMPT_VERSION = "call-extraction-v8"
+PROMPT_VERSION = "call-extraction-v9"
 REPEAT_PROMPT_VERSION = "repeat-issue-v4"
 REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v8"
 
@@ -53,6 +53,7 @@ class CallExtractionResult(BaseModel):
     core_question: str | None = Field(default=None, max_length=300)
     father_question: str | None = Field(default=None, max_length=300)
     father_question_2: str | None = Field(default=None, max_length=300)
+    agent_answer_summary: str | None = Field(max_length=300)
     demand_categories: list[DemandCategory] = Field(min_length=1, max_length=2)
     caller_type: CallerType
     explicit_enterprise_identity: EnterpriseIdentity

@@ -161,6 +161,7 @@ def test_call_extraction_schema_rejects_inconsistent_proficiency() -> None:
         "core_question": "如何申报",
         "father_question": "申报",
         "father_question_2": None,
+        "agent_answer_summary": "坐席说明了申报操作路径。",
         "demand_categories": ["操作辅导类"],
         "caller_type": "企业",
         "explicit_enterprise_identity": "无法判断",

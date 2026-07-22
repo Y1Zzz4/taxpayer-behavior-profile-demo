@@ -161,6 +161,7 @@ class NormalizedCallInput:
     agent_name: str | None
     business_content: str | None
     answer_content: str | None
+    agent_answer_summary: str | None
     recording_path: str | None
     registration_unit: str | None
     handling_method: str | None
@@ -246,6 +247,7 @@ def normalize_call_row(
         agent_name=text_or_none(row.get("坐席姓名")),
         business_content=text_or_none(row.get("业务内容")),
         answer_content=text_or_none(row.get("答复内容")),
+        agent_answer_summary=None,
         recording_path=text_or_none(row.get("录音路径")),
         registration_unit=text_or_none(row.get("登记单位")),
         handling_method=text_or_none(row.get("登记处理方式")),
