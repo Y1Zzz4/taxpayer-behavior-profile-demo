@@ -11,7 +11,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from taxpayer_profile.models import Base
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
+
+# Only nullable, additive columns are migrated in place so an existing demo
+# database remains readable after a display-oriented schema extension.
+ADDITIVE_MIGRATIONS = {
+    "call_trajectories": {
+        "secondary_topic": "TEXT",
+    },
+}
 
 
 def make_engine(database: Path | str) -> Engine:
@@ -38,6 +46,21 @@ def create_schema(engine: Engine) -> None:
     inspector = inspect(engine)
     incompatibilities: list[str] = []
     existing_tables = set(inspector.get_table_names())
+    if engine.dialect.name == "sqlite":
+        with engine.begin() as connection:
+            for table_name, columns in ADDITIVE_MIGRATIONS.items():
+                if table_name not in existing_tables:
+                    continue
+                actual = {
+                    column["name"] for column in inspector.get_columns(table_name)
+                }
+                for column_name, column_type in columns.items():
+                    if column_name not in actual:
+                        connection.exec_driver_sql(
+                            f'ALTER TABLE "{table_name}" '
+                            f'ADD COLUMN "{column_name}" {column_type}'
+                        )
+        inspector = inspect(engine)
     for table in Base.metadata.sorted_tables:
         if table.name not in existing_tables:
             continue

@@ -47,6 +47,7 @@ def test_call_trajectory_stores_required_raw_fields_but_not_enterprise_private_f
         "satisfaction",
         "call_serial_number",
         "topic_category",
+        "secondary_topic",
         "demand_category",
         "unresolved_reason",
     }.issubset(columns)

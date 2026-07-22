@@ -109,8 +109,8 @@ def export_results(
             "来电号码": phones[profile.phone_hash],
             "咨询主体": profile.caller_type,
             "细化主体": profile.enterprise_identity,
-            "业务熟悉度": profile.proficiency_level,
-            "业务熟悉度依据": profile.proficiency_basis,
+            "业务专业度": profile.proficiency_level,
+            "业务专业度依据": profile.proficiency_basis,
             "近期情绪状态": profile.emotion_state,
             "情绪状态依据": profile.emotion_basis,
             "首次来电时间": _datetime(profile.first_call_time),
@@ -162,6 +162,7 @@ def export_results(
             "细化主体": item.enterprise_identity,
             "核心问题": item.core_question,
             "专题类别": item.topic_category,
+            "二级专题": item.secondary_topic,
             "需求类别": item.demand_category,
             "father_question": item.father_question,
             "father_question_2": item.father_question_2,
@@ -182,8 +183,8 @@ def export_results(
             "有效问答内容": item.effective_qa_content,
             "办税熟练程度": item.proficiency_score,
             "熟练程度说明": item.proficiency_summary,
-            "业务熟悉度": item.proficiency_level,
-            "业务熟悉度依据": item.proficiency_basis,
+            "业务专业度": item.proficiency_level,
+            "业务专业度依据": item.proficiency_basis,
             "近期情绪状态": item.emotion_state,
             "情绪状态依据": item.emotion_basis,
             "服务效果评估": item.service_rating,
@@ -267,19 +268,19 @@ def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, P
     mapping_notes = [
         {
             "说明项": "文档用途",
-            "内容": "说明纳税人特征如何分别推导情绪响应、事项承接和表达方式，并组合形成完整接待策略；供方案评审、演示和规则核验使用。",
+            "内容": "说明纳税人特征如何分别推导表达方式、情绪响应和业务应对，并组合形成完整接待策略；供方案评审、演示和规则核验使用。",
         },
         {
             "说明项": "输入结构",
-            "内容": "输入由业务熟悉度、近期情绪状态和五项历史服务事实组成，三类信息共同描述纳税人本身情况及近期服务经历。",
+            "内容": "输入由业务专业度、近期情绪状态和五项历史服务事实组成，三类信息共同描述纳税人本身情况及近期服务经历。",
         },
         {
             "说明项": "统计窗口",
-            "内容": "以最近一次来电日期为锚点，取最近五个工作日。业务熟悉度和情绪采用窗口内最近一次有效判断；历史服务事实统计窗口内发生次数。",
+            "内容": "以最近一次来电日期为锚点，取最近五个工作日。业务专业度和情绪采用窗口内最近一次有效判断；历史服务事实统计窗口内发生次数。",
         },
         {
             "说明项": "推导方式",
-            "内容": "三个类别分别判断、同时生效：情绪响应三选一、事项承接二选一、表达方式三选一；不再用单一全局优先级覆盖其他维度。",
+            "内容": "三个类别分别判断、同时生效：表达方式三选一、情绪响应三选一、业务应对二选一；组合结果按上述顺序呈现。",
         },
         {
             "说明项": "识别与映射",
@@ -297,21 +298,21 @@ def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, P
 
     field_rows = [
         {
-            "维度": "业务熟悉度",
+            "维度": "业务专业度",
             "取值或事实": "专业",
             "判定口径": "能准确描述业务场景、条件或办理节点，理解相关术语，追问集中在边界或结果",
             "聚合方式": "最近五个工作日内最近一次有效判断",
             "映射作用": "表达方式选择结论直述",
         },
         {
-            "维度": "业务熟悉度",
+            "维度": "业务专业度",
             "取值或事实": "了解",
             "判定口径": "知道事项和基本办理方向，能够说明主要问题，但仍需确认部分规则、材料或节点",
             "聚合方式": "最近五个工作日内最近一次有效判断",
             "映射作用": "表达方式选择重点解释",
         },
         {
-            "维度": "业务熟悉度",
+            "维度": "业务专业度",
             "取值或事实": "小白",
             "判定口径": "对基础概念、办理入口或操作路径明显不熟悉，需要通俗解释和分段引导",
             "聚合方式": "最近五个工作日内最近一次有效判断",
@@ -350,21 +351,21 @@ def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, P
             "取值或事实": "历史工单",
             "判定口径": "是否工单=是",
             "聚合方式": "统计最近五个工作日内命中次数",
-            "映射作用": "发生至少一次，事项承接选择历史跟进",
+            "映射作用": "发生至少一次，业务应对选择历史诉求跟进",
         },
         {
             "维度": "历史服务事实",
             "取值或事实": "异常中断",
             "判定口径": "既有分析采用已确认字段；新增来电仅在明确中断、挂断或语义判断命中时计入，缺少结束语不单独认定",
             "聚合方式": "规则判断或语义判断任一为是即计入；统计最近五个工作日内命中次数",
-            "映射作用": "发生至少一次，事项承接选择历史跟进",
+            "映射作用": "发生至少一次，业务应对选择历史诉求跟进",
         },
         {
             "维度": "历史服务事实",
             "取值或事实": "联系后未解决",
             "判定口径": "对话中存在联系相关人员或部门=是，且坐席是否解决纳税人问题=否",
             "聚合方式": "统计最近五个工作日内同时满足条件的次数",
-            "映射作用": "发生至少一次，事项承接选择历史跟进",
+            "映射作用": "发生至少一次，业务应对选择历史诉求跟进",
         },
         {
             "维度": "历史服务事实",
@@ -389,59 +390,59 @@ def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, P
     ]
 
     example_specs = [
-        ("E01", "专业", "平稳", {}, "平稳→平稳接待；无待衔接事实→诉求确认；专业→结论直述"),
-        ("E02", "了解", "焦虑", {}, "焦虑→稳定预期；无待衔接事实→诉求确认；了解→重点解释"),
-        ("E03", "小白", "平稳", {}, "平稳→平稳接待；无待衔接事实→诉求确认；小白→通俗引导"),
-        ("E04", "暂无法判断", "焦虑", {}, "焦虑→稳定预期；无待衔接事实→诉求确认；熟悉度证据不足→通俗引导"),
-        ("E05", "专业", "不满", {}, "不满→安抚修复；无待衔接事实→诉求确认；专业→结论直述"),
+        ("E01", "专业", "平稳", {}, "专业→结论直述；平稳→平稳接待；无待衔接事实→当前诉求确认"),
+        ("E02", "了解", "焦虑", {}, "了解→重点解释；焦虑→稳定预期；无待衔接事实→当前诉求确认"),
+        ("E03", "小白", "平稳", {}, "小白→通俗引导；平稳→平稳接待；无待衔接事实→当前诉求确认"),
+        ("E04", "暂无法判断", "焦虑", {}, "专业度证据不足→通俗引导；焦虑→稳定预期；无待衔接事实→当前诉求确认"),
+        ("E05", "专业", "不满", {}, "专业→结论直述；不满→安抚修复；无待衔接事实→当前诉求确认"),
         (
             "E06",
             "专业",
             "平稳",
             {"wait_pushback_count": 1},
-            "等待推诿→安抚修复；无待衔接事实→诉求确认；专业→结论直述",
+            "专业→结论直述；等待推诿→安抚修复；无待衔接事实→当前诉求确认",
         ),
         (
             "E07",
             "了解",
             "平稳",
             {"dissatisfaction_count": 1},
-            "对坐席不满→安抚修复；无待衔接事实→诉求确认；了解→重点解释",
+            "了解→重点解释；对坐席不满→安抚修复；无待衔接事实→当前诉求确认",
         ),
         (
             "E08",
             "专业",
             "平稳",
             {"work_order_count": 1},
-            "平稳→平稳接待；历史工单→历史跟进；专业→结论直述",
+            "专业→结论直述；平稳→平稳接待；历史工单→历史诉求跟进",
         ),
         (
             "E09",
             "小白",
             "平稳",
             {"abnormal_end_count": 1},
-            "平稳→平稳接待；异常中断→历史跟进；小白→通俗引导",
+            "小白→通俗引导；平稳→平稳接待；异常中断→历史诉求跟进",
         ),
         (
             "E10",
             "了解",
             "焦虑",
             {"contact_unresolved_count": 1},
-            "焦虑→稳定预期；联系后未解决→历史跟进；了解→重点解释",
+            "了解→重点解释；焦虑→稳定预期；联系后未解决→历史诉求跟进",
         ),
         (
             "E11",
             "专业",
             "平稳",
             {"wait_pushback_count": 1, "work_order_count": 1},
-            "等待推诿→安抚修复；历史工单→历史跟进；专业→结论直述，三个结果并行保留",
+            "专业→结论直述；等待推诿→安抚修复；历史工单→历史诉求跟进，三个结果并行保留",
         ),
         (
             "E12",
             "了解",
             "不满",
             {"work_order_count": 1, "abnormal_end_count": 1},
-            "不满→安抚修复；工单或异常中断→历史跟进；了解→重点解释，三个结果并行保留",
+            "了解→重点解释；不满→安抚修复；工单或异常中断→历史诉求跟进，三个结果并行保留",
         ),
     ]
 
@@ -466,13 +467,13 @@ def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, P
         example_rows.append(
             {
                 "示例编号": example_id,
-                "业务熟悉度": proficiency,
-                "近期情绪": emotion,
+                "业务专业度": proficiency,
+                "近期情绪状态": emotion,
                 "历史事实（最近五个工作日）": rendered_facts or "无",
                 "规则推导": derivation,
-                "情绪响应": components["emotion_response"].mode,
-                "事项承接": components["matter_continuity"].mode,
                 "表达方式": components["information_delivery"].mode,
+                "情绪响应": components["emotion_response"].mode,
+                "业务应对": components["matter_continuity"].mode,
                 "组合接待策略": result.mode,
                 "接待重点": result.focus,
                 "需要避免": result.avoid,
@@ -481,17 +482,18 @@ def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, P
 
     combination_rows = []
     combination_index = 0
-    for emotion_mode in RECEPTION_MODE_GROUPS[0]["modes"]:
-        for continuity_mode in RECEPTION_MODE_GROUPS[1]["modes"]:
-            for expression_mode in RECEPTION_MODE_GROUPS[2]["modes"]:
+    groups = {str(group["id"]): group for group in RECEPTION_MODE_GROUPS}
+    for expression_mode in groups["information_delivery"]["modes"]:
+        for emotion_mode in groups["emotion_response"]["modes"]:
+            for continuity_mode in groups["matter_continuity"]["modes"]:
                 combination_index += 1
-                selected = (emotion_mode, continuity_mode, expression_mode)
+                selected = (expression_mode, emotion_mode, continuity_mode)
                 combination_rows.append(
                     {
                         "组合编号": f"C{combination_index:02d}",
-                        "情绪响应": emotion_mode["label"],
-                        "事项承接": continuity_mode["label"],
                         "表达方式": expression_mode["label"],
+                        "情绪响应": emotion_mode["label"],
+                        "业务应对": continuity_mode["label"],
                         "组合接待策略": " · ".join(
                             str(item["label"]) for item in selected
                         ),
@@ -532,11 +534,11 @@ def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, P
             "建议开场方向": "自然确认本次诉求和当前卡点，按正常节奏进入事项处理。",
             "结束前确认": "确认本次核心问题和后续安排已说明清楚。",
         },
-        "历史跟进": {
+        "历史诉求跟进": {
             "建议开场方向": "先确认本次是否延续历史事项，并核对业务编号、工单或最近处理节点。",
             "结束前确认": "确认当前进展、下一责任节点、所需补充信息及合理反馈预期。",
         },
-        "诉求确认": {
+        "当前诉求确认": {
             "建议开场方向": "先确认本次来电主体、事项和当前卡点，不预设其延续历史问题。",
             "结束前确认": "确认本次实际诉求已经得到对应说明。",
         },
@@ -595,12 +597,12 @@ def export_profile_rule_workbooks(output_directory: Path | str) -> tuple[Path, P
             {
                 "场景编号": row["示例编号"],
                 "特征组合": (
-                    f"{row['业务熟悉度']}；{row['近期情绪']}；"
+                    f"{row['业务专业度']}；{row['近期情绪状态']}；"
                     f"{row['历史事实（最近五个工作日）']}"
                 ),
-                "情绪响应": row["情绪响应"],
-                "事项承接": row["事项承接"],
                 "表达方式": row["表达方式"],
+                "情绪响应": row["情绪响应"],
+                "业务应对": row["业务应对"],
                 "组合接待策略": row["组合接待策略"],
                 "推导依据": row["规则推导"],
                 "现场侧重点": row["接待重点"],

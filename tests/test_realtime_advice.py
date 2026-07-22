@@ -16,8 +16,8 @@ def _context() -> dict[str, object]:
         "proficiency_basis": "能够准确描述系统环节。",
         "emotion_state": "平稳",
         "emotion_basis": "表达有序。",
-        "recommended_mode": "平稳接待 · 历史跟进 · 重点解释",
-        "mode_basis": "情绪响应、事项承接和表达方式分别判断后组合。",
+        "recommended_mode": "重点解释 · 平稳接待 · 历史诉求跟进",
+        "mode_basis": "表达方式、情绪响应和业务应对分别判断后组合。",
         "mode_guidance": {
             "focus": "保持平稳沟通；核验历史事项；解释关键条件。",
             "communication": "正常确认情绪；从历史节点继续；围绕重点解释。",
@@ -82,28 +82,28 @@ def test_realtime_model_advice_is_structured_and_context_is_redacted() -> None:
     assert result["generation_status"] == "model_generated"
     assert "未解决" in result["advice_summary"]
     assert result["advice_summary"].startswith(
-        "推荐采用“平稳接待 · 历史跟进 · 重点解释”"
+        "推荐采用“重点解释 · 平稳接待 · 历史诉求跟进”"
     )
-    assert result["service_mode"] == "平稳接待 · 历史跟进 · 重点解释"
+    assert result["service_mode"] == "重点解释 · 平稳接待 · 历史诉求跟进"
     assert "情绪响应采用“平稳接待”" in result["mode_application"]
     assert [item["mode"] for item in result["service_modes"]] == [
-        "平稳接待",
-        "历史跟进",
         "重点解释",
+        "平稳接待",
+        "历史诉求跟进",
     ]
     assert result["model_name"] == "fake-model"
     assert "recommended_sequence" not in result
-    assert result["service_focus"][0].startswith("保持清晰、自然")
-    assert result["service_focus"][1].startswith("先确认本次是否延续历史事项")
-    assert result["service_focus"][2].startswith("先说明关键判断")
-    assert result["communication_style"].startswith("语气客观友好")
-    assert result["avoid_actions"][0].startswith("避免无依据放大历史风险")
-    assert result["evidence"][0].startswith("近期情绪为平稳")
+    assert result["service_focus"][0].startswith("先说明关键判断")
+    assert result["service_focus"][1].startswith("保持清晰、自然")
+    assert result["service_focus"][2].startswith("先确认本次是否延续历史事项")
+    assert result["communication_style"].startswith("使用适量业务术语")
+    assert result["avoid_actions"][0].startswith("避免过度简化关键条件")
+    assert result["evidence"][0].startswith("业务专业度为了解")
     assert client.payload is not None
     assert "13800000001" not in str(client.payload)
     assert "<手机号>" in str(client.payload)
     contract = client.payload["required_mode_contract"]
-    assert contract["service_mode"] == "平稳接待 · 历史跟进 · 重点解释"
+    assert contract["service_mode"] == "重点解释 · 平稳接待 · 历史诉求跟进"
     assert len(contract["components"]) == 3
     assert len(contract["required_focuses"]) == 3
 
@@ -113,8 +113,8 @@ def test_realtime_advice_uses_fast_rule_fallback() -> None:
 
     assert result["generation_status"] == "rules_fallback"
     assert result["fallback_reason"] == "model_ReadTimeout"
-    assert result["service_mode"] == "平稳接待 · 历史跟进 · 重点解释"
-    assert "事项承接采用“历史跟进”" in result["mode_application"]
+    assert result["service_mode"] == "重点解释 · 平稳接待 · 历史诉求跟进"
+    assert "业务应对采用“历史诉求跟进”" in result["mode_application"]
     assert "历史来电2次" in result["advice_summary"]
     assert any("避免重复登记" in item for item in result["avoid_actions"])
     assert result["service_focus"]
@@ -134,16 +134,19 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "12366坐席接待助手",
         "画像数据概览",
         "来电量趋势",
-        "问题解决情况",
+            "个人问题解决",
+            "企业问题解决",
+            "登记单位服务效果",
         "历史服务事实",
         "专题类别与解决情况",
         "需求类别与解决情况",
         "历史来电记录",
         "画像推演中心",
         "历史问题衔接",
-        "同类诉求",
+            "重复诉求",
         "等待推诿",
-        "近期画像依据",
+            "最近坐席答复",
+            "标准答案",
         "画像证据回放",
         "增量画像结果",
         "增量画像推演",
@@ -159,7 +162,7 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "三维画像字段",
         "三类组合接待方式",
         "情绪响应",
-        "事项承接",
+            "业务应对",
         "表达方式",
         "mode_emotion_response",
         "mode_matter_continuity",
@@ -170,8 +173,8 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "isModeGroup ? progress.category",
         "isMode ? progress.mode",
         "advice.service_modes",
-        "业务熟悉度",
-        "近期情绪状态",
+            "业务专业度",
+            "近期情绪",
         "/api/showcase",
         "信息速览",
         "近5个工作日",
@@ -183,7 +186,9 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "上一页",
         "下一页",
         "用户与权限",
-        "renderStacked",
+            "renderStacked",
+            "renderUnitResolution",
+            "查看二级专题",
     ):
         assert required in page
     assert '<span class="panel-icon">' not in page

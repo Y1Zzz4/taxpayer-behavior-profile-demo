@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +21,7 @@ from taxpayer_profile.query import (
     query_profile,
 )
 from taxpayer_profile.security import PhoneProtector
-from taxpayer_profile.web_app import DemoService
+from taxpayer_profile.web_app import DemoService, _segmented_rows
 
 
 def _seed_database(path: Path, protector: PhoneProtector) -> None:
@@ -146,8 +147,10 @@ def test_export_has_three_formatted_worksheets_and_query_interface(
     assert "phone" not in result
     assert result["total_call_count"] == 1
     assert result["agent_context"]["statistics"]["total_calls"] == 1
+    assert result["latest_agent_answer"] == "已告知办理路径"
+    assert "知识库暂未接入" in result["standard_answer"]
     assert result["agent_context"]["recommended_mode"] == (
-        "平稳接待 · 诉求确认 · 通俗引导"
+        "通俗引导 · 平稳接待 · 当前诉求确认"
     )
     assert len(result["agent_context"]["recommended_modes"]) == 3
     assert "service_suggestion" not in result
@@ -173,16 +176,16 @@ def test_profile_rule_workbooks_are_self_contained_and_cover_derivations(
     assert mapping["字段判定口径"].max_row == 12
     assert mapping["推导示例"].max_row == 13
     assert mapping["18种组合总览"].max_row == 19
-    assert {cell.value for cell in mapping["推导示例"]["F"][1:]} == {
+    assert {cell.value for cell in mapping["推导示例"]["G"][1:]} == {
         "安抚修复",
         "稳定预期",
         "平稳接待",
     }
-    assert {cell.value for cell in mapping["推导示例"]["G"][1:]} == {
-        "历史跟进",
-        "诉求确认",
-    }
     assert {cell.value for cell in mapping["推导示例"]["H"][1:]} == {
+        "历史诉求跟进",
+        "当前诉求确认",
+    }
+    assert {cell.value for cell in mapping["推导示例"]["F"][1:]} == {
         "结论直述",
         "重点解释",
         "通俗引导",
@@ -249,9 +252,25 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
             "resolved": 1,
             "unresolved": 0,
                 "unknown": 0,
-                "share": 100.0,
+            "share": 100.0,
+            "children": [
+                {
+                    "label": "二级专题待识别",
+                    "value": 1,
+                    "resolved": 1,
+                    "unresolved": 0,
+                    "unknown": 0,
+                    "share": 100.0,
+                }
+            ],
         }
     ]
+    assert dashboard["personal_resolution"] == [
+        {"label": "已直接解决", "value": 1}
+    ]
+    assert dashboard["enterprise_resolution"] == []
+    assert dashboard["registration_unit_resolution"][0]["label"] == "第一税务所"
+    assert dashboard["registration_unit_resolution"][0]["resolved_rate"] == 100.0
     assert "data_quality" not in dashboard
     assert dashboard["service_signals"][0]["value"] == 0
     assert dashboard["latest_update"]["input_filename"] == "synthetic.xlsx"
@@ -287,13 +306,75 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert showcase["after"]["state"]["contact_unresolved"] == (
         showcase["before"]["state"]["contact_unresolved"] + 1
     )
-    assert "历史跟进" in showcase["after"]["result"]["service_mode"]
+    assert "历史诉求跟进" in showcase["after"]["result"]["service_mode"]
     assert len(showcase["after"]["result"]["mode_components"]) == 3
     assert len(showcase["before"]["profile_model"]["items"]) == 3
     assert showcase["before"]["profile_model"]["active_category_count"] >= 3
     assert showcase["changes"][-1]["field"] == "组合接待策略"
     assert "不写入" in showcase["disclaimer"]
     assert "13800000001" not in str(showcase)
+
+
+def test_dashboard_top_five_skips_other_and_backfills_next_category() -> None:
+    counts = Counter(
+        {"其他": 20, "类别一": 9, "类别二": 8, "类别三": 7, "类别四": 6, "类别五": 5, "类别六": 4}
+    )
+    resolution = {
+        label: Counter({"resolved": value}) for label, value in counts.items()
+    }
+
+    rows = _segmented_rows(counts, resolution, limit=5, exclude_other=True)
+
+    assert [row["label"] for row in rows] == [
+        "类别一",
+        "类别二",
+        "类别三",
+        "类别四",
+        "类别五",
+    ]
+    assert rows[0]["share"] == round(9 * 100 / sum(counts.values()), 1)
+
+
+def test_showcase_catalog_returns_five_defaults_and_searches_all_profiles(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "profiles.sqlite3"
+    protector = PhoneProtector("test-hash-key", Fernet.generate_key().decode())
+    engine = make_engine(database)
+    create_schema(engine)
+    sessions = make_session_factory(engine)
+    with transactional_session(sessions) as session:
+        for index in range(7):
+            phone = f"138000000{index + 1:02d}"
+            session.add(
+                CallerProfile(
+                    phone_hash=protector.hash_phone(phone),
+                    phone_encrypted=protector.encrypt_phone(phone),
+                    first_call_time=datetime(2026, 6, index + 1, 9),
+                    latest_call_time=datetime(2026, 6, index + 1, 9),
+                    total_call_count=1,
+                    proficiency_level="了解",
+                    emotion_state="平稳",
+                )
+            )
+    settings = Settings(
+        database_path=database,
+        llm_base_url=None,
+        llm_api_key=None,
+        llm_model=None,
+        phone_hash_key="test-hash-key",
+        phone_encryption_key=None,
+    )
+    service = DemoService(database, protector, settings)
+
+    default_catalog = service.profile_showcase_catalog()
+    searched_catalog = service.profile_showcase_catalog(query="13800000001")
+
+    assert len(default_catalog["items"]) == 5
+    assert default_catalog["summary"]["profile_count"] == 7
+    assert len(searched_catalog["items"]) == 1
+    assert searched_catalog["items"][0]["masked_phone"] == "138****0001"
+    assert "13800000001" not in str(searched_catalog)
 
 
 def test_information_overview_uses_five_workdays_and_overlapping_demand_labels() -> None:

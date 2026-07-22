@@ -5,10 +5,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from taxpayer_profile.config import PROJECT_ROOT, load_settings
+from taxpayer_profile.config import load_settings
 from taxpayer_profile.excel_reader import InputMode
 from taxpayer_profile.llm_client import OpenAICompatibleClient
-from taxpayer_profile.processor import process_raw_directory, process_workbook
+from taxpayer_profile.processor import process_workbook
 from taxpayer_profile.security import PhoneProtector
 
 
@@ -18,9 +18,8 @@ def main() -> None:
     )
     parser.add_argument(
         "input",
-        nargs="?",
         type=Path,
-        help="指定一个新 Excel；省略时扫描 data/raw/",
+        help="指定一个待增量分析的新 Excel",
     )
     parser.add_argument("--database", type=Path)
     args = parser.parse_args()
@@ -33,29 +32,18 @@ def main() -> None:
     )
     protector = PhoneProtector(hash_key, encryption_key)
     database = args.database or settings.database_path
-    if args.input is not None:
-        summaries = [
-            process_workbook(
-                input_path=args.input,
-                database_path=database,
-                protector=protector,
-                llm_client=client,
-                input_mode=InputMode.RAW_ANALYSIS,
-                progress_callback=lambda current, total, status: print(
-                    f"[{current}/{total}] {status}", flush=True
-                ),
-            )
-        ]
-    else:
-        summaries = process_raw_directory(
-            raw_directory=PROJECT_ROOT / "data/raw",
+    summaries = [
+        process_workbook(
+            input_path=args.input,
             database_path=database,
             protector=protector,
             llm_client=client,
+            input_mode=InputMode.RAW_ANALYSIS,
             progress_callback=lambda current, total, status: print(
                 f"[{current}/{total}] {status}", flush=True
             ),
         )
+    ]
     for summary in summaries:
         state = "已处理过" if summary.already_processed else "完成"
         print(

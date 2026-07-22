@@ -42,7 +42,7 @@ DemandCategory = Literal[
 ]
 PROMPT_VERSION = "call-extraction-v8"
 REPEAT_PROMPT_VERSION = "repeat-issue-v4"
-REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v7"
+REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v8"
 
 AdviceText = Annotated[str, Field(min_length=1, max_length=300)]
 
@@ -73,7 +73,7 @@ class CallExtractionResult(BaseModel):
     proficiency_summary: str = Field(min_length=1, max_length=200)
     proficiency_level: ProficiencyLevel = "暂无法判断"
     proficiency_basis: str = Field(
-        default="现有结果未提供业务熟悉度依据。", min_length=1, max_length=300
+        default="现有结果未提供业务专业度依据。", min_length=1, max_length=300
     )
     emotion_state: EmotionState = "暂无法判断"
     emotion_basis: str = Field(

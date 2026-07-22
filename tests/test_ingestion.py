@@ -74,6 +74,7 @@ def test_raw_mode_reuses_direct_core_question_but_reanalyzes_other_fields(
             "申请人员身份": ["cwfzr"],
             "大模型核心问题": ["输入直用核心问题"],
             "一级专题类别": ["增值税申报"],
+            "二级标签": ["增值税申报-一般纳税人申报"],
             "father_question": ["必须忽略的旧父问题"],
             "咨询主体(大模型判断)": ["个人"],
             "是否未直接解决问题": [False],
@@ -107,6 +108,7 @@ def test_raw_mode_reuses_direct_core_question_but_reanalyzes_other_fields(
         assert trajectory is not None
         assert trajectory.core_question == "输入直用核心问题"
         assert trajectory.topic_category == "增值税申报"
+        assert trajectory.secondary_topic == "增值税申报-一般纳税人申报"
         assert trajectory.demand_category == "操作辅导类"
         assert trajectory.unresolved_reason == "需等待后续处理"
         assert trajectory.father_question == "新父问题"
@@ -121,7 +123,7 @@ def test_raw_mode_reuses_direct_core_question_but_reanalyzes_other_fields(
         assert trajectory.analysis_source == "model+rules"
 
 
-def test_bootstrap_mixed_trusts_history_but_reanalyzes_later_rows(
+def test_bootstrap_mixed_keeps_trusted_fields_and_can_model_enrich_history(
     tmp_path: Path,
 ) -> None:
     workbook = tmp_path / "bootstrap.xlsx"
@@ -144,11 +146,12 @@ def test_bootstrap_mixed_trusts_history_but_reanalyzes_later_rows(
         }
     ).to_excel(workbook, index=False)
 
+    client = FakeAnalysisClient()
     process_workbook(
         input_path=workbook,
         database_path=database,
         protector=_protector(),
-        llm_client=FakeAnalysisClient(),
+        llm_client=client,
         input_mode=InputMode.BOOTSTRAP_MIXED,
         trusted_through=date(2026, 6, 9),
     )
@@ -169,6 +172,11 @@ def test_bootstrap_mixed_trusts_history_but_reanalyzes_later_rows(
         assert raw.caller_type == "企业"
         assert raw.resolved_status is False
         assert raw.input_mode == "raw_analysis"
+        assert len(client.payloads) == 2
+        assert [item["business_content"] for item in client.payloads] == [
+            "HISTORY",
+            "RAW",
+        ]
 
 
 def test_workbook_discovery_ignores_temporary_and_non_excel_files(

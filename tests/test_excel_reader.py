@@ -17,6 +17,7 @@ def test_reader_uses_registration_date_and_allowed_fields(tmp_path: Path) -> Non
             "通话开始时间": ["2026/6/9 08:59", "2026/6/10 08:59", "2026/6/11 08:59"],
             "登记处理方式": ["1404", "1001", "1001"],
             "转写结果": ["谢谢", "谢谢", "谢谢"],
+            "二级标签": ["申报-增值税", "申报-个人所得税", "发票-数电票"],
             "不允许读取的列": ["private-a", "private-b", "private-c"],
         }
     ).to_excel(workbook, index=False)
@@ -27,6 +28,7 @@ def test_reader_uses_registration_date_and_allowed_fields(tmp_path: Path) -> Non
     assert frame.iloc[0]["业务编号"] == "B2"
     assert "不允许读取的列" not in frame.columns
     assert str(frame.iloc[0]["登记处理方式"]) == "1001"
+    assert frame.iloc[0]["二级标签"] == "申报-个人所得税"
 
 
 def test_reader_validates_required_columns(tmp_path: Path) -> None:
@@ -35,4 +37,3 @@ def test_reader_validates_required_columns(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="缺少必要字段"):
         read_excel_records(workbook, date(2026, 6, 1), date(2026, 6, 9))
-

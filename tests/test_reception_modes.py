@@ -14,14 +14,14 @@ def test_reception_modes_select_one_component_from_each_category() -> None:
         proficiency_level="小白", emotion_state="平稳", abnormal_end_count=1
     )
 
-    assert professional_emotional.mode == "安抚修复 · 历史跟进 · 结论直述"
+    assert professional_emotional.mode == "结论直述 · 安抚修复 · 历史诉求跟进"
     assert [item.mode for item in professional_emotional.components] == [
-        "安抚修复",
-        "历史跟进",
         "结论直述",
+        "安抚修复",
+        "历史诉求跟进",
     ]
-    assert anxious_informed.mode == "稳定预期 · 诉求确认 · 重点解释"
-    assert guided.mode == "平稳接待 · 历史跟进 · 通俗引导"
+    assert anxious_informed.mode == "重点解释 · 稳定预期 · 当前诉求确认"
+    assert guided.mode == "通俗引导 · 平稳接待 · 历史诉求跟进"
     assert all(len(result.components) == 3 for result in (
         professional_emotional,
         anxious_informed,
@@ -40,9 +40,9 @@ def test_mode_category_priority_does_not_cover_other_categories() -> None:
     )
 
     assert [item.mode for item in result.components] == [
-        "安抚修复",
-        "历史跟进",
         "结论直述",
+        "安抚修复",
+        "历史诉求跟进",
     ]
     assert "等待且潜在推诿1次" in result.matched_facts
     assert "联系后未解决1次" in result.matched_facts

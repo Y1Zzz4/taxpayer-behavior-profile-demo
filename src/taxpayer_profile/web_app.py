@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import timedelta
@@ -13,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import ceil
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import func, select
 
@@ -66,7 +67,7 @@ SHOWCASE_SCENARIOS = (
 PROFILE_DIMENSION_TAXONOMY = (
     {
         "id": "proficiency",
-        "name": "业务熟悉度",
+        "name": "业务专业度",
         "description": "根据业务表达、术语理解和办理节点认知，调整解释深度。",
         "categories": ("专业", "了解", "小白"),
         "unknown": "暂无法判断",
@@ -139,8 +140,19 @@ def _counter_rows(counter: Counter[str], limit: int | None = None) -> list[dict[
 
 
 def _segmented_rows(
-    counter: Counter[str], resolution: dict[str, Counter[str]], *, limit: int = 5
+    counter: Counter[str],
+    resolution: dict[str, Counter[str]],
+    *,
+    limit: int = 5,
+    exclude_other: bool = False,
 ) -> list[dict[str, object]]:
+    total = sum(counter.values())
+    ranked = (
+        (label, value)
+        for label, value in counter.most_common()
+        if not exclude_other
+        or label.strip().lower() not in {"其他", "其它", "其他类", "其它类"}
+    )
     return [
         {
             "label": label,
@@ -148,10 +160,72 @@ def _segmented_rows(
             "resolved": resolution[label]["resolved"],
             "unresolved": resolution[label]["unresolved"],
             "unknown": resolution[label]["unknown"],
-            "share": round(value * 100 / sum(counter.values()), 1) if counter else 0,
+            "share": round(value * 100 / total, 1) if total else 0,
         }
-        for label, value in counter.most_common(limit)
+        for label, value in list(ranked)[:limit]
     ]
+
+
+def _split_labels(value: str | None, *, fallback: str) -> list[str]:
+    labels = [
+        part.strip()
+        for part in re.split(r"[,，;；]+", value or "")
+        if part.strip()
+    ]
+    return list(dict.fromkeys(labels)) or [fallback]
+
+
+def _resolution_state(item: CallTrajectory) -> str:
+    if item.resolved_status is True:
+        return "resolved"
+    if item.resolved_status is False:
+        return "unresolved"
+    return "unknown"
+
+
+def _resolution_rows(items: list[CallTrajectory]) -> list[dict[str, object]]:
+    counts = Counter(
+        "已直接解决"
+        if item.resolved_status is True
+        else "未直接解决"
+        if item.resolved_status is False
+        else "状态待判定"
+        for item in items
+    )
+    return [
+        {"label": label, "value": counts[label]}
+        for label in ("已直接解决", "未直接解决", "状态待判定")
+        if counts[label]
+    ]
+
+
+def _district_unit_label(value: str | None) -> str:
+    label = (value or "").strip() or "登记单位待识别"
+    if not label.endswith("税务局"):
+        return label
+    base = label.removesuffix("税务局")
+    district = base.rsplit("市", 1)[-1]
+    return district if district.endswith("区") else label
+
+
+def _secondary_labels_for_topic(
+    topic: str, topics: list[str], secondary_labels: list[str]
+) -> list[str]:
+    if secondary_labels == ["二级专题待识别"]:
+        return secondary_labels
+    matched = [
+        label
+        for label in secondary_labels
+        if label == topic or label.startswith(f"{topic}-")
+    ]
+    if not matched and len(topics) == 1:
+        matched = secondary_labels
+    if not matched:
+        return ["二级专题待识别"]
+    rendered = [
+        label.removeprefix(f"{topic}-").strip() or topic for label in matched
+    ]
+    return list(dict.fromkeys(rendered))
 
 
 def _mask_phone(phone: str) -> str:
@@ -242,7 +316,7 @@ def _profile_snapshot(state: dict[str, object]) -> dict[str, object]:
     items = [
         {
             "id": "proficiency",
-            "name": "业务熟悉度",
+            "name": "业务专业度",
             "value": str(state.get("proficiency_level") or "暂无法判断"),
             "values": [str(state.get("proficiency_level") or "暂无法判断")],
             "basis": str(state.get("proficiency_basis") or "可用证据不足。"),
@@ -371,40 +445,41 @@ class DemoService:
             if item.resolved_status is not None
         ]
         daily_calls = Counter(item.call_time.date().isoformat() for item in trajectories)
-        caller_types = Counter(item.caller_type or "暂未识别" for item in profiles)
-        resolution_status = Counter(
-            "已直接解决"
-            if item.resolved_status is True
-            else "未直接解决"
-            if item.resolved_status is False
-            else "状态待判定"
-            for item in trajectories
+        caller_types = Counter(
+            item.caller_type or "暂未识别" for item in trajectories
         )
         topics: Counter[str] = Counter()
         demands: Counter[str] = Counter()
         topic_resolution: dict[str, Counter[str]] = {}
+        secondary_topics: dict[str, Counter[str]] = {}
+        secondary_resolution: dict[str, dict[str, Counter[str]]] = {}
         demand_resolution: dict[str, Counter[str]] = {}
+        registration_units: dict[str, Counter[str]] = {}
         for item in trajectories:
-            state = (
-                "resolved"
-                if item.resolved_status is True
-                else "unresolved"
-                if item.resolved_status is False
-                else "unknown"
+            state = _resolution_state(item)
+            primary_labels = _split_labels(
+                item.topic_category, fallback="暂未分类"
             )
-            topic = item.topic_category or "暂未分类"
-            topics[topic] += 1
-            topic_resolution.setdefault(topic, Counter())[state] += 1
-            labels = [
-                part.strip()
-                for part in (item.demand_category or "暂未分类")
-                .replace("，", ",")
-                .split(",")
-                if part.strip()
-            ]
+            secondaries = _split_labels(
+                item.secondary_topic, fallback="二级专题待识别"
+            )
+            for topic in primary_labels:
+                topics[topic] += 1
+                topic_resolution.setdefault(topic, Counter())[state] += 1
+                for secondary in _secondary_labels_for_topic(
+                    topic, primary_labels, secondaries
+                ):
+                    secondary_topics.setdefault(topic, Counter())[secondary] += 1
+                    secondary_resolution.setdefault(topic, {}).setdefault(
+                        secondary, Counter()
+                    )[state] += 1
+            labels = _split_labels(item.demand_category, fallback="暂未分类")
             for label in labels:
                 demands[label] += 1
                 demand_resolution.setdefault(label, Counter())[state] += 1
+            unit = _district_unit_label(item.registration_unit)
+            registration_units.setdefault(unit, Counter())["total"] += 1
+            registration_units[unit][state] += 1
 
         sorted_dates = sorted(daily_calls)
         trend_dates = []
@@ -447,13 +522,52 @@ class DemoService:
                 for value in trend_dates
             ],
             "caller_types": _counter_rows(caller_types),
-            "resolution_status": _counter_rows(resolution_status),
-            "question_categories": _segmented_rows(
-                topics, topic_resolution, limit=5
+            "resolution_status": _resolution_rows(trajectories),
+            "personal_resolution": _resolution_rows(
+                [item for item in trajectories if item.caller_type == "个人"]
             ),
+            "enterprise_resolution": _resolution_rows(
+                [item for item in trajectories if item.caller_type == "企业"]
+            ),
+            "question_categories": [
+                {
+                    **row,
+                    "children": _segmented_rows(
+                        secondary_topics.get(str(row["label"]), Counter()),
+                        secondary_resolution.get(str(row["label"]), {}),
+                        limit=10,
+                    ),
+                }
+                for row in _segmented_rows(
+                    topics, topic_resolution, limit=5, exclude_other=True
+                )
+            ],
             "demand_categories": _segmented_rows(
-                demands, demand_resolution, limit=5
+                demands, demand_resolution, limit=5, exclude_other=True
             ),
+            "registration_unit_resolution": [
+                {
+                    "label": label,
+                    "total": counts["total"],
+                    "resolved": counts["resolved"],
+                    "unresolved": counts["unresolved"],
+                    "unknown": counts["unknown"],
+                    "resolved_rate": (
+                        round(
+                            counts["resolved"]
+                            * 100
+                            / (counts["resolved"] + counts["unresolved"]),
+                            1,
+                        )
+                        if counts["resolved"] + counts["unresolved"]
+                        else None
+                    ),
+                }
+                for label, counts in sorted(
+                    registration_units.items(),
+                    key=lambda item: (-item[1]["total"], item[0]),
+                )
+            ],
             "historical_facts": fact_rows,
             # Compatibility keys retained while the page moves to the simpler layout.
             "service_signals": [
@@ -475,43 +589,103 @@ class DemoService:
             ),
         }
 
-    def profile_showcase_catalog(self) -> dict[str, object]:
+    @cached_property
+    def _showcase_search_index(self) -> list[dict[str, object]]:
+        """Build a lightweight search index without loading every call trajectory."""
+
         with self._sessions() as session:
             profiles = session.scalars(
                 select(CallerProfile).order_by(CallerProfile.latest_call_time.desc())
             ).all()
-            trajectories_by_phone: dict[str, list[CallTrajectory]] = {}
-            for item in session.scalars(select(CallTrajectory)).all():
-                trajectories_by_phone.setdefault(item.phone_hash, []).append(item)
-        items: list[dict[str, object]] = []
-        mode_counts: Counter[str] = Counter()
-        for profile in profiles:
+        entries: list[dict[str, object]] = []
+        for index, profile in enumerate(profiles, 1):
             try:
-                masked = _mask_phone(self.protector.decrypt_phone(profile.phone_encrypted))
+                phone = self.protector.decrypt_phone(profile.phone_encrypted)
+                masked = _mask_phone(phone)
             except (ValueError, TypeError):
+                phone = ""
                 masked = "号码不可用"
-            # Catalog labels are intentionally short; detail remains in the result panel.
+            entries.append(
+                {
+                    "index": index,
+                    "phone_hash": profile.phone_hash,
+                    "profile_key": _showcase_key(profile.phone_hash),
+                    "masked_phone": masked,
+                    "search_text": " ".join(
+                        (
+                            str(index),
+                            str(index).zfill(2),
+                            phone,
+                            masked,
+                            profile.proficiency_level or "",
+                            profile.emotion_state or "",
+                        )
+                    ).lower(),
+                    "proficiency_level": profile.proficiency_level,
+                    "emotion_state": profile.emotion_state,
+                    "latest_call_time": profile.latest_call_time,
+                }
+            )
+        return entries
+
+    @cached_property
+    def _showcase_key_map(self) -> dict[str, dict[str, object]]:
+        return {
+            str(entry["profile_key"]): entry
+            for entry in self._showcase_search_index
+        }
+
+    def profile_showcase_catalog(
+        self, *, query: object = "", limit: object = 5
+    ) -> dict[str, object]:
+        normalized_query = str(query or "").strip().lower()
+        try:
+            result_limit = max(1, min(int(limit), 5))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("画像检索数量必须是整数") from exc
+        index = self._showcase_search_index
+        candidates = [
+            entry
+            for entry in index
+            if not normalized_query
+            or normalized_query in str(entry["search_text"])
+        ][:result_limit]
+        candidate_hashes = [str(entry["phone_hash"]) for entry in candidates]
+        trajectories_by_phone: dict[str, list[CallTrajectory]] = {}
+        if candidate_hashes:
+            with self._sessions() as session:
+                trajectories = session.scalars(
+                    select(CallTrajectory).where(
+                        CallTrajectory.phone_hash.in_(candidate_hashes)
+                    )
+                ).all()
+            for trajectory in trajectories:
+                trajectories_by_phone.setdefault(trajectory.phone_hash, []).append(
+                    trajectory
+                )
+        items: list[dict[str, object]] = []
+        for entry in candidates:
+            phone_hash = str(entry["phone_hash"])
             recent_facts = _fact_counts(
                 _recent_five_workday_items(
-                    trajectories_by_phone.get(profile.phone_hash, [])
+                    trajectories_by_phone.get(phone_hash, [])
                 )
             )
             mode_result = classify_reception_mode(
-                proficiency_level=profile.proficiency_level,
-                emotion_state=profile.emotion_state,
+                proficiency_level=entry["proficiency_level"],
+                emotion_state=entry["emotion_state"],
                 wait_pushback_count=recent_facts["wait_pushback"],
                 work_order_count=recent_facts["work_order"],
                 abnormal_end_count=recent_facts["abnormal_end"],
                 contact_unresolved_count=recent_facts["contact_unresolved"],
                 dissatisfaction_count=recent_facts["dissatisfaction"],
             )
-            for component in mode_result.components:
-                mode_counts[component.mode] += 1
             items.append(
                 {
-                    "profile_key": _showcase_key(profile.phone_hash),
-                    "label": masked,
-                    "masked_phone": masked,
+                    "index": entry["index"],
+                    "profile_key": entry["profile_key"],
+                    "label": entry["masked_phone"],
+                    "masked_phone": entry["masked_phone"],
                     "recommended_mode": mode_result.mode,
                     "recommended_modes": [
                         {
@@ -520,24 +694,18 @@ class DemoService:
                         }
                         for component in mode_result.components
                     ],
-                    "proficiency_level": profile.proficiency_level,
-                    "emotion_state": profile.emotion_state,
-                    "latest_call_time": profile.latest_call_time,
+                    "proficiency_level": entry["proficiency_level"],
+                    "emotion_state": entry["emotion_state"],
+                    "latest_call_time": entry["latest_call_time"],
                 }
             )
-        modes = [
-            {
-                **mode,
-                "current_count": mode_counts[str(mode["label"])],
-            }
-            for mode in RECEPTION_MODE_CATALOG
-        ]
+        modes = [dict(mode) for mode in RECEPTION_MODE_CATALOG]
         relations = [
             {"category": "情绪响应", "source": "不满/等待推诿/对坐席不满", "target": "安抚修复"},
             {"category": "情绪响应", "source": "焦虑", "target": "稳定预期"},
             {"category": "情绪响应", "source": "其余状态", "target": "平稳接待"},
-            {"category": "事项承接", "source": "工单/异常中断/联系后未解决", "target": "历史跟进"},
-            {"category": "事项承接", "source": "无待衔接事实", "target": "诉求确认"},
+            {"category": "业务应对", "source": "工单/异常中断/联系后未解决", "target": "历史诉求跟进"},
+            {"category": "业务应对", "source": "无待衔接事实", "target": "当前诉求确认"},
             {"category": "表达方式", "source": "专业", "target": "结论直述"},
             {"category": "表达方式", "source": "了解", "target": "重点解释"},
             {"category": "表达方式", "source": "小白或证据不足", "target": "通俗引导"},
@@ -557,12 +725,13 @@ class DemoService:
                 "fact_count": 5,
                 "mode_group_count": 3,
                 "mode_count": len(RECEPTION_MODE_CATALOG),
-                "profile_count": len(items),
+                "profile_count": len(index),
+                "returned_count": len(items),
             },
             "methodology": [
                 {
                     "title": "单通提取",
-                    "description": "提取业务熟悉度和近期情绪；既有分析字段优先复用。",
+                    "description": "提取业务专业度和近期情绪状态；既有分析字段优先复用。",
                 },
                 {
                     "title": "五日聚合",
@@ -570,7 +739,7 @@ class DemoService:
                 },
                 {
                     "title": "接待方式匹配",
-                    "description": "从情绪响应、事项承接和表达方式中各选择一项，组合形成完整接待策略。",
+                    "description": "从表达方式、情绪响应和业务应对中各选择一项，组合形成完整接待策略。",
                 },
             ],
         }
@@ -582,13 +751,11 @@ class DemoService:
         if scenario_id not in scenario_map:
             raise ValueError("不支持该推演场景")
         with self._sessions() as session:
-            profile = next(
-                (
-                    item
-                    for item in session.scalars(select(CallerProfile)).all()
-                    if _showcase_key(item.phone_hash) == key
-                ),
-                None,
+            matched = self._showcase_key_map.get(key)
+            profile = (
+                session.get(CallerProfile, str(matched["phone_hash"]))
+                if matched is not None
+                else None
             )
             if profile is None:
                 raise ValueError("未找到对应画像")
@@ -641,7 +808,7 @@ class DemoService:
         before_model = _profile_snapshot(before_state)
         after_model = _profile_snapshot(after_state)
         fields = (
-            ("proficiency_level", "业务熟悉度"),
+            ("proficiency_level", "业务专业度"),
             ("emotion_state", "近期情绪状态"),
             ("wait_pushback", "等待推诿"),
             ("work_order", "历史工单"),
@@ -666,7 +833,7 @@ class DemoService:
         }
         for category_id, category_label in (
             ("emotion_response", "情绪响应"),
-            ("matter_continuity", "事项承接"),
+            ("matter_continuity", "业务应对"),
             ("information_delivery", "表达方式"),
         ):
             before_mode = str(before_components[category_id]["mode"])
@@ -697,7 +864,7 @@ class DemoService:
                 "contributions": [
                     text
                     for condition, text in (
-                        (item.proficiency_level is not None, f"熟悉度：{item.proficiency_level}"),
+                        (item.proficiency_level is not None, f"业务专业度：{item.proficiency_level}"),
                         (item.emotion_state is not None, f"情绪：{item.emotion_state}"),
                         (_wait_pushback(item), "等待推诿"),
                         (item.work_order is True, "历史工单"),
@@ -782,6 +949,7 @@ class DemoService:
                     "enterprise_identity": item.enterprise_identity,
                     "core_question": item.core_question,
                     "question_category": item.topic_category,
+                    "secondary_topic": item.secondary_topic,
                     "demand_category": item.demand_category,
                     "registration_unit": item.registration_unit,
                     "resolved": item.resolved_status,
@@ -841,6 +1009,7 @@ class DemoService:
                 "detailed_subject": item.enterprise_identity,
                 "core_question": item.core_question,
                 "topic_category": item.topic_category,
+                "secondary_topic": item.secondary_topic,
                 "demand_category": item.demand_category,
                 "resolved": item.resolved_status,
                 "unresolved_reason": item.unresolved_reason,
@@ -920,7 +1089,8 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
             return user
 
         def do_GET(self) -> None:  # noqa: N802
-            path = urlparse(self.path).path
+            parsed_url = urlparse(self.path)
+            path = parsed_url.path
             if path == "/":
                 content = (WEB_ROOT / "index.html").read_bytes()
                 self.send_response(200)
@@ -950,7 +1120,17 @@ def _handler_factory(service: DemoService) -> type[BaseHTTPRequestHandler]:
             if path == "/api/dashboard":
                 self._json(200, service.dashboard_summary())
             elif path == "/api/showcase/catalog":
-                self._json(200, service.profile_showcase_catalog())
+                parameters = parse_qs(parsed_url.query)
+                try:
+                    self._json(
+                        200,
+                        service.profile_showcase_catalog(
+                            query=parameters.get("q", [""])[0],
+                            limit=parameters.get("limit", ["5"])[0],
+                        ),
+                    )
+                except ValueError as exc:
+                    self._error(400, str(exc))
             elif path == "/api/users":
                 self._json(200, {"items": service.auth.list_users()})
             else:

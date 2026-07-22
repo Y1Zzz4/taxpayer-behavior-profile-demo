@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,45 @@ def _contact_unresolved(item: CallTrajectory) -> bool:
     return getattr(item, "contacted_other_department", None) is True and getattr(
         item, "resolved_status", None
     ) is False
+
+
+def _concise_text(value: str | None, *, limit: int = 160) -> str | None:
+    """Create a deterministic, display-sized summary without another model call."""
+
+    if not value:
+        return None
+    compact = re.sub(r"\s+", " ", value).strip(" ，。；;")
+    if not compact:
+        return None
+    sentences = [
+        part.strip()
+        for part in re.split(r"(?<=[。！？；])", compact)
+        if part.strip()
+    ]
+    rendered = "".join(sentences[:2]) if sentences else compact
+    return rendered if len(rendered) <= limit else rendered[: limit - 1].rstrip() + "…"
+
+
+def _agent_answer_summary(item: CallTrajectory) -> str:
+    """Prefer the manually registered answer; use marked agent turns as fallback."""
+
+    registered = _concise_text(item.answer_content)
+    transcript = item.raw_transcript or ""
+    agent_turns: list[str] = []
+    for line in re.split(r"[\r\n]+", transcript):
+        match = re.search(r"(?:坐席|客服|话务员|税务局)\s*[:：]　?(.+)", line)
+        if match:
+            turn = _concise_text(match.group(1), limit=90)
+            if turn and turn not in agent_turns:
+                agent_turns.append(turn)
+    transcript_summary = _concise_text("；".join(agent_turns[:2]))
+    if registered:
+        if transcript_summary and len(registered) < 24 and transcript_summary not in registered:
+            return _concise_text(f"{registered}；{transcript_summary}") or registered
+        return registered
+    if transcript_summary:
+        return transcript_summary
+    return "最近一次来电未形成可明确提炼的坐席答复。"
 
 
 def _recent_workday_statistics(
@@ -133,6 +173,7 @@ def _trajectory_context(item: CallTrajectory) -> dict[str, Any]:
         "question": item.core_question,
         "question_category": item.father_question,
         "topic_category": item.topic_category,
+        "secondary_topic": item.secondary_topic,
         "demand_category": item.demand_category,
         "resolved": item.resolved_status,
         "unresolved_reason": item.unresolved_reason,
@@ -217,6 +258,7 @@ def _full_trajectory(item: CallTrajectory) -> dict[str, Any]:
         "call_time_source": item.call_time_source,
         "core_question": item.core_question,
         "topic_category": item.topic_category,
+        "secondary_topic": item.secondary_topic,
         "demand_category": item.demand_category,
         "registration_unit": item.registration_unit,
         "natural_qa_turns": item.natural_qa_turns,
@@ -288,6 +330,7 @@ def query_profile(
     recent_stats = _recent_workday_statistics(trajectories)
     mode = _mode_payload(profile, recent_stats)
     serialized = [_full_trajectory(item) for item in trajectories]
+    latest = trajectories[0]
     return {
         "caller_type": profile.caller_type,
         "enterprise_identity": profile.enterprise_identity,
@@ -308,6 +351,8 @@ def query_profile(
         "abnormal_end_count": profile.abnormal_end_count,
         "dissatisfaction_count": profile.dissatisfaction_count,
         "latest_question": profile.latest_question,
+        "latest_agent_answer": _agent_answer_summary(latest),
+        "standard_answer": "知识库暂未接入，后续将根据当前诉求实时检索。",
         "latest_topic_category": profile.latest_topic_category,
         "latest_demand_category": profile.latest_demand_category,
         "latest_registration_unit": profile.latest_registration_unit,

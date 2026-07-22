@@ -82,6 +82,7 @@ class CallTrajectory(Base):
     enterprise_identity: Mapped[str | None] = mapped_column(String(20))
     core_question: Mapped[str | None] = mapped_column(Text)
     topic_category: Mapped[str | None] = mapped_column(Text)
+    secondary_topic: Mapped[str | None] = mapped_column(Text)
     demand_category: Mapped[str | None] = mapped_column(String(100))
     father_question: Mapped[str | None] = mapped_column(Text)
     father_question_2: Mapped[str | None] = mapped_column(Text)

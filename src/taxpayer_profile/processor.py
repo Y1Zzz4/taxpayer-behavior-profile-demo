@@ -162,7 +162,7 @@ def _personalized_profile_summary(profile: CallerProfile) -> str:
         sentences.append(f"最近关注“{profile.latest_question}”{suffix}。")
     if profile.proficiency_level:
         sentences.append(
-            f"近期沟通显示其业务熟悉度为{profile.proficiency_level}，"
+            f"近期沟通显示其业务专业度为{profile.proficiency_level}，"
             f"{profile.proficiency_basis or '建议在本次接待中继续观察理解程度'}"
         )
     if profile.emotion_state:
@@ -752,6 +752,7 @@ def _source_record_fingerprint(call: NormalizedCallInput) -> str:
             "call_serial_number": call.call_serial_number,
             "core_question": call.core_question,
             "topic_category": call.topic_category,
+            "secondary_topic": call.secondary_topic,
             "raw_identity_label": call.raw_identity_label,
             "work_order": call.work_order,
             "rule_abnormal_end": call.rule_abnormal_end,
@@ -808,6 +809,7 @@ def _trajectory_from_call(
         enterprise_identity=call.enterprise_identity,
         core_question=call.core_question,
         topic_category=call.topic_category,
+        secondary_topic=call.secondary_topic,
         demand_category=call.demand_category,
         father_question=call.father_question,
         father_question_2=call.father_question_2,
@@ -884,13 +886,25 @@ def process_workbook(
 
     source = Path(input_path).expanduser().resolve()
     file_fingerprint = workbook_fingerprint(source)
+    processing_fingerprint = hashlib.sha256(
+        "|".join(
+            (
+                file_fingerprint,
+                input_mode.value,
+                trusted_through.isoformat() if trusted_through else "",
+                start_date.isoformat() if start_date else "",
+                end_date.isoformat() if end_date else "",
+                ANALYSIS_VERSION,
+            )
+        ).encode("utf-8")
+    ).hexdigest()
     engine = make_engine(database_path)
     create_schema(engine)
     sessions = make_session_factory(engine)
     with sessions() as read_session:
         completed_log = read_session.scalar(
             select(UpdateLog).where(
-                UpdateLog.input_fingerprint == file_fingerprint,
+                UpdateLog.input_fingerprint == processing_fingerprint,
                 UpdateLog.status == "completed",
             )
         )
@@ -1060,7 +1074,7 @@ def process_workbook(
                 batch_id=batch_id,
                 data_date=date_range,
                 input_filename=source.name,
-                input_fingerprint=file_fingerprint,
+                input_fingerprint=processing_fingerprint,
                 input_mode=input_mode.value,
                 analysis_version=ANALYSIS_VERSION,
                 source_row_count=len(rows),

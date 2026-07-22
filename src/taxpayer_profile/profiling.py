@@ -43,13 +43,13 @@ RECEPTION_MODE_GROUPS = (
     },
     {
         "id": "matter_continuity",
-        "label": "事项承接",
+        "label": "业务应对",
         "description": "根据近期历史事项确定从当前诉求开始还是衔接既有节点。",
         "color": "#C27A2C",
         "modes": (
             {
                 "id": "followup",
-                "label": "历史跟进",
+                "label": "历史诉求跟进",
                 "rule": "近五个工作日存在历史工单、异常中断或联系后未解决",
                 "focus": "先确认本次是否延续历史事项；确认后核验当前状态、承办节点和待补信息。",
                 "communication": "从已确认的历史节点继续，减少重复复述，并明确本通能够推进的范围。",
@@ -57,7 +57,7 @@ RECEPTION_MODE_GROUPS = (
             },
             {
                 "id": "clarify",
-                "label": "诉求确认",
+                "label": "当前诉求确认",
                 "rule": "近五个工作日未出现需要优先衔接的事项事实",
                 "focus": "先确认本次来电的主体、事项和当前卡点，再决定是否调用历史信息辅助服务。",
                 "communication": "以本次表达为主，历史信息仅作为核对线索，不预设来电目的。",
@@ -68,13 +68,13 @@ RECEPTION_MODE_GROUPS = (
     {
         "id": "information_delivery",
         "label": "表达方式",
-        "description": "根据业务熟悉度确定信息密度、术语深度和说明顺序。",
+        "description": "根据业务专业度确定信息密度、术语深度和说明顺序。",
         "color": "#327FA8",
         "modes": (
             {
                 "id": "direct",
                 "label": "结论直述",
-                "rule": "业务熟悉度为专业",
+                "rule": "业务专业度为专业",
                 "focus": "先给关键结论、适用条件和必要办理节点，再根据追问补充边界。",
                 "communication": "表达简洁准确，保留必要专业术语，减少基础概念铺垫。",
                 "avoid": "避免连续展开通用知识，或只讲流程而不先说明结论。",
@@ -82,7 +82,7 @@ RECEPTION_MODE_GROUPS = (
             {
                 "id": "explain",
                 "label": "重点解释",
-                "rule": "业务熟悉度为了解",
+                "rule": "业务专业度为了解",
                 "focus": "先说明关键判断，再补充必要条件、原因和容易混淆的节点。",
                 "communication": "使用适量业务术语，每次围绕一个重点解释，并通过追问确认理解。",
                 "avoid": "避免过度简化关键条件，也避免一次性展开过多规则细节。",
@@ -90,13 +90,24 @@ RECEPTION_MODE_GROUPS = (
             {
                 "id": "guide",
                 "label": "通俗引导",
-                "rule": "业务熟悉度为小白或暂无法判断",
+                "rule": "业务专业度为小白或暂无法判断",
                 "focus": "先用通俗语言说明目标和判断结果，再按少量关键节点分段引导。",
                 "communication": "降低术语密度，一次说明一至两个关键节点，并根据反馈调整解释深度。",
                 "avoid": "避免堆叠专业术语、一次给出过多操作，或在未确认理解时快速结束。",
             },
         ),
     },
+)
+
+# All external presentations use the same combination order: expression,
+# emotion, then business response. Category ids remain stable for compatibility.
+_GROUP_ORDER = {
+    "information_delivery": 0,
+    "emotion_response": 1,
+    "matter_continuity": 2,
+}
+RECEPTION_MODE_GROUPS = tuple(
+    sorted(RECEPTION_MODE_GROUPS, key=lambda item: _GROUP_ORDER[str(item["id"])])
 )
 
 RECEPTION_MODE_CATALOG = tuple(
@@ -269,12 +280,13 @@ def classify_reception_mode(
         "暂无法判断": "guide",
     }[level]
     expression_mode = catalog[expression_id]
-    expression_basis = f"业务熟悉度为{level}，采用{expression_mode['label']}。"
+    expression_basis = f"业务专业度为{level}，采用{expression_mode['label']}。"
 
+    groups = {str(group["id"]): group for group in RECEPTION_MODE_GROUPS}
     selected_modes = (
-        (RECEPTION_MODE_GROUPS[0], emotion_mode, emotion_basis),
-        (RECEPTION_MODE_GROUPS[1], continuity_mode, continuity_basis),
-        (RECEPTION_MODE_GROUPS[2], expression_mode, expression_basis),
+        (groups["information_delivery"], expression_mode, expression_basis),
+        (groups["emotion_response"], emotion_mode, emotion_basis),
+        (groups["matter_continuity"], continuity_mode, continuity_basis),
     )
     components = tuple(
         ReceptionModeComponent(
@@ -450,7 +462,7 @@ def classify_service_profile(
     if repeated_issues > 0 or total_calls >= 3:
         return ServiceProfileClassification(
             "持续咨询型",
-            f"累计来电{total_calls}次、同类诉求{repeated_issues}次，已形成持续咨询特征。",
+            f"累计来电{total_calls}次、重复诉求{repeated_issues}次，已形成持续咨询特征。",
         )
     if total_calls <= 1:
         return ServiceProfileClassification(

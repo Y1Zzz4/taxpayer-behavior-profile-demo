@@ -335,6 +335,32 @@
     .stacked-segment.unknown, .legend-unknown { background: #a3aabc; }
     .stacked-meta { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 6px; }
     .stacked-meta span { display: inline-flex; align-items: center; gap: 5px; color: #7c8595; font-size: 9px; }
+    .topic-drill-toggle { margin-top: 8px; padding: 3px 0; color: #5268c7; background: transparent; border: 0; font-size: 10px; font-weight: 700; }
+    .topic-drill-toggle::after { content: " ›"; }
+    .topic-drill-toggle[aria-expanded="true"]::after { content: " ⌃"; }
+    .secondary-topic-list { display: grid; gap: 9px; margin-top: 9px; padding: 11px 12px; background: #f2f5fa; border: 1px solid #e2e7ef; border-radius: 8px; }
+    .secondary-topic-row > div:first-child { display: flex; justify-content: space-between; gap: 12px; color: #667286; font-size: 10px; }
+    .secondary-topic-row strong { overflow: hidden; color: #45536a; text-overflow: ellipsis; white-space: nowrap; }
+    .secondary-topic-track { height: 5px; overflow: hidden; margin-top: 5px; background: #e2e7ee; border-radius: 999px; }
+    .secondary-topic-fill { display: flex; height: 100%; overflow: hidden; border-radius: inherit; }
+    .secondary-topic-fill i { display: block; height: 100%; }
+    .secondary-topic-fill .resolved { background: #25a08e; }
+    .secondary-topic-fill .unresolved { background: #e16d77; }
+    .secondary-topic-fill .unknown { background: #a3aabc; }
+    .secondary-topic-row small { display: block; margin-top: 4px; color: #85909f; font-size: 9px; }
+    .combo-chart-shell { min-height: 285px; overflow-x: auto; overflow-y: hidden; }
+    .combo-legend { position: sticky; left: 0; display: flex; gap: 18px; margin-bottom: 5px; color: #667286; font-size: 10px; }
+    .combo-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .combo-legend i { width: 14px; height: 7px; border-radius: 2px; }
+    .combo-bar-key { background: linear-gradient(90deg, #69b8aa, #378e82); }
+    .combo-line-key { height: 3px !important; background: #6c63cc; }
+    .combo-chart { display: block; max-width: none; height: 315px; }
+    .combo-bar { fill: #57aa9c; opacity: .82; }
+    .combo-bar:hover { fill: #338d81; opacity: 1; }
+    .combo-line { fill: none; stroke: #6c63cc; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+    .combo-dot { fill: #fff; stroke: #6c63cc; stroke-width: 2.4; cursor: pointer; }
+    .combo-dot:hover, .combo-dot:focus { fill: #6c63cc; outline: none; }
+    .combo-axis-label { fill: #667586; font-size: 9px; }
     .signal-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
     .signal-card { min-height: 67px; padding: 11px 12px; background: #f7f8fb; border: 1px solid #e5e8ef; border-left: 3px solid #8893b1; border-radius: 7px; transition: transform .16s ease, box-shadow .16s ease; }
     .signal-card:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(45,53,77,.07); }
@@ -884,13 +910,17 @@
           <div class="panel-head"><div class="panel-title"><h2>来电量趋势</h2></div><span class="panel-head-note">最近14个自然日（以库内最新日期为准）</span></div>
           <div id="daily-chart" class="chart-body trend-only"></div>
         </article>
-        <article class="panel span-6 accent-indigo">
-          <div class="panel-head"><div class="panel-title"><h2>咨询主体构成</h2></div><span class="panel-head-note">画像主体分布</span></div>
+        <article class="panel span-4 accent-indigo">
+          <div class="panel-head"><div class="panel-title"><h2>咨询主体构成</h2></div><span class="panel-head-note">按来电记录统计</span></div>
           <div id="caller-chart" class="chart-body"></div>
         </article>
-        <article class="panel span-6 accent-teal">
-          <div class="panel-head"><div class="panel-title"><h2>问题解决情况</h2></div><span class="panel-head-note">按来电记录</span></div>
-          <div id="resolution-chart" class="chart-body"></div>
+        <article class="panel span-4 accent-teal">
+          <div class="panel-head"><div class="panel-title"><h2>个人问题解决</h2></div><span class="panel-head-note">按个人来电统计</span></div>
+          <div id="personal-resolution-chart" class="chart-body"></div>
+        </article>
+        <article class="panel span-4 accent-purple">
+          <div class="panel-head"><div class="panel-title"><h2>企业问题解决</h2></div><span class="panel-head-note">按企业来电统计</span></div>
+          <div id="enterprise-resolution-chart" class="chart-body"></div>
         </article>
         <article class="panel span-12 accent-purple">
           <div class="panel-head"><div class="panel-title"><h2>历史服务事实</h2></div><span class="panel-head-note">按来电记录统计</span></div>
@@ -903,6 +933,10 @@
         <article class="panel span-12 accent-amber">
           <div class="panel-head"><div class="panel-title"><h2>需求类别与解决情况</h2></div><span class="panel-head-note">多标签分别计数 · 占比按标签总量</span></div>
           <div id="demand-chart" class="chart-body"></div>
+        </article>
+        <article class="panel span-12 accent-teal">
+          <div class="panel-head"><div class="panel-title"><h2>登记单位服务效果</h2></div><span class="panel-head-note">柱状图为解决率 · 折线为单位间高低趋势</span></div>
+          <div id="unit-resolution-chart" class="chart-body"></div>
         </article>
         <article class="panel span-12 accent-cyan">
           <div class="panel-head"><div class="panel-title"><h2>整体情况分析</h2></div><span class="panel-head-note">当前数据摘要</span></div>
@@ -927,8 +961,8 @@
 
       <section class="showcase-logic" aria-label="画像形成过程">
         <strong>画像形成逻辑</strong>
-        <div><span>业务熟悉度</span><i>+</i><span>近期情绪</span><i>+</i><span>五项历史事实</span><i>→</i><span>三类组合策略</span></div>
-        <p>从情绪响应、事项承接和表达方式中各选择一项，组合形成完整接待策略。</p>
+        <div><span>业务专业度</span><i>+</i><span>近期情绪状态</span><i>+</i><span>五项历史事实</span><i>→</i><span>三类组合策略</span></div>
+        <p>从表达方式、情绪响应和业务应对中各选择一项，组合形成完整接待策略。</p>
       </section>
 
       <nav class="showcase-module-tabs" aria-label="画像能力模块">
@@ -944,7 +978,7 @@
         <section class="panel showcase-controls">
           <div class="showcase-select-wrap">
             <label for="showcase-profile-select">选择一个现有号码画像</label>
-            <div class="showcase-search"><input id="showcase-profile-search" type="search" placeholder="输入序号、脱敏号码或组合策略检索" autocomplete="off"></div>
+            <div class="showcase-search"><input id="showcase-profile-search" type="search" placeholder="输入序号、完整号码或脱敏号码检索" autocomplete="off"></div>
             <select id="showcase-profile-select" disabled><option>正在读取画像库…</option></select>
             <small id="showcase-index-meta" class="showcase-index-meta">正在建立号码画像索引…</small>
           </div>
@@ -971,7 +1005,9 @@
           </div>
           <div id="knowledge-profile-wrap" class="knowledge-profile-wrap hidden">
             <label for="knowledge-profile-select">独立选择号码画像</label>
+            <div class="showcase-search"><input id="knowledge-profile-search" type="search" placeholder="输入序号、完整号码或脱敏号码检索" autocomplete="off"></div>
             <select id="knowledge-profile-select" disabled><option>正在读取画像库…</option></select>
+            <small id="knowledge-index-meta" class="showcase-index-meta">正在建立号码画像索引…</small>
           </div>
           <div id="knowledge-mode-status" class="knowledge-mode-status">当前展示完整画像方法论，不关联增量推演中的号码。</div>
         </section>

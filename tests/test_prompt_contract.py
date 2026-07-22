@@ -36,7 +36,7 @@ def test_call_extraction_prompt_contains_required_business_rules() -> None:
     missing = [name for name, text in required_rules.items() if text not in prompt]
     assert missing == []
     assert "近期情绪状态" in prompt
-    assert "业务熟悉度" in prompt
+    assert "业务专业度" in prompt
     assert "专业" in prompt and "了解" in prompt and "小白" in prompt
     assert PROMPT_VERSION == "call-extraction-v8"
 
@@ -61,11 +61,11 @@ def test_realtime_advice_prompt_is_phone_level_not_a_policy_answer() -> None:
     assert "recommended_mode 由本地确定性规则生成" in prompt
     assert "required_mode_contract" in prompt
     assert "mode_application" in prompt
-    assert "情绪响应、事项承接、表达方式" in prompt
+    assert "表达方式、情绪响应、业务应对" in prompt
     assert "类别之间同时生效" in prompt
     assert "不得写成带序号的逐步执行流程" in prompt
     assert "不要自行添加" in prompt
-    assert REALTIME_ADVICE_PROMPT_VERSION == "realtime-service-advice-v7"
+    assert REALTIME_ADVICE_PROMPT_VERSION == "realtime-service-advice-v8"
 
 
 def test_repeat_prompt_separates_contact_queries_from_business_repetition() -> None:

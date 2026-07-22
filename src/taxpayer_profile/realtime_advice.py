@@ -202,9 +202,9 @@ def build_fallback_advice(
         opening = "先确认其最关注的时限、结果或影响，明确当前可确认的范围。"
     else:
         opening = "自然确认本次来电主体、办理事项和当前卡点。"
-    if selected_modes["matter_continuity"] == "历史跟进" and unresolved_topics:
+    if selected_modes["matter_continuity"] == "历史诉求跟进" and unresolved_topics:
         opening += f"再询问是否延续历史未解决事项“{unresolved_topics[0]}”，确认后从已有节点继续。"
-    elif selected_modes["matter_continuity"] == "历史跟进":
+    elif selected_modes["matter_continuity"] == "历史诉求跟进":
         opening += "再确认是否延续历史事项，确认后核对最近处理节点。"
     else:
         opening += "历史记录仅作核对线索，不预设为本次诉求。"
@@ -232,7 +232,7 @@ def build_fallback_advice(
 
     evidence = [str(context.get("mode_basis") or "当前由本地画像规则确定接待模式。")]
     if context.get("proficiency_basis"):
-        evidence.append(f"业务熟悉度依据：{context['proficiency_basis']}")
+        evidence.append(f"业务专业度依据：{context['proficiency_basis']}")
     if context.get("emotion_basis"):
         evidence.append(f"近期情绪依据：{context['emotion_basis']}")
 

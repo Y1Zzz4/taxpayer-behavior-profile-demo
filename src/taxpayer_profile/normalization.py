@@ -169,6 +169,7 @@ class NormalizedCallInput:
     call_serial_number: str | None
     core_question: str | None
     topic_category: str | None
+    secondary_topic: str | None
     demand_category: str | None
     father_question: str | None
     father_question_2: str | None
@@ -253,6 +254,7 @@ def normalize_call_row(
         call_serial_number=text_or_none(row.get("呼叫流水号")),
         core_question=text_or_none(row.get("大模型核心问题")),
         topic_category=text_or_none(row.get("一级专题类别")),
+        secondary_topic=text_or_none(row.get("二级标签")),
         demand_category=(
             text_or_none(row.get("需求类别")) if trust_analyzed_fields else None
         ),

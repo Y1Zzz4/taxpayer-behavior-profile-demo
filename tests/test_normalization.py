@@ -97,6 +97,7 @@ def test_trusted_resolved_field_is_used_as_a_fallback_and_time_source_is_kept() 
             "登记日期": "2026/6/5 13:44",
             "通话结束时间": "2026/6/5 13:50",
             "坐席是否解决纳税人问题": "是",
+            "二级标签": "申报-增值税",
         }
     )
 
@@ -104,6 +105,7 @@ def test_trusted_resolved_field_is_used_as_a_fallback_and_time_source_is_kept() 
     assert call.call_time == datetime(2026, 6, 5, 13, 44)
     assert call.call_time_source == "registration_fallback"
     assert call.call_end_time == datetime(2026, 6, 5, 13, 50)
+    assert call.secondary_topic == "申报-增值税"
 
 
 def test_rule_abnormal_end() -> None:
