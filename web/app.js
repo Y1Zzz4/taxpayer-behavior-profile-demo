@@ -22,6 +22,25 @@
     showcaseRequest: 0,
     graphCleanup: null,
   };
+  const modeClassByCategory = {
+    emotion_response: 'emotion-response',
+    matter_continuity: 'matter-continuity',
+    information_delivery: 'information-delivery',
+    情绪响应: 'emotion-response',
+    事项承接: 'matter-continuity',
+    表达方式: 'information-delivery',
+  };
+  const modeClass = component => modeClassByCategory[component?.category_id] || modeClassByCategory[component?.category] || '';
+  function appendModeTags(parent, components, fallback = '') {
+    if (!Array.isArray(components) || !components.length) {
+      if (fallback) parent.append(el('span', 'mode-tag', fallback));
+      return;
+    }
+    components.forEach(component => {
+      const label = component.category ? `${component.category} · ${component.mode}` : text(component.mode);
+      parent.append(el('span', `mode-tag ${modeClass(component)}`.trim(), label));
+    });
+  }
 
   async function api(url, options) {
     const response = await fetch(url, options);
@@ -127,7 +146,7 @@
     const tags = el('div', 'category-pills');
     tags.append(el('span', 'category-pill', `熟悉度 · ${text(profile.proficiency_level, '暂无法判断')}`));
     tags.append(el('span', 'category-pill', `近期情绪 · ${text(profile.emotion_state, '暂无法判断')}`));
-    tags.append(el('span', 'category-pill', `接待模式 · ${text(profile.recommended_mode, '通俗引导')}`));
+    appendModeTags(tags, profile.recommended_modes, text(profile.recommended_mode, '平稳接待 · 诉求确认 · 通俗引导'));
     heading.append(tags);
     const details = el('div', 'identity-details');
     identityDetail(details, '最近咨询', profile.latest_question, true);
@@ -191,7 +210,7 @@
     const dimensions = el('section', 'history-profile-section');
     const head = el('div', 'issue-section-head'); head.append(el('strong', '', '近期画像依据'), el('span', 'issue-count', '接待参考'));
     const grid = el('div', 'history-profile-grid');
-    [['业务熟悉度', profile.proficiency_level, profile.proficiency_basis], ['近期情绪状态', profile.emotion_state, profile.emotion_basis], ['推荐接待模式', profile.recommended_mode, profile.reception_mode?.basis]].forEach(([label, value, basis]) => {
+    [['业务熟悉度', profile.proficiency_level, profile.proficiency_basis], ['近期情绪状态', profile.emotion_state, profile.emotion_basis], ['组合接待策略', profile.recommended_mode, profile.reception_mode?.basis]].forEach(([label, value, basis]) => {
       const card = el('div', 'history-profile-card'); card.append(el('span', '', label), el('strong', '', text(value)), el('p', '', text(basis, '当前证据不足。'))); grid.append(card);
     });
     dimensions.append(head, grid); box.append(dimensions);
@@ -206,7 +225,7 @@
 
   function renderAdvice(advice) {
     const box = document.querySelector('#advice'); box.className = 'panel-body'; box.replaceChildren();
-    const mode = el('div', 'advice-mode'); mode.append(el('span', '', '推荐接待模式'), el('strong', '', text(advice.service_mode, '通俗引导'))); box.append(mode);
+    const mode = el('div', 'advice-mode'); mode.append(el('span', '', '组合接待策略')); const modeTags = el('div', 'mode-tags'); appendModeTags(modeTags, advice.service_modes, text(advice.service_mode, '平稳接待 · 诉求确认 · 通俗引导')); mode.append(modeTags); box.append(mode);
     box.append(el('div', 'advice-summary', text(advice.advice_summary)));
     bulletSection(box, '接待重点', advice.service_focus);
     const details = el('details', 'advice-details');
@@ -381,10 +400,10 @@
     const root = document.querySelector('#showcase-content'); root.replaceChildren();
     const before = data.before.result || {}; const after = data.after.result || {}; const changedRows = (data.changes || []).filter(item => item.changed);
     const result = showcasePanel('增量画像结果', `${data.masked_phone} · ${data.scenario.label}`, 'simulation-panel');
-    const hero = el('div', 'profile-method-hero'); hero.append(el('span', '', '推演后的推荐接待模式'), el('strong', '', text(after.service_mode)), el('p', '', text(after.strategy_reason)));
+    const hero = el('div', 'profile-method-hero'); const heroModes = el('div', 'mode-tags'); appendModeTags(heroModes, after.mode_components, text(after.service_mode)); hero.append(el('span', '', '推演后的组合接待策略'), heroModes, el('p', '', text(after.strategy_reason)));
     const event = el('div', 'simulation-event'); event.append(el('i', '', '＋'), el('span', '', text(data.scenario.event)));
     const flow = el('div', 'inference-flow');
-    const changedDimensions = changedRows.filter(item => item.field !== '推荐接待模式').map(item => item.field);
+    const changedDimensions = changedRows.filter(item => item.field !== '组合接待策略').map(item => item.field);
     [
       ['新增来电情景', text(data.scenario.label)],
       ['画像变化', changedDimensions.length ? changedDimensions.join('、') : '当前画像保持稳定'],
@@ -395,8 +414,8 @@
       if (index < 3) flow.append(el('i', 'inference-arrow', '→'));
     });
     const comparison = el('div', 'comparison-grid');
-    const beforeCard = el('div', 'comparison-card'); beforeCard.append(el('span', '', '当前接待模式'), el('strong', '', text(before.service_mode)), el('p', '', text(before.strategy_reason)));
-    const afterCard = el('div', 'comparison-card after'); afterCard.append(el('span', '', '推演后接待模式'), el('strong', '', text(after.service_mode)), el('p', '', text(after.strategy_reason)));
+    const beforeCard = el('div', 'comparison-card'); const beforeTags = el('div', 'mode-tags'); appendModeTags(beforeTags, before.mode_components, text(before.service_mode)); beforeCard.append(el('span', '', '当前组合策略'), beforeTags, el('p', '', text(before.strategy_reason)));
+    const afterCard = el('div', 'comparison-card after'); const afterTags = el('div', 'mode-tags'); appendModeTags(afterTags, after.mode_components, text(after.service_mode)); afterCard.append(el('span', '', '推演后组合策略'), afterTags, el('p', '', text(after.strategy_reason)));
     comparison.append(beforeCard, el('div', 'comparison-arrow', '→'), afterCard);
     const changes = el('div', 'change-grid');
     if (changedRows.length) changedRows.forEach(item => { const card = el('div', 'change-card changed'); const values = el('div', 'change-values'); values.append(el('b', '', text(item.before, '0')), el('i', '', '→'), el('b', '', text(item.after, '0'))); card.append(el('span', '', item.field), values); changes.append(card); });
@@ -408,10 +427,10 @@
     const identity = el('div', 'profile-identity'); identity.append(el('span', '', '最近咨询主体'), el('strong', '', subject), el('p', '', `历史来电覆盖：${dateText(profile.first_call_time)} 至 ${dateText(profile.latest_call_time)}`));
     const facets = el('div', 'profile-facets'); [['最近关注事项', profile.latest_question], ['专题与需求', `${text(profile.topic_category)} · ${text(profile.demand_category)}`]].forEach(([label, value]) => { const card = el('div', 'profile-facet'); card.append(el('label', '', label), el('strong', '', text(value))); facets.append(card); });
     const dimensions = el('div', 'profile-dimension-summary'); ((data.before.profile_model || {}).items || []).forEach(item => { const card = el('div', 'profile-dimension-item'); card.title = text(item.basis); card.append(el('span', '', item.name), el('strong', '', item.value)); dimensions.append(card); });
-    const baseline = el('div', 'baseline-strategy'); baseline.append(el('label', '', '当前推荐接待模式'), el('strong', '', text(before.service_mode)), el('p', '', text(before.strategy_reason))); current.body.append(identity, facets, dimensions, baseline);
+    const baseline = el('div', 'baseline-strategy'); const baselineTags = el('div', 'mode-tags'); appendModeTags(baselineTags, before.mode_components, text(before.service_mode)); baseline.append(el('label', '', '当前组合接待策略'), baselineTags, el('p', '', text(before.strategy_reason))); current.body.append(identity, facets, dimensions, baseline);
 
     const evidence = showcasePanel('历史证据回放', '选择来电查看画像贡献', 'evidence-panel'); const strip = el('div', 'rolling-strip');
-    [['历史来电', (data.timeline || []).length], ['画像维度', (data.before.profile_model?.items || []).length], ['关注信号', (before.matched_facts || []).length], ['当前模式', text(before.service_mode)]].forEach(([label, value]) => { const card = el('div', 'rolling-signal'); card.append(el('strong', '', value), el('span', '', label)); strip.append(card); });
+    [['历史来电', (data.timeline || []).length], ['画像维度', (data.before.profile_model?.items || []).length], ['关注信号', (before.matched_facts || []).length], ['策略分项', (before.mode_components || []).length]].forEach(([label, value]) => { const card = el('div', 'rolling-signal'); card.append(el('strong', '', value), el('span', '', label)); strip.append(card); });
     const timeline = el('div', 'evidence-timeline'); const explain = el('div', 'evidence-explain', '选择一通来电，可查看它为当前画像提供的依据。');
     (data.timeline || []).slice(-8).reverse().forEach((item, index) => {
       const card = el('button', `evidence-item${index === 0 ? ' active' : ''}`); card.type = 'button'; card.append(el('time', '', `${dateText(item.call_time)} · 第${item.index}通`), el('strong', '', text(item.question)), el('span', '', (item.contributions || []).join(' · ')));
@@ -429,14 +448,14 @@
   function renderGraph(data) {
     if (state.graphCleanup) state.graphCleanup();
     const root = document.querySelector('#profile-knowledge-content'); root.replaceChildren(); const catalog = state.showcaseCatalog; const taxonomy = catalog.taxonomy || {}; const panel = showcasePanel('多维画像三维关系图', data ? `${data.masked_phone} · 当前实例高亮` : '整体逻辑 · 可旋转探索');
-    const toolbar = el('div', 'knowledge-graph-toolbar'); const toolbarNote = el('p', '', '专业程度、近期情绪和历史服务事实使用不同颜色，并共同连接到坐席接待模式。'); const toolbarActions = el('div', 'graph-toolbar-actions');
+    const toolbar = el('div', 'knowledge-graph-toolbar'); const toolbarNote = el('p', '', '三个画像维度分别推导情绪响应、事项承接和表达方式，三类结果同时组成接待策略。'); const toolbarActions = el('div', 'graph-toolbar-actions');
     const resetButton = el('button', 'graph-tool', '复位视角'); const rotationButton = el('button', 'graph-tool active', '暂停旋转'); const labelsButton = el('button', 'graph-tool active', '隐藏标签'); const overviewButton = el('button', 'graph-tool active', '显示全局'); const nextButton = el('button', 'graph-tool', '逐类聚焦 →'); const replayButton = data ? el('button', 'graph-tool replay', '重播推导') : null;
     [resetButton, rotationButton, labelsButton, overviewButton, nextButton, replayButton].filter(Boolean).forEach(button => button.type = 'button'); toolbarActions.append(...[resetButton, rotationButton, labelsButton, overviewButton, nextButton, replayButton].filter(Boolean)); toolbar.append(toolbarNote, toolbarActions);
     const stage = el('div', 'knowledge-graph-stage'); const canvas = el('canvas', 'knowledge-graph-canvas'); canvas.tabIndex = 0; canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', '可旋转和缩放的三维画像关系图');
-    const hint = el('div', 'graph-gesture-hint', '拖拽旋转 · 滚轮缩放 · 点击小球聚焦'); const legend = el('div', 'graph-depth-legend'); [['proficiency', '专业程度'], ['emotion', '近期情绪'], ['facts', '历史服务事实'], ['mode', '接待模式'], ['guidance', '服务建议']].forEach(([className, label]) => { const item = el('span'); item.append(el('i', className), document.createTextNode(label)); legend.append(item); });
+    const hint = el('div', 'graph-gesture-hint', '拖拽旋转 · 滚轮缩放 · 点击小球聚焦'); const legend = el('div', 'graph-depth-legend'); [['proficiency', '专业程度'], ['emotion', '近期情绪'], ['facts', '历史服务事实'], ['mode-emotion', '情绪响应'], ['mode-continuity', '事项承接'], ['mode-expression', '表达方式'], ['guidance', '服务建议']].forEach(([className, label]) => { const item = el('span'); item.append(el('i', className), document.createTextNode(label)); legend.append(item); });
     let derivationTitle = null, derivationCopy = null, derivationBar = null; const derivationStatus = data ? el('div', 'graph-derivation-status') : null; if (derivationStatus) { derivationTitle = el('strong', '', '准备画像推导'); derivationCopy = el('span', '', '正在读取该号码的历史画像信息…'); const track = el('div', 'derivation-progress'); derivationBar = el('i'); track.append(derivationBar); derivationStatus.append(derivationTitle, derivationCopy, track); }
     stage.append(...[canvas, hint, derivationStatus, legend].filter(Boolean)); panel.body.append(toolbar, stage); root.append(panel.panel, renderClassificationCatalog(data));
-    const dimensions = taxonomy.dimensions || []; const modes = taxonomy.service_modes || []; const instance = data?.before?.profile_model; const active = new Set(); (instance?.items || []).forEach(item => (item.values || []).forEach(value => active.add(`${item.id}:${value}`))); if (data?.before?.result?.service_mode) active.add(`mode:${data.before.result.service_mode}`);
+    const dimensions = taxonomy.dimensions || []; const modeGroups = taxonomy.service_mode_groups || []; const instance = data?.before?.profile_model; const active = new Set(); (instance?.items || []).forEach(item => (item.values || []).forEach(value => active.add(`${item.id}:${value}`))); (data?.before?.result?.mode_components || []).forEach(component => active.add(`mode:${component.mode_id}`));
     const zoneConfig = {
       proficiency: {label: '专业程度', y: -185, z: -75},
       emotion: {label: '近期情绪', y: 0, z: 105},
@@ -450,23 +469,43 @@
       const categories = [...(dimension.categories || [])]; if (dimension.unknown) categories.push(dimension.unknown);
       categories.forEach((category, index) => { const angle = Math.PI * 2 * index / Math.max(categories.length, 1); const radiusY = dimension.id === 'facts' ? 82 : 68; const radiusZ = dimension.id === 'facts' ? 125 : 100; const id = pushNode({id: `${dimension.id}:${category}`, label: category, kind: 'category', group: dimension.id, x: -105 + Math.cos(angle) * 20, y: zone.y + Math.sin(angle) * radiusY, z: zone.z + Math.cos(angle) * radiusZ, r: 12, current: active.has(`${dimension.id}:${category}`)}); edges.push([rootId, id]); });
     });
-    modes.forEach((mode, index) => { const id = pushNode({id: `mode:${mode.label}`, label: mode.label, kind: 'mode', group: 'mode', x: 245, y: (index - 1.5) * 125, z: Math.sin(index * 1.6) * 145, r: 17, current: active.has(`mode:${mode.label}`)}); const sourceHints = index === 0 ? ['emotion:不满', 'facts:等待推诿', 'facts:对坐席不满'] : index === 1 ? ['facts:历史工单', 'facts:异常中断', 'facts:联系后未解决'] : index === 2 ? ['proficiency:专业', 'proficiency:了解'] : ['proficiency:小白', 'proficiency:暂无法判断']; sourceHints.forEach(source => edges.push([source, id])); pushNode({id: `guide:${mode.label}`, label: mode.focus, kind: 'guidance', group: 'guidance', x: 500, y: (index - 1.5) * 125, z: Math.cos(index) * 120, r: 10, current: active.has(`mode:${mode.label}`)}); edges.push([id, `guide:${mode.label}`]); });
+    const modeZoneConfig = {
+      emotion_response: {label: '情绪响应', y: -185, z: 85, group: 'mode_emotion_response'},
+      matter_continuity: {label: '事项承接', y: 0, z: -105, group: 'mode_matter_continuity'},
+      information_delivery: {label: '表达方式', y: 185, z: 65, group: 'mode_information_delivery'}
+    };
+    const groupSources = {
+      emotion_response: ['emotion:不满', 'emotion:焦虑', 'emotion:平稳', 'emotion:暂无法判断', 'facts:等待推诿', 'facts:对坐席不满'],
+      matter_continuity: ['facts:历史工单', 'facts:异常中断', 'facts:联系后未解决', 'facts:近五个工作日未命中'],
+      information_delivery: ['proficiency:专业', 'proficiency:了解', 'proficiency:小白', 'proficiency:暂无法判断']
+    };
+    modeGroups.forEach((modeGroup, groupIndex) => {
+      const zone = modeZoneConfig[modeGroup.id] || {label: modeGroup.label, y: (groupIndex - 1) * 185, z: 0, group: `mode_${modeGroup.id}`};
+      const groupRoot = pushNode({id: `modegroup:${modeGroup.id}`, label: zone.label, kind: 'mode_group', group: zone.group, x: 120, y: zone.y, z: zone.z, r: 19});
+      (groupSources[modeGroup.id] || []).forEach(source => edges.push([source, groupRoot]));
+      (modeGroup.modes || []).forEach((mode, index) => {
+        const angle = Math.PI * 2 * index / Math.max(modeGroup.modes.length, 1); const id = `mode:${mode.id}`;
+        pushNode({id, label: mode.label, kind: 'mode', group: zone.group, x: 345, y: zone.y + Math.sin(angle) * 72, z: zone.z + Math.cos(angle) * 105, r: 15, current: active.has(id)}); edges.push([groupRoot, id]);
+        const guideId = `guide:${mode.id}`; pushNode({id: guideId, label: mode.focus, kind: 'guidance', group: 'guidance', x: 555, y: zone.y + Math.sin(angle) * 72, z: zone.z + Math.cos(angle) * 105, r: 9, current: active.has(id)}); edges.push([id, guideId]);
+      });
+    });
     const sceneCenterX = (Math.min(...nodes.map(node => node.x)) + Math.max(...nodes.map(node => node.x))) / 2;
-    const nodeMap = new Map(nodes.map(node => [node.id, node])); const edgeKey = (source, target) => `${source}→${target}`; const activeCategoryIds = new Set(nodes.filter(node => node.kind === 'category' && node.current).map(node => node.id)); const activeModeId = nodes.find(node => node.kind === 'mode' && node.current)?.id || null; const activeGuideId = nodes.find(node => node.kind === 'guidance' && node.current)?.id || null; const activeRootIds = new Set(edges.filter(([, target]) => activeCategoryIds.has(target)).map(([source]) => source)); const inputEdgeKeys = new Set(edges.filter(([source, target]) => activeRootIds.has(source) && activeCategoryIds.has(target)).map(([source, target]) => edgeKey(source, target))); const ruleEdgeKeys = new Set(edges.filter(([source, target]) => activeCategoryIds.has(source) && target === activeModeId).map(([source, target]) => edgeKey(source, target))); const guideEdgeKeys = new Set(edges.filter(([source, target]) => source === activeModeId && target === activeGuideId).map(([source, target]) => edgeKey(source, target))); const instancePathIds = new Set([...activeRootIds, ...activeCategoryIds, activeModeId, activeGuideId].filter(Boolean));
+    const nodeMap = new Map(nodes.map(node => [node.id, node])); const edgeKey = (source, target) => `${source}→${target}`; const activeCategoryIds = new Set(nodes.filter(node => node.kind === 'category' && node.current).map(node => node.id)); const activeModeIds = new Set(nodes.filter(node => node.kind === 'mode' && node.current).map(node => node.id)); const activeGuideIds = new Set(nodes.filter(node => node.kind === 'guidance' && node.current).map(node => node.id)); const activeModeGroupIds = new Set(edges.filter((sourceTarget) => activeModeIds.has(sourceTarget[1]) && nodeMap.get(sourceTarget[0])?.kind === 'mode_group').map(([source]) => source)); const activeRootIds = new Set(edges.filter(([, target]) => activeCategoryIds.has(target)).map(([source]) => source)); const inputEdgeKeys = new Set(edges.filter(([source, target]) => activeRootIds.has(source) && activeCategoryIds.has(target)).map(([source, target]) => edgeKey(source, target))); const categoryEdgeKeys = new Set(edges.filter(([source, target]) => activeCategoryIds.has(source) && activeModeGroupIds.has(target)).map(([source, target]) => edgeKey(source, target))); const modeEdgeKeys = new Set(edges.filter(([source, target]) => activeModeGroupIds.has(source) && activeModeIds.has(target)).map(([source, target]) => edgeKey(source, target))); const guideEdgeKeys = new Set(edges.filter(([source, target]) => activeModeIds.has(source) && activeGuideIds.has(target)).map(([source, target]) => edgeKey(source, target))); const instancePathIds = new Set([...activeRootIds, ...activeCategoryIds, ...activeModeGroupIds, ...activeModeIds, ...activeGuideIds]);
     let rotX = -.12, rotY = -.3, zoom = 1, drag = false, px = 0, py = 0, dragDistance = 0, alive = true, frame = 0, autoRotate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, showLabels = true, focusGroup = null, focusNodeId = null, focusIndex = -1, lastProjected = new Map(), demoActive = Boolean(data), demoStart = performance.now(), demoPhase = -1;
     rotationButton.classList.toggle('active', autoRotate); rotationButton.textContent = autoRotate ? '暂停旋转' : '继续旋转';
-    if (demoActive) { overviewButton.classList.remove('active'); replayButton?.classList.add('active'); toolbarNote.textContent = '正在演示该号码画像如何推导出推荐接待模式。'; }
-    const context = canvas.getContext('2d'); const palette = {proficiency: ['#c8d5ff','#4968d3'], emotion: ['#ffc5cf','#c94f69'], facts: ['#a4efdf','#218a7c'], mode: ['#ffdc9f','#b46c1f'], guidance: ['#efb9df','#8c4777']};
+    if (demoActive) { overviewButton.classList.remove('active'); replayButton?.classList.add('active'); toolbarNote.textContent = '正在演示该号码画像如何分别推导三类接待方式。'; }
+    const context = canvas.getContext('2d'); const palette = {proficiency: ['#c8d5ff','#4968d3'], emotion: ['#ffc5cf','#c94f69'], facts: ['#a4efdf','#218a7c'], mode_emotion_response: ['#efccff','#8755b7'], mode_matter_continuity: ['#ffdaa9','#bd7428'], mode_information_delivery: ['#bde9ff','#347fa8'], guidance: ['#efb9df','#8c4777']};
     function resize() { const rect = canvas.getBoundingClientRect(); const ratio = Math.min(devicePixelRatio || 1, 2); canvas.width = rect.width * ratio; canvas.height = rect.height * ratio; context.setTransform(ratio, 0, 0, ratio, 0, 0); }
     function project(node) { let x = node.x - sceneCenterX, y = node.y, z = node.z; const cy = Math.cos(rotY), sy = Math.sin(rotY), cx = Math.cos(rotX), sx = Math.sin(rotX); const x1 = x * cy - z * sy, z1 = x * sy + z * cy; const y1 = y * cx - z1 * sx, z2 = y * sx + z1 * cx; const perspective = 760 / (900 + z2); const visualOffsetX = Math.min(52, canvas.clientWidth * .045); return {x: canvas.clientWidth / 2 - visualOffsetX + x1 * perspective * zoom, y: canvas.clientHeight / 2 + y1 * perspective * zoom, scale: perspective * zoom, depth: z2}; }
     const clamp = value => Math.max(0, Math.min(1, value));
-    function demoProgress(elapsed) { return {input: clamp((elapsed - 450) / 1150), rule: clamp((elapsed - 1750) / 1500), guide: clamp((elapsed - 3550) / 950), total: clamp(elapsed / 4800)}; }
+    function demoProgress(elapsed) { return {input: clamp((elapsed - 350) / 900), category: clamp((elapsed - 1350) / 1050), mode: clamp((elapsed - 2550) / 1100), guide: clamp((elapsed - 3800) / 850), total: clamp(elapsed / 4800)}; }
     function updateDerivationStatus(elapsed) {
       if (!derivationStatus || !derivationTitle || !derivationCopy || !derivationBar) return; const mode = text(data?.before?.result?.service_mode); const signature = ((instance?.items || []).map(item => `${item.name}：${item.value}`)).join(' · '); let phase = 0, title = '准备画像推导', copy = '正在读取该号码的历史画像信息…';
-      if (elapsed >= 450) { phase = 1; title = '点亮当前画像'; copy = signature || '正在确认当前画像标签。'; }
-      if (elapsed >= 1750) { phase = 2; title = '匹配接待模式'; copy = '沿有效画像关系逐步核对接待重点。'; }
-      if (elapsed >= 3550) { phase = 3; title = `推荐模式：${mode}`; copy = text(data?.before?.result?.strategy_reason); }
-      if (elapsed >= 4550) { phase = 4; title = '推导完成'; copy = `${mode} · ${text(data?.before?.result?.service_suggestion)}`; }
+      if (elapsed >= 350) { phase = 1; title = '点亮当前画像'; copy = signature || '正在确认当前画像标签。'; }
+      if (elapsed >= 1350) { phase = 2; title = '进入三个服务类别'; copy = '画像依据分别汇入情绪响应、事项承接和表达方式。'; }
+      if (elapsed >= 2550) { phase = 3; title = '类别内选择具体方式'; copy = '从每个类别中选择一项，三个结果互不覆盖。'; }
+      if (elapsed >= 3800) { phase = 4; title = '形成组合接待策略'; copy = mode; }
+      if (elapsed >= 4650) { phase = 5; title = '推导完成'; copy = `${mode} · ${text(data?.before?.result?.service_suggestion)}`; }
       if (phase !== demoPhase) { demoPhase = phase; derivationTitle.textContent = title; derivationCopy.textContent = copy; }
       derivationBar.style.width = `${demoProgress(elapsed).total * 100}%`;
     }
@@ -479,47 +518,47 @@
         [...ids].filter(id => nodeMap.get(id)?.kind === 'mode').forEach(id => edges.filter(([source]) => source === id).forEach(([, target]) => ids.add(target)));
         return ids;
       }
-      if (!focusGroup) return new Set(nodes.map(node => node.id)); const ids = new Set(nodes.filter(node => node.group === focusGroup).map(node => node.id)); edges.forEach(([source, target]) => { if (ids.has(source)) ids.add(target); }); edges.forEach(([source, target]) => { if (ids.has(source) && nodeMap.get(source)?.kind === 'mode') ids.add(target); }); return ids;
+      if (!focusGroup) return new Set(nodes.map(node => node.id)); const ids = new Set(nodes.filter(node => node.group === focusGroup).map(node => node.id)); for (let pass = 0; pass < 2; pass += 1) edges.forEach(([source, target]) => { if (ids.has(source) || ids.has(target)) { ids.add(source); ids.add(target); } }); return ids;
     }
     function draw(timestamp = 0) {
       if (!alive) return; if (autoRotate && !drag) rotY += .0015; context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
       const projected = new Map(nodes.map(node => [node.id, project(node)])); const focused = focusedNodeIds(); const elapsed = Math.max(0, timestamp - demoStart); const progress = demoProgress(elapsed); const hasFocus = Boolean(demoActive || focusGroup || focusNodeId); if (demoActive) updateDerivationStatus(elapsed);
       edges.forEach(([source, target], index) => {
         const p1 = projected.get(source), p2 = projected.get(target); if (!p1 || !p2) return; const key = edgeKey(source, target); const activeEdge = focused.has(source) && focused.has(target); let animationProgress = null;
-        if (demoActive) { if (inputEdgeKeys.has(key)) animationProgress = progress.input; else if (ruleEdgeKeys.has(key)) animationProgress = progress.rule; else if (guideEdgeKeys.has(key)) animationProgress = progress.guide; }
+        if (demoActive) { if (inputEdgeKeys.has(key)) animationProgress = progress.input; else if (categoryEdgeKeys.has(key)) animationProgress = progress.category; else if (modeEdgeKeys.has(key)) animationProgress = progress.mode; else if (guideEdgeKeys.has(key)) animationProgress = progress.guide; }
         context.globalAlpha = demoActive ? (animationProgress === null ? .035 : .18) : hasFocus ? (activeEdge ? .7 : .06) : 1; context.strokeStyle = 'rgba(119,158,190,.35)'; context.lineWidth = 1; context.beginPath(); context.moveTo(p1.x,p1.y); context.lineTo(p2.x,p2.y); context.stroke();
         if (demoActive && animationProgress !== null && animationProgress > 0) { const endX = p1.x + (p2.x - p1.x) * animationProgress, endY = p1.y + (p2.y - p1.y) * animationProgress; context.globalAlpha = .92; context.strokeStyle = '#86e5d3'; context.lineWidth = 2.2; context.beginPath(); context.moveTo(p1.x,p1.y); context.lineTo(endX,endY); context.stroke(); context.fillStyle = '#d0fff6'; context.shadowBlur = 12; context.shadowColor = '#74e1ce'; context.beginPath(); context.arc(endX,endY,2.8,0,Math.PI*2); context.fill(); context.shadowBlur = 0; }
         else if (!demoActive && activeEdge && (!hasFocus || index % 2 === 0)) { const moving = (timestamp * .00016 + index * .093) % 1; const dotX = p1.x + (p2.x - p1.x) * moving, dotY = p1.y + (p2.y - p1.y) * moving; context.globalAlpha = hasFocus ? .95 : .55; context.fillStyle = '#a8f4e7'; context.beginPath(); context.arc(dotX,dotY,hasFocus ? 2.2 : 1.5,0,Math.PI*2); context.fill(); }
       });
       context.globalAlpha = 1; lastProjected = projected;
       [...nodes].sort((a,b) => project(b).depth - project(a).depth).forEach(node => {
-        const point = projected.get(node.id); const isInput = activeRootIds.has(node.id) || activeCategoryIds.has(node.id); const isMode = node.id === activeModeId; const isGuide = node.id === activeGuideId; let reveal = 1;
-        if (demoActive) { reveal = isInput ? progress.input : isMode ? progress.rule : isGuide ? progress.guide : .04; }
+        const point = projected.get(node.id); const isInput = activeRootIds.has(node.id) || activeCategoryIds.has(node.id); const isModeGroup = activeModeGroupIds.has(node.id); const isMode = activeModeIds.has(node.id); const isServiceNode = isModeGroup || isMode; const isGuide = activeGuideIds.has(node.id); let reveal = 1;
+        if (demoActive) { reveal = isInput ? progress.input : isModeGroup ? progress.category : isMode ? progress.mode : isGuide ? progress.guide : .04; }
         const pulseTarget = node.current || focusNodeId === node.id || (demoActive && instancePathIds.has(node.id)); const pulse = pulseTarget ? 1 + Math.sin(timestamp * .004) * .07 : 1; const r = Math.max(5, node.r * point.scale * pulse); point.hitRadius = r; const [light,dark] = palette[node.group] || palette[node.kind] || palette.guidance;
-        context.globalAlpha = demoActive ? Math.max(.04, reveal) : hasFocus && !focused.has(node.id) ? .16 : 1; const gradient = context.createRadialGradient(point.x-r*.35, point.y-r*.35, 1, point.x, point.y, r); gradient.addColorStop(0, light); gradient.addColorStop(1, dark); const highlighted = demoActive ? reveal > .7 && instancePathIds.has(node.id) : node.current || focusNodeId === node.id; context.shadowBlur = highlighted ? 19 : 5; context.shadowColor = isMode ? '#ffc66f' : isGuide ? '#eba7d5' : '#8fe7d8'; context.fillStyle = gradient; context.beginPath(); context.arc(point.x,point.y,r,0,Math.PI*2); context.fill(); context.shadowBlur = 0;
-        if (highlighted) { const ringColor = isMode ? '#ffc66f' : isGuide ? '#e7a1d1' : '#8edfd0'; context.strokeStyle = ringColor; context.lineWidth = 2; context.beginPath(); context.arc(point.x,point.y,r+5,0,Math.PI*2); context.stroke(); }
+        context.globalAlpha = demoActive ? Math.max(.04, reveal) : hasFocus && !focused.has(node.id) ? .16 : 1; const gradient = context.createRadialGradient(point.x-r*.35, point.y-r*.35, 1, point.x, point.y, r); gradient.addColorStop(0, light); gradient.addColorStop(1, dark); const highlighted = demoActive ? reveal > .7 && instancePathIds.has(node.id) : node.current || focusNodeId === node.id; context.shadowBlur = highlighted ? 19 : 5; context.shadowColor = isServiceNode ? light : isGuide ? '#eba7d5' : '#8fe7d8'; context.fillStyle = gradient; context.beginPath(); context.arc(point.x,point.y,r,0,Math.PI*2); context.fill(); context.shadowBlur = 0;
+        if (highlighted) { const ringColor = isServiceNode ? light : isGuide ? '#e7a1d1' : '#8edfd0'; context.strokeStyle = ringColor; context.lineWidth = 2; context.beginPath(); context.arc(point.x,point.y,r+5,0,Math.PI*2); context.stroke(); }
         const showDemoLabel = demoActive && reveal > .5 && instancePathIds.has(node.id); if ((demoActive && showDemoLabel) || (!demoActive && (showLabels || node.current || (hasFocus && focused.has(node.id))))) { context.fillStyle = '#edf4ff'; context.font = `${node.current ? 700 : 600} 11px system-ui`; context.fillText(node.label.length > 18 ? `${node.label.slice(0,18)}…` : node.label, point.x+r+5, point.y+3); } context.globalAlpha = 1;
       }); frame = requestAnimationFrame(draw);
     }
-    canvas.addEventListener('pointerdown', event => { drag = true; dragDistance = 0; px = event.clientX; py = event.clientY; canvas.setPointerCapture(event.pointerId); }); canvas.addEventListener('pointermove', event => { if (!drag) return; const dx = event.clientX - px, dy = event.clientY - py; dragDistance += Math.hypot(dx, dy); rotY += dx * .006; rotX = Math.max(-1, Math.min(1, rotX + dy * .004)); px = event.clientX; py = event.clientY; }); canvas.addEventListener('pointerup', event => { drag = false; canvas.releasePointerCapture(event.pointerId); if (dragDistance >= 5) return; const rect = canvas.getBoundingClientRect(), x = event.clientX - rect.left, y = event.clientY - rect.top; const clicked = [...nodes].reverse().find(node => { const point = lastProjected.get(node.id); return point && Math.hypot(point.x - x, point.y - y) <= (point.hitRadius || 7) + 7; }); if (!clicked) return; demoActive = false; replayButton?.classList.remove('active'); if (derivationTitle && derivationCopy) { derivationTitle.textContent = '手动关系聚焦'; derivationCopy.textContent = '再次点击当前小球可取消聚焦，或点击“重播推导”恢复演示。'; } focusNodeId = focusNodeId === clicked.id ? null : clicked.id; focusGroup = null; focusIndex = -1; overviewButton.classList.toggle('active', !focusNodeId); toolbarNote.textContent = focusNodeId ? `当前聚焦：${clicked.label}，相关画像依据和接待建议已高亮。` : '当前展示三个画像维度及其与四种接待模式的完整关系。'; }); canvas.addEventListener('wheel', event => { event.preventDefault(); zoom = Math.max(.6, Math.min(1.7, zoom * (event.deltaY > 0 ? .92 : 1.08))); }, {passive: false});
-    resetButton.addEventListener('click', () => { rotX = -.12; rotY = -.3; zoom = 1; demoActive = false; replayButton?.classList.remove('active'); focusGroup = null; focusNodeId = null; focusIndex = -1; overviewButton.classList.add('active'); toolbarNote.textContent = '专业程度、近期情绪和历史服务事实通过颜色区分，并共同连接到坐席接待模式。'; });
+    canvas.addEventListener('pointerdown', event => { drag = true; dragDistance = 0; px = event.clientX; py = event.clientY; canvas.setPointerCapture(event.pointerId); }); canvas.addEventListener('pointermove', event => { if (!drag) return; const dx = event.clientX - px, dy = event.clientY - py; dragDistance += Math.hypot(dx, dy); rotY += dx * .006; rotX = Math.max(-1, Math.min(1, rotX + dy * .004)); px = event.clientX; py = event.clientY; }); canvas.addEventListener('pointerup', event => { drag = false; canvas.releasePointerCapture(event.pointerId); if (dragDistance >= 5) return; const rect = canvas.getBoundingClientRect(), x = event.clientX - rect.left, y = event.clientY - rect.top; const clicked = [...nodes].reverse().find(node => { const point = lastProjected.get(node.id); return point && Math.hypot(point.x - x, point.y - y) <= (point.hitRadius || 7) + 7; }); if (!clicked) return; demoActive = false; replayButton?.classList.remove('active'); if (derivationTitle && derivationCopy) { derivationTitle.textContent = '手动关系聚焦'; derivationCopy.textContent = '再次点击当前小球可取消聚焦，或点击“重播推导”恢复演示。'; } focusNodeId = focusNodeId === clicked.id ? null : clicked.id; focusGroup = null; focusIndex = -1; overviewButton.classList.toggle('active', !focusNodeId); toolbarNote.textContent = focusNodeId ? `当前聚焦：${clicked.label}，相关画像依据和服务建议已高亮。` : '当前展示三个画像维度与三类组合接待方式的完整关系。'; }); canvas.addEventListener('wheel', event => { event.preventDefault(); zoom = Math.max(.6, Math.min(1.7, zoom * (event.deltaY > 0 ? .92 : 1.08))); }, {passive: false});
+    resetButton.addEventListener('click', () => { rotX = -.12; rotY = -.3; zoom = 1; demoActive = false; replayButton?.classList.remove('active'); focusGroup = null; focusNodeId = null; focusIndex = -1; overviewButton.classList.add('active'); toolbarNote.textContent = '三个画像维度分别连接三类接待方式，类别之间同时生效。'; });
     rotationButton.addEventListener('click', () => { autoRotate = !autoRotate; rotationButton.classList.toggle('active', autoRotate); rotationButton.textContent = autoRotate ? '暂停旋转' : '继续旋转'; });
     labelsButton.addEventListener('click', () => { showLabels = !showLabels; labelsButton.classList.toggle('active', showLabels); labelsButton.textContent = showLabels ? '隐藏标签' : '显示标签'; });
-    overviewButton.addEventListener('click', () => { demoActive = false; replayButton?.classList.remove('active'); focusGroup = null; focusNodeId = null; focusIndex = -1; zoom = 1; overviewButton.classList.add('active'); toolbarNote.textContent = '当前展示三个画像维度及其与四种接待模式的完整关系。'; });
-    nextButton.addEventListener('click', () => { const groups = dimensions.map(item => item.id); if (!groups.length) return; demoActive = false; replayButton?.classList.remove('active'); focusIndex = (focusIndex + 1) % groups.length; focusGroup = groups[focusIndex]; focusNodeId = null; zoom = 1.12; overviewButton.classList.remove('active'); toolbarNote.textContent = `当前聚焦：${zoneConfig[focusGroup]?.label || dimensions[focusIndex].name}，相关接待模式同步高亮。`; });
-    replayButton?.addEventListener('click', () => { demoActive = true; demoStart = performance.now(); demoPhase = -1; focusGroup = null; focusNodeId = null; focusIndex = -1; rotX = -.12; rotY = -.3; zoom = 1; overviewButton.classList.remove('active'); replayButton.classList.add('active'); toolbarNote.textContent = '正在演示该号码画像如何推导出推荐接待模式。'; });
+    overviewButton.addEventListener('click', () => { demoActive = false; replayButton?.classList.remove('active'); focusGroup = null; focusNodeId = null; focusIndex = -1; zoom = 1; overviewButton.classList.add('active'); toolbarNote.textContent = '当前展示三个画像维度与三类组合接待方式的完整关系。'; });
+    nextButton.addEventListener('click', () => { const groups = [...dimensions.map(item => item.id), ...modeGroups.map(item => `mode_${item.id}`)]; if (!groups.length) return; demoActive = false; replayButton?.classList.remove('active'); focusIndex = (focusIndex + 1) % groups.length; focusGroup = groups[focusIndex]; focusNodeId = null; zoom = 1.12; overviewButton.classList.remove('active'); const modeGroupId = focusGroup.replace(/^mode_/, ''); const label = zoneConfig[focusGroup]?.label || modeZoneConfig[modeGroupId]?.label || focusGroup; toolbarNote.textContent = `当前聚焦：${label}，相关画像依据和服务建议同步高亮。`; });
+    replayButton?.addEventListener('click', () => { demoActive = true; demoStart = performance.now(); demoPhase = -1; focusGroup = null; focusNodeId = null; focusIndex = -1; rotX = -.12; rotY = -.3; zoom = 1; overviewButton.classList.remove('active'); replayButton.classList.add('active'); toolbarNote.textContent = '正在演示该号码画像如何分别推导三类接待方式。'; });
     const observer = new ResizeObserver(resize); observer.observe(canvas); requestAnimationFrame(() => { resize(); draw(); }); state.graphCleanup = () => { alive = false; cancelAnimationFrame(frame); observer.disconnect(); };
   }
 
   function renderClassificationCatalog(data) {
-    const taxonomy = state.showcaseCatalog.taxonomy || {}; const panel = showcasePanel('完整分类与判定规则', data ? '当前号码命中项已在图中高亮' : '三维特征、五项事实、四种接待模式');
-    const activeLabels = new Set(); ((data?.before?.profile_model || {}).items || []).forEach(item => (item.values || []).forEach(value => activeLabels.add(`${item.id}:${value}`))); const activeMode = data?.before?.result?.service_mode;
+    const taxonomy = state.showcaseCatalog.taxonomy || {}; const panel = showcasePanel('完整分类与判定规则', data ? '当前画像与三个分项模式已同步突出' : '三维特征、五项事实、三类八项接待方式');
+    const activeLabels = new Set(); ((data?.before?.profile_model || {}).items || []).forEach(item => (item.values || []).forEach(value => activeLabels.add(`${item.id}:${value}`))); const activeModeIds = new Set((data?.before?.result?.mode_components || []).map(item => item.mode_id));
     const dimensions = el('section', 'taxonomy-section'); const dHead = el('div', 'taxonomy-section-head'); dHead.append(el('strong', '', '三维画像字段'), el('span', '', data ? '蓝色标签为当前画像' : '用于识别当前服务需求')); const dGrid = el('div', 'dimension-catalog'); (taxonomy.dimensions || []).forEach(dimension => { const hasCurrent = data && ((data.before.profile_model?.items || []).some(item => item.id === dimension.id)); const card = el('article', `dimension-card${hasCurrent ? ' active' : ''}`); const head = el('div', 'dimension-card-head'); head.append(el('strong', '', dimension.name), el('span', '', `${dimension.categories.length} 类`)); const tags = el('div', 'taxonomy-tags'); [...dimension.categories, dimension.unknown].forEach(category => tags.append(el('span', activeLabels.has(`${dimension.id}:${category}`) ? 'active' : '', category))); card.append(head, el('p', '', dimension.description), tags); dGrid.append(card); }); dimensions.append(dHead, dGrid);
-    const modes = el('section', 'taxonomy-section'); const mHead = el('div', 'taxonomy-section-head'); mHead.append(el('strong', '', '四种坐席接待模式'), el('span', '', data ? '当前推荐模式同步突出' : '根据近期状态匹配接待重点')); const mGrid = el('div', 'service-mode-catalog'); (taxonomy.service_modes || []).forEach(mode => { const card = el('article', `service-mode-card${activeMode === mode.label ? ' active' : ''}`); card.append(el('strong', '', mode.label), el('p', '', mode.focus), el('div', 'composite-meta', `适用情形：${mode.rule}`), el('div', 'composite-meta', `沟通建议：${mode.communication}`)); mGrid.append(card); }); modes.append(mHead, mGrid); panel.body.append(dimensions, modes); return panel.panel;
+    const modes = el('section', 'taxonomy-section'); const mHead = el('div', 'taxonomy-section-head'); mHead.append(el('strong', '', '三类组合接待方式'), el('span', '', data ? '每类彩色边框项为当前结果' : '每个类别选择一项，三个结果同时生效')); const groupGrid = el('div', 'service-mode-groups'); const modeCounts = new Map((taxonomy.service_modes || []).map(item => [item.id, item.current_count || 0])); (taxonomy.service_mode_groups || []).forEach(group => { const groupCard = el('section', `service-mode-group ${modeClass({category_id: group.id})}`); const head = el('div', 'service-mode-group-head'); const groupCount = (group.modes || []).reduce((sum, item) => sum + (modeCounts.get(item.id) || 0), 0); head.append(el('strong', '', group.label), el('span', '', `${(group.modes || []).length} 种 · ${groupCount} 个画像`)); const grid = el('div', 'service-mode-catalog'); (group.modes || []).forEach(mode => { const card = el('article', `service-mode-card${activeModeIds.has(mode.id) ? ' active' : ''}`); card.append(el('strong', '', mode.label), el('p', '', mode.focus), el('div', 'composite-meta', `判定规则：${mode.rule}`), el('div', 'composite-meta', `沟通建议：${mode.communication}`)); grid.append(card); }); groupCard.append(head, el('p', 'service-mode-group-description', group.description), grid); groupGrid.append(groupCard); }); modes.append(mHead, groupGrid); panel.body.append(dimensions, modes); return panel.panel;
   }
 
   function profileOption(item, index) {
-    const option = el('option', '', `${String(index + 1).padStart(2, '0')} · ${item.masked_phone} · ${item.recommended_mode}`); option.value = item.profile_key; return option;
+    const option = el('option', '', `${String(index + 1).padStart(2, '0')} · ${item.masked_phone}`); option.value = item.profile_key; return option;
   }
 
   function filterShowcaseProfiles(query = '') {

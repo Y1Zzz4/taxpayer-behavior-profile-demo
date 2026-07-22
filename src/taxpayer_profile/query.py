@@ -110,6 +110,19 @@ def _mode_payload(
         "communication": result.communication,
         "avoid": result.avoid,
         "matched_facts": list(result.matched_facts),
+        "components": [
+            {
+                "category_id": component.category_id,
+                "category": component.category,
+                "mode_id": component.mode_id,
+                "mode": component.mode,
+                "basis": component.basis,
+                "focus": component.focus,
+                "communication": component.communication,
+                "avoid": component.avoid,
+            }
+            for component in result.components
+        ],
     }
 
 
@@ -156,11 +169,13 @@ def build_agent_context(
         "emotion_state": profile.emotion_state or "暂无法判断",
         "emotion_basis": profile.emotion_basis,
         "recommended_mode": mode["label"],
+        "recommended_modes": mode["components"],
         "mode_basis": mode["basis"],
         "mode_guidance": {
             "focus": mode["focus"],
             "communication": mode["communication"],
             "avoid": mode["avoid"],
+            "components": mode["components"],
         },
         "caller_type": profile.caller_type,
         "enterprise_identity": profile.enterprise_identity,
@@ -281,6 +296,7 @@ def query_profile(
         "emotion_state": profile.emotion_state or "暂无法判断",
         "emotion_basis": profile.emotion_basis,
         "recommended_mode": mode["label"],
+        "recommended_modes": mode["components"],
         "reception_mode": mode,
         "first_call_time": profile.first_call_time.isoformat(sep=" "),
         "latest_call_time": profile.latest_call_time.isoformat(sep=" "),

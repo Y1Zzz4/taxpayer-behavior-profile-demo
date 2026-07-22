@@ -146,7 +146,10 @@ def test_export_has_three_formatted_worksheets_and_query_interface(
     assert "phone" not in result
     assert result["total_call_count"] == 1
     assert result["agent_context"]["statistics"]["total_calls"] == 1
-    assert result["agent_context"]["recommended_mode"] == "通俗引导"
+    assert result["agent_context"]["recommended_mode"] == (
+        "平稳接待 · 诉求确认 · 通俗引导"
+    )
+    assert len(result["agent_context"]["recommended_modes"]) == 3
     assert "service_suggestion" not in result
     assert result["trajectories"][0]["business_id"] == "BIZ-1"
     assert result["trajectories"][0]["work_order"] is False
@@ -164,14 +167,26 @@ def test_profile_rule_workbooks_are_self_contained_and_cover_derivations(
         "模式映射规则",
         "字段判定口径",
         "推导示例",
+        "18种组合总览",
     ]
-    assert mapping["模式映射规则"].max_row == 5
+    assert mapping["模式映射规则"].max_row == 9
     assert mapping["字段判定口径"].max_row == 12
     assert mapping["推导示例"].max_row == 13
-    recommended_modes = {
-        cell.value for cell in mapping["推导示例"]["F"][1:]
+    assert mapping["18种组合总览"].max_row == 19
+    assert {cell.value for cell in mapping["推导示例"]["F"][1:]} == {
+        "安抚修复",
+        "稳定预期",
+        "平稳接待",
     }
-    assert recommended_modes == {"耐心安抚", "问题跟进", "结论直给", "通俗引导"}
+    assert {cell.value for cell in mapping["推导示例"]["G"][1:]} == {
+        "历史跟进",
+        "诉求确认",
+    }
+    assert {cell.value for cell in mapping["推导示例"]["H"][1:]} == {
+        "结论直述",
+        "重点解释",
+        "通俗引导",
+    }
     mapping_text = " ".join(
         str(cell.value or "")
         for sheet in mapping.worksheets
@@ -182,8 +197,14 @@ def test_profile_rule_workbooks_are_self_contained_and_cover_derivations(
     assert "号码级" not in mapping_text
 
     guidance = load_workbook(guidance_path)
-    assert guidance.sheetnames == ["使用说明", "接待模式服务建议", "典型服务场景"]
-    assert guidance["接待模式服务建议"].max_row == 5
+    assert guidance.sheetnames == [
+        "使用说明",
+        "接待模式服务建议",
+        "18种组合总览",
+        "典型服务场景",
+    ]
+    assert guidance["接待模式服务建议"].max_row == 9
+    assert guidance["18种组合总览"].max_row == 19
     assert guidance["典型服务场景"].max_row == 10
     guidance_text = " ".join(
         str(cell.value or "")
@@ -256,7 +277,8 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert catalog["items"][0]["masked_phone"] == "138****0001"
     assert catalog["summary"]["dimension_count"] == 3
     assert catalog["summary"]["fact_count"] == 5
-    assert catalog["summary"]["mode_count"] == 4
+    assert catalog["summary"]["mode_group_count"] == 3
+    assert catalog["summary"]["mode_count"] == 8
     assert "13800000001" not in str(catalog)
     showcase = service.profile_showcase(
         profile_key=catalog["items"][0]["profile_key"],
@@ -265,10 +287,11 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert showcase["after"]["state"]["contact_unresolved"] == (
         showcase["before"]["state"]["contact_unresolved"] + 1
     )
-    assert showcase["after"]["result"]["service_mode"] == "问题跟进"
+    assert "历史跟进" in showcase["after"]["result"]["service_mode"]
+    assert len(showcase["after"]["result"]["mode_components"]) == 3
     assert len(showcase["before"]["profile_model"]["items"]) == 3
     assert showcase["before"]["profile_model"]["active_category_count"] >= 3
-    assert showcase["changes"][-1]["field"] == "推荐接待模式"
+    assert showcase["changes"][-1]["field"] == "组合接待策略"
     assert "不写入" in showcase["disclaimer"]
     assert "13800000001" not in str(showcase)
 

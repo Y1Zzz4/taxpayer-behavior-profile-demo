@@ -9,7 +9,7 @@ from taxpayer_profile.llm_client import (
     REALTIME_ADVICE_PROMPT_VERSION,
     RealtimeServiceAdviceResult,
 )
-from taxpayer_profile.profiling import RECEPTION_MODE_CATALOG
+from taxpayer_profile.profiling import classify_reception_mode
 from taxpayer_profile.security import redact_sensitive_text
 
 
@@ -51,30 +51,40 @@ def _failure_type(exc: Exception) -> str:
     return type(current).__name__
 
 
-def _mode_contract(context: dict[str, Any]) -> dict[str, str]:
+def _mode_contract(context: dict[str, Any]) -> dict[str, Any]:
     """Build the authoritative mode contract from the shared rule catalog."""
 
-    requested_mode = str(context.get("recommended_mode") or "通俗引导")
-    catalog_mode = next(
-        (
-            item
-            for item in RECEPTION_MODE_CATALOG
-            if str(item["label"]) == requested_mode
-        ),
-        RECEPTION_MODE_CATALOG[-1],
+    recent = context.get("recent_five_workdays")
+    recent = recent if isinstance(recent, dict) else {}
+    result = classify_reception_mode(
+        proficiency_level=str(context.get("proficiency_level") or "暂无法判断"),
+        emotion_state=str(context.get("emotion_state") or "暂无法判断"),
+        wait_pushback_count=int(recent.get("wait_pushback_count") or 0),
+        work_order_count=int(recent.get("work_order_count") or 0),
+        abnormal_end_count=int(recent.get("abnormal_end_count") or 0),
+        contact_unresolved_count=int(recent.get("contact_unresolved_count") or 0),
+        dissatisfaction_count=int(recent.get("dissatisfaction_count") or 0),
     )
-    guidance = context.get("mode_guidance")
-    guidance = guidance if isinstance(guidance, dict) else {}
+    components = [
+        {
+            "category_id": component.category_id,
+            "category": component.category,
+            "mode_id": component.mode_id,
+            "mode": component.mode,
+            "basis": component.basis,
+            "focus": component.focus,
+            "communication": component.communication,
+            "avoid": component.avoid,
+        }
+        for component in result.components
+    ]
     return {
-        "service_mode": str(catalog_mode["label"]),
-        "selection_basis": str(
-            context.get("mode_basis") or "由本地画像规则确定接待模式。"
-        ),
-        "required_focus": str(guidance.get("focus") or catalog_mode["focus"]),
-        "required_communication": str(
-            guidance.get("communication") or catalog_mode["communication"]
-        ),
-        "required_avoid": str(guidance.get("avoid") or catalog_mode["avoid"]),
+        "service_mode": result.mode,
+        "components": components,
+        "selection_basis": result.basis,
+        "required_focuses": [item["focus"] for item in components],
+        "required_communications": [item["communication"] for item in components],
+        "required_avoidances": [item["avoid"] for item in components],
     }
 
 
@@ -104,29 +114,38 @@ def _anchor_model_result(
     """Keep generated wording subordinate to the deterministic mode contract."""
 
     contract = _mode_contract(context)
-    mode = contract["service_mode"]
+    mode = str(contract["service_mode"])
+    components = contract["components"]
     summary = str(payload.get("advice_summary") or "").strip()
     if mode not in summary:
         summary = f"推荐采用“{mode}”：{summary}"
     payload["advice_summary"] = summary[:200]
     payload["service_mode"] = mode
+    payload["service_modes"] = components
+    component_summary = "；".join(
+        f"{item['category']}采用“{item['mode']}”" for item in components
+    )
     payload["mode_application"] = _combine_guidance(
-        f"采用“{mode}”：{contract['required_focus']}",
+        component_summary + "。",
         payload.get("mode_application"),
     )
     payload["service_focus"] = _unique_texts(
-        [contract["required_focus"], *payload.get("service_focus", [])],
+        [*contract["required_focuses"], *payload.get("service_focus", [])],
         limit=4,
     )
     payload["communication_style"] = _combine_guidance(
-        contract["required_communication"], payload.get("communication_style")
+        "；".join(contract["required_communications"]),
+        payload.get("communication_style"),
     )
     payload["avoid_actions"] = _unique_texts(
-        [contract["required_avoid"], *payload.get("avoid_actions", [])],
+        [*contract["required_avoidances"], *payload.get("avoid_actions", [])],
         limit=5,
     )
     payload["evidence"] = _unique_texts(
-        [contract["selection_basis"], *payload.get("evidence", [])],
+        [
+            *(item["basis"] for item in components),
+            *payload.get("evidence", []),
+        ],
         limit=6,
     )
     return payload
@@ -142,8 +161,8 @@ def build_fallback_advice(
     five_days = context.get("recent_five_workdays")
     five_days = five_days if isinstance(five_days, dict) else {}
     contract = _mode_contract(context)
-    mode = contract["service_mode"]
-    recent_topics = _topics(context)
+    mode = str(contract["service_mode"])
+    components = contract["components"]
     unresolved_topics = _topics(context, unresolved_only=True)
 
     history_facts = [f"历史来电{int(stats.get('total_calls') or 0)}次"]
@@ -167,32 +186,35 @@ def build_fallback_advice(
             f"{int(five_days['contact_unresolved_count'])}次联系后未解决"
         )
 
-    focus = contract["required_focus"]
-    communication = contract["required_communication"]
-    avoid = contract["required_avoid"]
+    focuses = [str(value) for value in contract["required_focuses"]]
+    communications = [str(value) for value in contract["required_communications"]]
+    avoidances = [str(value) for value in contract["required_avoidances"]]
+    communication = "；".join(communications)
     advice_summary = (
         "，".join(history_facts)
-        + f"；推荐采用“{mode}”：{focus}"
-    )
+        + f"；建议采用“{mode}”，接通后先确认本次诉求，并同时落实三个分项方式。"
+    )[:200]
 
-    if mode == "耐心安抚":
-        opening = "先自然确认本次诉求，同时留意是否需要承接既往服务体验；确认后再说明本通可处理范围。"
-    elif mode == "问题跟进" and unresolved_topics:
-        opening = (
-            f"自然确认本次诉求后，可询问是否延续历史未解决事项“{unresolved_topics[0]}”；"
-            "只有来电人确认后再从历史节点继续。"
-        )
-    elif mode == "问题跟进":
-        opening = "先确认本次是否延续历史事项；确认后核对最近处理状态和待补信息。"
-    elif mode == "结论直给":
-        opening = "先确认本次核心诉求和适用场景，再优先回应关键判断与适用条件。"
-    elif recent_topics:
-        opening = (
-            f"先确认本次实际诉求；必要时提示已看到最近咨询“{recent_topics[0]}”，"
-            "但不要预设为同一事项。"
-        )
+    selected_modes = {str(item["category_id"]): str(item["mode"]) for item in components}
+    if selected_modes["emotion_response"] == "安抚修复":
+        opening = "先承接来电人的关注和既往服务体验，不争辩，并说明本通可处理范围。"
+    elif selected_modes["emotion_response"] == "稳定预期":
+        opening = "先确认其最关注的时限、结果或影响，明确当前可确认的范围。"
     else:
-        opening = "先确认来电主体、本次办理事项和当前卡点，再选择解释深度。"
+        opening = "自然确认本次来电主体、办理事项和当前卡点。"
+    if selected_modes["matter_continuity"] == "历史跟进" and unresolved_topics:
+        opening += f"再询问是否延续历史未解决事项“{unresolved_topics[0]}”，确认后从已有节点继续。"
+    elif selected_modes["matter_continuity"] == "历史跟进":
+        opening += "再确认是否延续历史事项，确认后核对最近处理节点。"
+    else:
+        opening += "历史记录仅作核对线索，不预设为本次诉求。"
+    if selected_modes["information_delivery"] == "结论直述":
+        opening += "确认诉求后优先回应关键判断和适用条件。"
+    elif selected_modes["information_delivery"] == "重点解释":
+        opening += "确认诉求后先说明关键判断，再解释必要条件。"
+    else:
+        opening += "确认诉求后使用通俗语言分段说明。"
+    opening = opening[:300]
 
     followups: list[str] = []
     if unresolved_topics:
@@ -222,15 +244,24 @@ def build_fallback_advice(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "advice_summary": advice_summary,
         "service_mode": mode,
-        "mode_application": f"采用“{mode}”：{focus}沟通时应做到：{communication}",
-        "service_focus": [focus],
+        "service_modes": components,
+        "mode_application": (
+            "；".join(
+                f"{item['category']}采用“{item['mode']}”：{item['focus']}"
+                for item in components
+            )
+            + "。"
+        )[:300],
+        "service_focus": focuses,
         "opening_strategy": opening,
         "communication_style": communication,
         "history_followups": followups,
         "risk_reminders": risk_reminders,
-        "avoid_actions": [avoid, "不要根据历史画像推断本次业务结论。"],
+        "avoid_actions": _unique_texts(
+            [*avoidances, "不要根据历史画像推断本次业务结论。"], limit=5
+        ),
         "evidence": _unique_texts(
-            [contract["selection_basis"], *evidence], limit=6
+            [*(item["basis"] for item in components), *evidence], limit=6
         ),
     }
 

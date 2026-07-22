@@ -1,29 +1,48 @@
-from taxpayer_profile.profiling import classify_reception_mode
+from taxpayer_profile.profiling import RECEPTION_MODE_CATALOG, classify_reception_mode
 
 
-def test_reception_mode_priority_and_labels_do_not_use_type_suffix() -> None:
-    soothe = classify_reception_mode(
+def test_reception_modes_select_one_component_from_each_category() -> None:
+    professional_emotional = classify_reception_mode(
         proficiency_level="专业",
-        emotion_state="平稳",
+        emotion_state="不满",
         work_order_count=1,
-        dissatisfaction_count=1,
     )
-    followup = classify_reception_mode(
-        proficiency_level="专业",
-        emotion_state="平稳",
-        contact_unresolved_count=1,
-    )
-    direct = classify_reception_mode(
+    anxious_informed = classify_reception_mode(
         proficiency_level="了解", emotion_state="焦虑"
     )
     guided = classify_reception_mode(
-        proficiency_level="小白", emotion_state="平稳"
+        proficiency_level="小白", emotion_state="平稳", abnormal_end_count=1
     )
 
-    assert [soothe.mode, followup.mode, direct.mode, guided.mode] == [
-        "耐心安抚",
-        "问题跟进",
-        "结论直给",
-        "通俗引导",
+    assert professional_emotional.mode == "安抚修复 · 历史跟进 · 结论直述"
+    assert [item.mode for item in professional_emotional.components] == [
+        "安抚修复",
+        "历史跟进",
+        "结论直述",
     ]
-    assert all(not item.mode.endswith("型") for item in (soothe, followup, direct, guided))
+    assert anxious_informed.mode == "稳定预期 · 诉求确认 · 重点解释"
+    assert guided.mode == "平稳接待 · 历史跟进 · 通俗引导"
+    assert all(len(result.components) == 3 for result in (
+        professional_emotional,
+        anxious_informed,
+        guided,
+    ))
+    assert len(RECEPTION_MODE_CATALOG) == 8
+    assert all(not item["label"].endswith("型") for item in RECEPTION_MODE_CATALOG)
+
+
+def test_mode_category_priority_does_not_cover_other_categories() -> None:
+    result = classify_reception_mode(
+        proficiency_level="专业",
+        emotion_state="焦虑",
+        wait_pushback_count=1,
+        contact_unresolved_count=1,
+    )
+
+    assert [item.mode for item in result.components] == [
+        "安抚修复",
+        "历史跟进",
+        "结论直述",
+    ]
+    assert "等待且潜在推诿1次" in result.matched_facts
+    assert "联系后未解决1次" in result.matched_facts

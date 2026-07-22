@@ -8,43 +8,106 @@ from datetime import datetime
 PROFICIENCY_LEVELS = ("专业", "了解", "小白")
 EMOTION_STATES = ("平稳", "焦虑", "不满")
 
-RECEPTION_MODE_CATALOG = (
+RECEPTION_MODE_GROUPS = (
     {
-        "id": "soothe",
-        "label": "耐心安抚",
-        "priority": 1,
-        "rule": "近期情绪为不满，或出现等待且潜在推诿，或对坐席不满",
-        "focus": "先承接情绪和历史体验，再说明本通可处理范围、责任节点与反馈方式。",
-        "communication": "语气稳定克制，先复述确认，不争辩；涉及等待或转交时主动说明原因和节点。",
-        "avoid": "避免机械重复历史口径、直接转接或在未说明原因时让来电人继续等待。",
+        "id": "emotion_response",
+        "label": "情绪响应",
+        "description": "根据近期情绪和历史服务体验确定沟通基调。",
+        "color": "#8B5FC0",
+        "modes": (
+            {
+                "id": "repair",
+                "label": "安抚修复",
+                "rule": "近期情绪为不满，或近五个工作日出现等待推诿、对坐席不满",
+                "focus": "先承接情绪和历史服务体验，再说明本通可处理范围、责任节点与反馈方式。",
+                "communication": "语气稳定克制，先复述确认，不争辩；涉及等待或转交时主动说明原因和节点。",
+                "avoid": "避免机械重复历史口径、直接转接或在未说明原因时让来电人继续等待。",
+            },
+            {
+                "id": "stabilize",
+                "label": "稳定预期",
+                "rule": "未命中安抚修复，且近期情绪为焦虑",
+                "focus": "围绕来电人关注的时限、结果和可能影响，明确已知信息与待确认边界。",
+                "communication": "节奏稳定，先回应最担心的问题，再说明可确认内容、时间预期和后续节点。",
+                "avoid": "避免使用模糊承诺、忽略时限焦虑，或一次补充过多非关键背景。",
+            },
+            {
+                "id": "steady",
+                "label": "平稳接待",
+                "rule": "未命中安抚修复或稳定预期",
+                "focus": "保持清晰、自然的沟通节奏，根据本次诉求正常组织服务。",
+                "communication": "语气客观友好，确认关键信息后进入事项处理，并根据反馈调整节奏。",
+                "avoid": "避免无依据放大历史风险或预设来电人存在负面情绪。",
+            },
+        ),
     },
     {
-        "id": "followup",
-        "label": "问题跟进",
-        "priority": 2,
-        "rule": "存在历史工单、异常中断，或联系相关人员/部门后仍未解决",
-        "focus": "优先核验历史事项当前状态、承办节点和待补信息，形成可继续追踪的闭环。",
-        "communication": "先确认是否延续历史事项；确认后从已有节点继续，减少重复复述。",
-        "avoid": "避免重复登记、重复提供已被证明无效的口径，或把尚未确认的历史问题当成本次诉求。",
+        "id": "matter_continuity",
+        "label": "事项承接",
+        "description": "根据近期历史事项确定从当前诉求开始还是衔接既有节点。",
+        "color": "#C27A2C",
+        "modes": (
+            {
+                "id": "followup",
+                "label": "历史跟进",
+                "rule": "近五个工作日存在历史工单、异常中断或联系后未解决",
+                "focus": "先确认本次是否延续历史事项；确认后核验当前状态、承办节点和待补信息。",
+                "communication": "从已确认的历史节点继续，减少重复复述，并明确本通能够推进的范围。",
+                "avoid": "避免重复登记、重复提供已被证明无效的口径，或把历史问题直接认定为本次诉求。",
+            },
+            {
+                "id": "clarify",
+                "label": "诉求确认",
+                "rule": "近五个工作日未出现需要优先衔接的事项事实",
+                "focus": "先确认本次来电的主体、事项和当前卡点，再决定是否调用历史信息辅助服务。",
+                "communication": "以本次表达为主，历史信息仅作为核对线索，不预设来电目的。",
+                "avoid": "避免因历史记录相似而跳过本次诉求确认。",
+            },
+        ),
     },
     {
-        "id": "direct",
-        "label": "结论直给",
-        "priority": 3,
-        "rule": "无更高优先级历史信号，且业务熟悉度为专业或了解",
-        "focus": "先给关键结论、适用条件和必要办理节点，再根据追问补充细节。",
-        "communication": "表达简洁准确，减少基础概念铺垫；对焦虑状态增加结果和时限确认。",
-        "avoid": "避免连续展开与当前诉求无关的通用知识，或只讲流程而不先说明结论。",
+        "id": "information_delivery",
+        "label": "表达方式",
+        "description": "根据业务熟悉度确定信息密度、术语深度和说明顺序。",
+        "color": "#327FA8",
+        "modes": (
+            {
+                "id": "direct",
+                "label": "结论直述",
+                "rule": "业务熟悉度为专业",
+                "focus": "先给关键结论、适用条件和必要办理节点，再根据追问补充边界。",
+                "communication": "表达简洁准确，保留必要专业术语，减少基础概念铺垫。",
+                "avoid": "避免连续展开通用知识，或只讲流程而不先说明结论。",
+            },
+            {
+                "id": "explain",
+                "label": "重点解释",
+                "rule": "业务熟悉度为了解",
+                "focus": "先说明关键判断，再补充必要条件、原因和容易混淆的节点。",
+                "communication": "使用适量业务术语，每次围绕一个重点解释，并通过追问确认理解。",
+                "avoid": "避免过度简化关键条件，也避免一次性展开过多规则细节。",
+            },
+            {
+                "id": "guide",
+                "label": "通俗引导",
+                "rule": "业务熟悉度为小白或暂无法判断",
+                "focus": "先用通俗语言说明目标和判断结果，再按少量关键节点分段引导。",
+                "communication": "降低术语密度，一次说明一至两个关键节点，并根据反馈调整解释深度。",
+                "avoid": "避免堆叠专业术语、一次给出过多操作，或在未确认理解时快速结束。",
+            },
+        ),
     },
+)
+
+RECEPTION_MODE_CATALOG = tuple(
     {
-        "id": "guide",
-        "label": "通俗引导",
-        "priority": 4,
-        "rule": "未命中前三项，通常为业务熟悉度小白或证据暂不足",
-        "focus": "先用通俗语言说明目标和判断结果，再按少量关键节点引导。",
-        "communication": "降低术语密度，一次说明一至两个关键节点，并根据反馈调整解释深度。",
-        "avoid": "避免堆叠专业术语、一次给出过多操作，或在未确认理解时快速结束。",
-    },
+        **mode,
+        "category_id": group["id"],
+        "category": group["label"],
+        "color": group["color"],
+    }
+    for group in RECEPTION_MODE_GROUPS
+    for mode in group["modes"]
 )
 
 
@@ -115,6 +178,18 @@ def infer_emotion_state(
 
 
 @dataclass(frozen=True)
+class ReceptionModeComponent:
+    category_id: str
+    category: str
+    mode_id: str
+    mode: str
+    basis: str
+    focus: str
+    communication: str
+    avoid: str
+
+
+@dataclass(frozen=True)
 class ReceptionModeResult:
     mode_id: str
     mode: str
@@ -123,6 +198,7 @@ class ReceptionModeResult:
     communication: str
     avoid: str
     matched_facts: tuple[str, ...]
+    components: tuple[ReceptionModeComponent, ...]
 
 
 def classify_reception_mode(
@@ -135,7 +211,7 @@ def classify_reception_mode(
     contact_unresolved_count: int = 0,
     dissatisfaction_count: int = 0,
 ) -> ReceptionModeResult:
-    """Map recent five-workday facts to exactly one of four reception modes."""
+    """Select one mode from each category and compose a service strategy."""
 
     level = normalize_proficiency_level(proficiency_level)
     emotion = (emotion_state or "暂无法判断").strip().removesuffix("型")
@@ -154,32 +230,78 @@ def classify_reception_mode(
     if dissatisfaction_count:
         facts.append(f"对坐席不满{dissatisfaction_count}次")
 
+    catalog = {str(item["id"]): item for item in RECEPTION_MODE_CATALOG}
     if emotion == "不满" or wait_pushback_count or dissatisfaction_count:
-        selected = RECEPTION_MODE_CATALOG[0]
-        basis = (
-            f"近期情绪为{emotion}；" + "、".join(facts or ["存在服务体验关注信号"])
-        )
-    elif work_order_count or abnormal_end_count or contact_unresolved_count:
-        selected = RECEPTION_MODE_CATALOG[1]
-        basis = "近五个工作日存在" + "、".join(facts) + "，需要优先核对进展。"
-    elif level in {"专业", "了解"}:
-        selected = RECEPTION_MODE_CATALOG[2]
-        basis = f"业务熟悉度为{level}，且近五个工作日未出现更高优先级服务信号。"
-        if emotion == "焦虑":
-            basis += "近期情绪偏焦虑，直给结论时需同步确认时限和影响。"
+        emotion_mode = catalog["repair"]
+        emotion_basis = (
+            f"近期情绪为{emotion}；"
+            + "、".join(
+                fact
+                for fact in facts
+                if fact.startswith(("等待且潜在推诿", "对坐席不满"))
+            )
+        ).rstrip("；")
+    elif emotion == "焦虑":
+        emotion_mode = catalog["stabilize"]
+        emotion_basis = "近期情绪为焦虑，需要同步稳定时限、结果和影响预期。"
     else:
-        selected = RECEPTION_MODE_CATALOG[3]
-        basis = (
-            f"业务熟悉度为{level}，近五个工作日未出现更高优先级服务信号。"
+        emotion_mode = catalog["steady"]
+        emotion_basis = f"近期情绪为{emotion}，且未出现需要优先修复的服务体验信号。"
+
+    continuity_facts = [
+        fact
+        for fact in facts
+        if fact.startswith(("历史工单", "异常中断", "联系后未解决"))
+    ]
+    if continuity_facts:
+        continuity_mode = catalog["followup"]
+        continuity_basis = (
+            "近五个工作日存在" + "、".join(continuity_facts) + "，需要先确认是否延续并核对进展。"
         )
+    else:
+        continuity_mode = catalog["clarify"]
+        continuity_basis = "近五个工作日未出现需要优先衔接的事项事实，应先确认本次实际诉求。"
+
+    expression_id = {
+        "专业": "direct",
+        "了解": "explain",
+        "小白": "guide",
+        "暂无法判断": "guide",
+    }[level]
+    expression_mode = catalog[expression_id]
+    expression_basis = f"业务熟悉度为{level}，采用{expression_mode['label']}。"
+
+    selected_modes = (
+        (RECEPTION_MODE_GROUPS[0], emotion_mode, emotion_basis),
+        (RECEPTION_MODE_GROUPS[1], continuity_mode, continuity_basis),
+        (RECEPTION_MODE_GROUPS[2], expression_mode, expression_basis),
+    )
+    components = tuple(
+        ReceptionModeComponent(
+            category_id=str(group["id"]),
+            category=str(group["label"]),
+            mode_id=str(selected["id"]),
+            mode=str(selected["label"]),
+            basis=component_basis,
+            focus=str(selected["focus"]),
+            communication=str(selected["communication"]),
+            avoid=str(selected["avoid"]),
+        )
+        for group, selected, component_basis in selected_modes
+    )
+    combined_mode = " · ".join(component.mode for component in components)
+    combined_basis = "；".join(
+        f"{component.category}：{component.basis}" for component in components
+    )
     return ReceptionModeResult(
-        mode_id=str(selected["id"]),
-        mode=str(selected["label"]),
-        basis=basis,
-        focus=str(selected["focus"]),
-        communication=str(selected["communication"]),
-        avoid=str(selected["avoid"]),
+        mode_id="+".join(component.mode_id for component in components),
+        mode=combined_mode,
+        basis=combined_basis,
+        focus="；".join(component.focus for component in components),
+        communication="；".join(component.communication for component in components),
+        avoid="；".join(component.avoid for component in components),
         matched_facts=tuple(facts),
+        components=components,
     )
 
 

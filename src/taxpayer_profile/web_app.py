@@ -24,6 +24,7 @@ from taxpayer_profile.llm_client import OpenAICompatibleClient
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
 from taxpayer_profile.profiling import (
     RECEPTION_MODE_CATALOG,
+    RECEPTION_MODE_GROUPS,
     classify_reception_mode,
 )
 from taxpayer_profile.query import query_profile
@@ -53,7 +54,7 @@ SHOWCASE_SCENARIOS = (
     {
         "id": "professional_stable",
         "label": "专业且平稳",
-        "description": "模拟近期表达呈现专业、平稳且没有高优先级历史信号。",
+        "description": "模拟近期表达呈现专业、平稳且没有服务修复或事项跟进信号。",
     },
     {
         "id": "service_dissatisfaction",
@@ -205,6 +206,19 @@ def _mode_payload(state: dict[str, object]) -> dict[str, object]:
     return {
         "service_mode": mode.mode,
         "mode_id": mode.mode_id,
+        "mode_components": [
+            {
+                "category_id": component.category_id,
+                "category": component.category,
+                "mode_id": component.mode_id,
+                "mode": component.mode,
+                "basis": component.basis,
+                "focus": component.focus,
+                "communication": component.communication,
+                "avoid": component.avoid,
+            }
+            for component in mode.components
+        ],
         "strategy_reason": mode.basis,
         "service_suggestion": mode.focus,
         "communication": mode.communication,
@@ -306,12 +320,25 @@ class DemoService:
     def generate_advice(self, phone: object) -> dict[str, object]:
         profile = self.lookup_profile(phone)
         if profile is None:
+            empty_mode = _mode_payload(
+                {
+                    "proficiency_level": "暂无法判断",
+                    "emotion_state": "暂无法判断",
+                }
+            )
             empty_context = {
                 "profile_summary": "该号码暂无历史来电记录。",
                 "proficiency_level": "暂无法判断",
                 "emotion_state": "暂无法判断",
-                "recommended_mode": "通俗引导",
-                "mode_basis": "暂无历史信息，采用通俗引导作为保守起点。",
+                "recommended_mode": empty_mode["service_mode"],
+                "recommended_modes": empty_mode["mode_components"],
+                "mode_basis": empty_mode["strategy_reason"],
+                "mode_guidance": {
+                    "focus": empty_mode["service_suggestion"],
+                    "communication": empty_mode["communication"],
+                    "avoid": empty_mode["avoid"],
+                    "components": empty_mode["mode_components"],
+                },
                 "statistics": {},
                 "recent_five_workdays": {},
                 "recent_trajectories": [],
@@ -469,7 +496,7 @@ class DemoService:
                     trajectories_by_phone.get(profile.phone_hash, [])
                 )
             )
-            mode = classify_reception_mode(
+            mode_result = classify_reception_mode(
                 proficiency_level=profile.proficiency_level,
                 emotion_state=profile.emotion_state,
                 wait_pushback_count=recent_facts["wait_pushback"],
@@ -477,14 +504,22 @@ class DemoService:
                 abnormal_end_count=recent_facts["abnormal_end"],
                 contact_unresolved_count=recent_facts["contact_unresolved"],
                 dissatisfaction_count=recent_facts["dissatisfaction"],
-            ).mode
-            mode_counts[mode] += 1
+            )
+            for component in mode_result.components:
+                mode_counts[component.mode] += 1
             items.append(
                 {
                     "profile_key": _showcase_key(profile.phone_hash),
-                    "label": f"{masked} · {mode}",
+                    "label": masked,
                     "masked_phone": masked,
-                    "recommended_mode": mode,
+                    "recommended_mode": mode_result.mode,
+                    "recommended_modes": [
+                        {
+                            "category": component.category,
+                            "mode": component.mode,
+                        }
+                        for component in mode_result.components
+                    ],
                     "proficiency_level": profile.proficiency_level,
                     "emotion_state": profile.emotion_state,
                     "latest_call_time": profile.latest_call_time,
@@ -498,10 +533,14 @@ class DemoService:
             for mode in RECEPTION_MODE_CATALOG
         ]
         relations = [
-            {"source": "不满/等待推诿/对坐席不满", "target": "耐心安抚", "priority": 1},
-            {"source": "工单/异常中断/联系后未解决", "target": "问题跟进", "priority": 2},
-            {"source": "专业或了解", "target": "结论直给", "priority": 3},
-            {"source": "小白或证据不足", "target": "通俗引导", "priority": 4},
+            {"category": "情绪响应", "source": "不满/等待推诿/对坐席不满", "target": "安抚修复"},
+            {"category": "情绪响应", "source": "焦虑", "target": "稳定预期"},
+            {"category": "情绪响应", "source": "其余状态", "target": "平稳接待"},
+            {"category": "事项承接", "source": "工单/异常中断/联系后未解决", "target": "历史跟进"},
+            {"category": "事项承接", "source": "无待衔接事实", "target": "诉求确认"},
+            {"category": "表达方式", "source": "专业", "target": "结论直述"},
+            {"category": "表达方式", "source": "了解", "target": "重点解释"},
+            {"category": "表达方式", "source": "小白或证据不足", "target": "通俗引导"},
         ]
         return {
             "items": items,
@@ -509,13 +548,15 @@ class DemoService:
             "taxonomy": {
                 "dimensions": list(PROFILE_DIMENSION_TAXONOMY),
                 "historical_facts": list(HISTORICAL_FACT_DEFINITIONS),
+                "service_mode_groups": list(RECEPTION_MODE_GROUPS),
                 "service_modes": modes,
                 "relations": relations,
             },
             "summary": {
                 "dimension_count": 3,
                 "fact_count": 5,
-                "mode_count": 4,
+                "mode_group_count": 3,
+                "mode_count": len(RECEPTION_MODE_CATALOG),
                 "profile_count": len(items),
             },
             "methodology": [
@@ -529,7 +570,7 @@ class DemoService:
                 },
                 {
                     "title": "接待方式匹配",
-                    "description": "结合近期状态与历史服务事实，匹配更合适的坐席接待模式。",
+                    "description": "从情绪响应、事项承接和表达方式中各选择一项，组合形成完整接待策略。",
                 },
             ],
         }
@@ -589,7 +630,7 @@ class DemoService:
                     "dissatisfaction": 0,
                 }
             )
-            event = "模拟近期窗口只保留专业、平稳表达，且高优先级事实均已移出窗口。"
+            event = "模拟近期窗口只保留专业、平稳表达，且服务修复和事项跟进事实均已移出窗口。"
         elif scenario_id == "service_dissatisfaction":
             after_state["emotion_state"] = "不满"
             after_state["emotion_basis"] = "表达中出现明确负面评价。"
@@ -617,9 +658,30 @@ class DemoService:
             }
             for key, label in fields
         ]
+        before_components = {
+            str(item["category_id"]): item for item in before["mode_components"]  # type: ignore[index]
+        }
+        after_components = {
+            str(item["category_id"]): item for item in after["mode_components"]  # type: ignore[index]
+        }
+        for category_id, category_label in (
+            ("emotion_response", "情绪响应"),
+            ("matter_continuity", "事项承接"),
+            ("information_delivery", "表达方式"),
+        ):
+            before_mode = str(before_components[category_id]["mode"])
+            after_mode = str(after_components[category_id]["mode"])
+            changes.append(
+                {
+                    "field": category_label,
+                    "before": before_mode,
+                    "after": after_mode,
+                    "changed": before_mode != after_mode,
+                }
+            )
         changes.append(
             {
-                "field": "推荐接待模式",
+                "field": "组合接待策略",
                 "before": before["service_mode"],
                 "after": after["service_mode"],
                 "changed": before["service_mode"] != after["service_mode"],

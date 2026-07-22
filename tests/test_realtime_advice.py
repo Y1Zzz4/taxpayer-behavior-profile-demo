@@ -16,12 +16,12 @@ def _context() -> dict[str, object]:
         "proficiency_basis": "能够准确描述系统环节。",
         "emotion_state": "平稳",
         "emotion_basis": "表达有序。",
-        "recommended_mode": "问题跟进",
-        "mode_basis": "近五个工作日存在联系后未解决1次。",
+        "recommended_mode": "平稳接待 · 历史跟进 · 重点解释",
+        "mode_basis": "情绪响应、事项承接和表达方式分别判断后组合。",
         "mode_guidance": {
-            "focus": "优先核验历史事项当前状态。",
-            "communication": "确认后从历史节点继续。",
-            "avoid": "避免重复登记。",
+            "focus": "保持平稳沟通；核验历史事项；解释关键条件。",
+            "communication": "正常确认情绪；从历史节点继续；围绕重点解释。",
+            "avoid": "避免放大风险、重复登记或说明过度。",
         },
         "recent_five_workdays": {
             "work_order_count": 0,
@@ -81,25 +81,31 @@ def test_realtime_model_advice_is_structured_and_context_is_redacted() -> None:
 
     assert result["generation_status"] == "model_generated"
     assert "未解决" in result["advice_summary"]
-    assert result["advice_summary"].startswith("推荐采用“问题跟进”")
-    assert result["service_mode"] == "问题跟进"
-    assert result["mode_application"].startswith("采用“问题跟进”")
+    assert result["advice_summary"].startswith(
+        "推荐采用“平稳接待 · 历史跟进 · 重点解释”"
+    )
+    assert result["service_mode"] == "平稳接待 · 历史跟进 · 重点解释"
+    assert "情绪响应采用“平稳接待”" in result["mode_application"]
+    assert [item["mode"] for item in result["service_modes"]] == [
+        "平稳接待",
+        "历史跟进",
+        "重点解释",
+    ]
     assert result["model_name"] == "fake-model"
     assert "recommended_sequence" not in result
-    assert result["service_focus"][0] == "优先核验历史事项当前状态。"
-    assert result["communication_style"].startswith("确认后从历史节点继续。")
-    assert result["avoid_actions"][0] == "避免重复登记。"
-    assert result["evidence"][0] == "近五个工作日存在联系后未解决1次。"
+    assert result["service_focus"][0].startswith("保持清晰、自然")
+    assert result["service_focus"][1].startswith("先确认本次是否延续历史事项")
+    assert result["service_focus"][2].startswith("先说明关键判断")
+    assert result["communication_style"].startswith("语气客观友好")
+    assert result["avoid_actions"][0].startswith("避免无依据放大历史风险")
+    assert result["evidence"][0].startswith("近期情绪为平稳")
     assert client.payload is not None
     assert "13800000001" not in str(client.payload)
     assert "<手机号>" in str(client.payload)
-    assert client.payload["required_mode_contract"] == {
-        "service_mode": "问题跟进",
-        "selection_basis": "近五个工作日存在联系后未解决1次。",
-        "required_focus": "优先核验历史事项当前状态。",
-        "required_communication": "确认后从历史节点继续。",
-        "required_avoid": "避免重复登记。",
-    }
+    contract = client.payload["required_mode_contract"]
+    assert contract["service_mode"] == "平稳接待 · 历史跟进 · 重点解释"
+    assert len(contract["components"]) == 3
+    assert len(contract["required_focuses"]) == 3
 
 
 def test_realtime_advice_uses_fast_rule_fallback() -> None:
@@ -107,10 +113,10 @@ def test_realtime_advice_uses_fast_rule_fallback() -> None:
 
     assert result["generation_status"] == "rules_fallback"
     assert result["fallback_reason"] == "model_ReadTimeout"
-    assert result["service_mode"] == "问题跟进"
-    assert result["mode_application"].startswith("采用“问题跟进”")
+    assert result["service_mode"] == "平稳接待 · 历史跟进 · 重点解释"
+    assert "事项承接采用“历史跟进”" in result["mode_application"]
     assert "历史来电2次" in result["advice_summary"]
-    assert "避免重复登记" in result["avoid_actions"][0]
+    assert any("避免重复登记" in item for item in result["avoid_actions"])
     assert result["service_focus"]
 
 
@@ -151,7 +157,19 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "knowledge-graph-canvas",
         "完整分类与判定规则",
         "三维画像字段",
-        "四种坐席接待模式",
+        "三类组合接待方式",
+        "情绪响应",
+        "事项承接",
+        "表达方式",
+        "mode_emotion_response",
+        "mode_matter_continuity",
+        "mode_information_delivery",
+        "groupSources",
+        "categoryEdgeKeys",
+        "进入三个服务类别",
+        "isModeGroup ? progress.category",
+        "isMode ? progress.mode",
+        "advice.service_modes",
         "业务熟悉度",
         "近期情绪状态",
         "/api/showcase",
