@@ -6,6 +6,9 @@ from types import SimpleNamespace
 from cryptography.fernet import Fernet
 from openpyxl import load_workbook
 
+from taxpayer_profile.application.dashboard_service import DashboardService
+from taxpayer_profile.application.history_service import HistoryService
+from taxpayer_profile.application.profile_showcase_service import ProfileShowcaseService
 from taxpayer_profile.config import Settings
 from taxpayer_profile.database import (
     create_schema,
@@ -299,6 +302,34 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert "after" not in showcase
     assert "scenario" not in showcase
     assert "13800000001" not in str(showcase)
+
+
+def test_web_facade_composes_independent_read_use_cases(tmp_path: Path) -> None:
+    """The HTTP-facing façade must stay a delegator as read use cases evolve."""
+
+    database = tmp_path / "profiles.sqlite3"
+    protector = PhoneProtector("test-hash-key", Fernet.generate_key().decode())
+    _seed_database(database, protector)
+    service = DemoService(
+        database,
+        protector,
+        Settings(
+            database_path=database,
+            llm_base_url=None,
+            llm_api_key=None,
+            llm_model=None,
+            phone_hash_key="test-hash-key",
+            phone_encryption_key=None,
+        ),
+    )
+
+    assert isinstance(service.dashboard, DashboardService)
+    assert isinstance(service.history, HistoryService)
+    assert isinstance(service.showcase, ProfileShowcaseService)
+    assert service.dashboard_summary() == service.dashboard.summary()
+    assert service.history_page(phone="13800000001") == service.history.page(
+        phone="13800000001"
+    )
 
 
 def test_agent_answer_summary_never_falls_back_to_local_text_rules() -> None:
