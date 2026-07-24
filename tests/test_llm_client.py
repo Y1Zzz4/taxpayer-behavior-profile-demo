@@ -2,6 +2,8 @@ from datetime import datetime
 import json
 
 import httpx
+import pytest
+from pydantic import ValidationError
 
 from taxpayer_profile.llm_client import (
     CallExtractionResult,
@@ -186,6 +188,8 @@ def test_call_extraction_schema_rejects_inconsistent_proficiency() -> None:
     }
     result = CallExtractionResult.model_validate(valid)
     assert result.proficiency_score is None
+    with pytest.raises(ValidationError):
+        CallExtractionResult.model_validate({**valid, "caller_type": "无法判断"})
 
 
 def test_deepseek_v4_disables_thinking_and_bounds_output(

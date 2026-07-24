@@ -170,8 +170,8 @@
     .mode-tag.emotion-response { color: #75469e; background: #f5edfb; border-color: #dfc9ef; }
     .mode-tag.matter-continuity { color: #8a571e; background: #fff4e7; border-color: #efd5b5; }
     .mode-tag.information-delivery { color: #286c91; background: #eaf6fb; border-color: #c7e2ee; }
-    .metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; align-content: start; }
-    .metric { grid-column: span 2; min-height: 72px; padding: 11px 12px; background: #f7f8fb; border: 1px solid #eaecf2; border-top: 3px solid #8190d8; border-radius: 8px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(78px, 1fr)); gap: 10px; align-content: stretch; }
+    .metric { min-height: 0; padding: 14px 15px; background: #f7f8fb; border: 1px solid #eaecf2; border-top: 3px solid #8190d8; border-radius: 8px; }
     .metric:nth-child(2) { border-top-color: #8470c8; }
     .metric:nth-child(3) { border-top-color: #28a394; }
     .metric:nth-child(4) { border-top-color: #dda440; }
@@ -360,6 +360,7 @@
     .combo-line { fill: none; stroke: #6c63cc; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
     .combo-dot { fill: #fff; stroke: #6c63cc; stroke-width: 2.4; cursor: pointer; }
     .combo-dot:hover, .combo-dot:focus { fill: #6c63cc; outline: none; }
+    .combo-rate-label { fill: #4f5d72; font-size: 10px; font-weight: 800; }
     .combo-axis-label { fill: #667586; font-size: 9px; }
     .signal-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
     .signal-card { min-height: 67px; padding: 11px 12px; background: #f7f8fb; border: 1px solid #e5e8ef; border-left: 3px solid #8893b1; border-radius: 7px; transition: transform .16s ease, box-shadow .16s ease; }
@@ -391,34 +392,10 @@
     .showcase-logic span { padding: 5px 9px; color: #56627c; background: rgba(255,255,255,.72); border: 1px solid #dfe3ed; border-radius: 7px; font-size: 9px; font-weight: 700; white-space: nowrap; }
     .showcase-logic i { color: #3aa294; font-size: 11px; font-style: normal; }
     .showcase-logic p { margin: 0; color: #7b8495; font-size: 9px; line-height: 1.5; text-align: right; }
-    .showcase-module-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; padding: 5px; background: #e9ecf3; border: 1px solid #dde1ea; border-radius: 12px; }
-    .showcase-module-tab { min-width: 0; display: grid; grid-template-columns: 34px auto 1fr; grid-template-rows: auto auto; gap: 2px 10px; align-items: center; padding: 11px 13px; color: #6d7687; background: transparent; border: 1px solid transparent; border-radius: 9px; text-align: left; }
-    .showcase-module-tab > span { grid-row: 1 / 3; width: 30px; height: 30px; display: grid; place-items: center; color: #71809a; background: rgba(255,255,255,.65); border-radius: 8px; font-size: 9px; font-weight: 800; }
-    .showcase-module-tab strong { color: #4a556a; font-size: 11px; }
-    .showcase-module-tab small { overflow: hidden; color: #858d9b; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-    .showcase-module-tab:hover { background: rgba(255,255,255,.52); }
-    .showcase-module-tab.active { background: #fff; border-color: #dfe2e9; box-shadow: 0 4px 12px rgba(45,53,75,.08); }
-    .showcase-module-tab.active > span { color: #fff; background: linear-gradient(135deg, #596dd3, #2c9d91); }
-    .showcase-module-tab.active strong { color: #303c59; }
-    .showcase-controls { display: grid; grid-template-columns: minmax(300px, 370px) 1fr; gap: 14px 22px; margin-bottom: 18px; padding: 16px 18px; overflow: visible; }
-    .showcase-controls label { display: block; margin-bottom: 7px; color: #4d566c; font-size: 10px; font-weight: 750; }
     .showcase-search { position: relative; margin-bottom: 8px; }
     .showcase-search::before { content: "⌕"; position: absolute; left: 11px; top: 50%; color: #768399; font-size: 17px; transform: translateY(-52%); pointer-events: none; }
     .showcase-search input { height: 37px; padding-left: 35px; background: #f8f9fc; border-color: #dfe3eb; }
     .showcase-index-meta { display: block; margin-top: 6px; color: #87909f; font-size: 9px; }
-    .showcase-scenario-wrap { min-width: 0; }
-    .scenario-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-    .scenario-tab { min-height: 58px; display: grid; grid-template-columns: 29px 1fr; gap: 9px; align-items: center; padding: 9px 11px; color: #646d80; background: #f8f9fc; border: 1px solid #e1e4eb; border-radius: 9px; text-align: left; transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
-    .scenario-tab > i { width: 27px; height: 27px; display: grid; place-items: center; color: #6676c8; background: #e9ecff; border-radius: 7px; font-size: 8px; font-style: normal; font-weight: 800; }
-    .scenario-tab strong { display: block; color: #465169; font-size: 10px; }
-    .scenario-tab span { display: block; overflow: hidden; margin-top: 3px; color: #89919f; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-    .scenario-tab:hover { border-color: #cbd1ec; box-shadow: 0 5px 13px rgba(62,74,116,.08); transform: translateY(-1px); }
-    .scenario-tab.active { color: #fff; background: linear-gradient(125deg, #596dd3, #6374d5 64%, #439b91); border-color: #596dd3; box-shadow: 0 7px 18px rgba(82,103,216,.2); }
-    .scenario-tab.active > i { color: #fff; background: rgba(255,255,255,.18); }
-    .scenario-tab.active strong { color: #fff; }
-    .scenario-tab.active span { color: rgba(255,255,255,.76); }
-    .showcase-status { grid-column: 1 / -1; min-height: 18px; padding-top: 11px; color: #758091; border-top: 1px solid #eceef3; font-size: 10px; }
-    .showcase-status.error { color: var(--danger); }
     .showcase-content { display: grid; gap: 18px; }
     .knowledge-view-controls { display: grid; grid-template-columns: auto minmax(260px, 360px) 1fr; gap: 14px 20px; align-items: end; margin-bottom: 18px; padding: 14px 16px; overflow: visible; }
     .knowledge-view-controls label { display: block; margin-bottom: 7px; color: #59647a; font-size: 9px; font-weight: 750; }
@@ -477,6 +454,7 @@
     .taxonomy-section + .taxonomy-section { margin-top: 17px; padding-top: 15px; border-top: 1px solid #e8eaf0; }
     .taxonomy-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
     .taxonomy-section-head strong { color: #3b465c; font-size: 11px; }
+    .taxonomy-section-head .taxonomy-major-heading { color: #26344f; font-size: 16px; font-weight: 900; letter-spacing: .02em; }
     .taxonomy-section-head span { color: #89919f; font-size: 8px; }
     .dimension-catalog { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .dimension-card { padding: 11px 12px; background: #fafbfc; border: 1px solid #e5e8ed; border-radius: 8px; }
@@ -516,78 +494,12 @@
     .action-card { padding: 9px 10px; background: #f2f8f7; border: 1px solid #dceae6; border-radius: 7px; }
     .action-card strong { display: block; color: #36645e; font-size: 9px; }
     .action-card p { margin: 5px 0 0; color: #71817f; font-size: 7px; line-height: 1.55; }
-    .showcase-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
-    .evidence-panel { grid-column: span 7; }
-    .showcase-profile-panel { grid-column: span 5; }
     .showcase-panel-body { padding: 16px; }
-    .rolling-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 15px; }
-    .rolling-signal { padding: 8px 6px; background: #f6f7fb; border-radius: 7px; text-align: center; }
-    .rolling-signal strong { display: block; color: #414a61; font-size: 14px; }
-    .rolling-signal span { display: block; margin-top: 2px; color: #8a92a0; font-size: 8px; }
-    .evidence-timeline { position: relative; display: grid; gap: 9px; padding-left: 17px; }
-    .evidence-timeline::before { content: ""; position: absolute; left: 5px; top: 10px; bottom: 10px; width: 1px; background: #d9deeb; }
-    .evidence-item { position: relative; width: 100%; padding: 10px 11px; color: inherit; background: #fafbfc; border: 1px solid #e6e9ef; border-radius: 8px; outline: none; text-align: left; }
-    .evidence-item::before { content: ""; position: absolute; left: -17px; top: 15px; width: 9px; height: 9px; background: #8b96b2; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #d2d8e5; }
-    .evidence-item:hover, .evidence-item.active { background: #f2f4ff; border-color: #cfd5ef; }
-    .evidence-item.active::before { background: #6073d7; box-shadow: 0 0 0 3px #e4e8ff; }
-    .evidence-item time { color: #8992a1; font-size: 8px; }
-    .evidence-item strong { display: block; margin-top: 4px; color: #3b4358; font-size: 10px; line-height: 1.55; }
-    .evidence-item span { display: block; margin-top: 4px; color: #747e8f; font-size: 8px; }
-    .evidence-explain { margin-top: 11px; padding: 10px 11px; color: #536079; background: #eef1ff; border-left: 3px solid #6578df; border-radius: 0 7px 7px 0; font-size: 9px; line-height: 1.65; }
-    .profile-identity { padding: 14px; color: #fff; background: linear-gradient(130deg, #5c70d4, #6c55b9); border-radius: 10px; }
-    .profile-identity span { display: block; color: #dfe3ff; font-size: 9px; }
-    .profile-identity strong { display: block; margin-top: 5px; font-size: 17px; }
-    .profile-identity p { margin: 6px 0 0; color: #e2e5f5; font-size: 9px; line-height: 1.55; }
-    .profile-facets { display: grid; gap: 0; margin-top: 12px; }
-    .profile-facet { padding: 10px 2px; border-bottom: 1px solid #eceef2; }
-    .profile-facet:last-child { border-bottom: 0; }
-    .profile-facet label { display: block; color: #89919f; font-size: 8px; }
-    .profile-facet strong { display: block; margin-top: 4px; color: #424b60; font-size: 10px; line-height: 1.55; }
     .profile-classification { margin-top: 11px; padding: 11px 12px; color: #554482; background: #f2eeff; border: 1px solid #e1d9f7; border-radius: 8px; }
     .profile-classification span { font-size: 8px; }
     .profile-classification strong { display: block; margin-top: 4px; font-size: 14px; }
     .profile-classification p { margin: 5px 0 0; font-size: 9px; line-height: 1.6; }
-    .profile-dimension-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 9px; }
-    .profile-dimension-item { min-width: 0; padding: 7px 8px; background: #f7f8fb; border: 1px solid #e7e9ef; border-radius: 6px; }
-    .profile-dimension-item span { display: block; color: #9098a6; font-size: 7px; }
-    .profile-dimension-item strong { display: block; overflow: hidden; margin-top: 3px; color: #4b566b; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
     .strategy-attention { display: inline-flex; padding: 4px 8px; color: #755214; background: #fff0ce; border-radius: 999px; font-size: 9px; font-weight: 750; }
-    .baseline-strategy { margin-top: 12px; padding: 12px; background: #f7f8fb; border: 1px solid #e7e9ef; border-radius: 8px; }
-    .baseline-strategy label { display: block; margin-top: 9px; color: #8a92a0; font-size: 8px; }
-    .baseline-strategy strong { display: block; margin-top: 4px; color: #3e475e; font-size: 12px; line-height: 1.5; }
-    .baseline-strategy p { margin: 5px 0 0; color: #687285; font-size: 9px; line-height: 1.65; }
-    .strategy-output { margin-top: 13px; padding: 11px 12px; color: #315d57; background: #eaf7f4; border-left: 3px solid #2aa08f; border-radius: 0 8px 8px 0; font-size: 10px; line-height: 1.7; }
-    .simulation-panel { overflow: visible; }
-    .simulation-event { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 11px 13px; color: #536079; background: #f1f3fb; border: 1px solid #e1e5f1; border-radius: 8px; font-size: 10px; line-height: 1.6; }
-    .simulation-event i { width: 26px; height: 26px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; background: #6578df; border-radius: 7px; font-size: 10px; font-style: normal; }
-    .inference-flow { display: grid; grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr) 22px minmax(0, 1fr) 22px minmax(0, 1fr); gap: 6px; align-items: stretch; margin-bottom: 14px; }
-    .inference-stage { min-width: 0; padding: 10px 11px; background: #f8f9fc; border: 1px solid #e7e9f0; border-radius: 8px; }
-    .inference-stage span { display: block; color: #8a92a1; font-size: 8px; }
-    .inference-stage strong { display: block; overflow: hidden; margin-top: 5px; color: #414a60; font-size: 10px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
-    .inference-stage:last-child { background: #edf8f5; border-color: #d3e8e2; }
-    .inference-stage:last-child strong { color: #216e63; }
-    .inference-arrow { display: grid; place-items: center; color: #47a597; font-size: 12px; font-style: normal; }
-    .change-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 7px; margin: 14px 0; }
-    .change-card { min-width: 0; padding: 9px; background: #f8f9fb; border: 1px solid #e8eaf0; border-radius: 7px; }
-    .change-card.changed { background: #eef9f6; border-color: #cfe8e1; }
-    .change-card span { display: block; overflow: hidden; color: #8b93a1; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-    .change-values { display: flex; align-items: center; gap: 4px; margin-top: 5px; }
-    .change-values b { overflow: hidden; color: #4d566a; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-    .change-values i { color: #9aa1ad; font-size: 8px; font-style: normal; }
-    .changed .change-values b:last-child { color: #16806a; }
-    .comparison-grid { display: grid; grid-template-columns: 1fr 34px 1fr; gap: 10px; align-items: stretch; }
-    .comparison-card { padding: 13px 14px; background: #fafbfc; border: 1px solid #e5e8ed; border-radius: 9px; }
-    .comparison-card.after { background: #f0f8f6; border-color: #d0e7e1; }
-    .comparison-card > span { color: #89919f; font-size: 8px; }
-    .comparison-card strong { display: block; margin-top: 5px; color: #3f485d; font-size: 13px; }
-    .comparison-card p { margin: 6px 0 0; color: #687285; font-size: 9px; line-height: 1.65; }
-    .comparison-arrow { display: grid; place-items: center; color: #27a08f; font-size: 18px; }
-    .methodology-details { overflow: hidden; }
-    .methodology-details > summary { padding: 13px 16px; color: #536079; background: #fafbfc; font-size: 10px; font-weight: 700; cursor: pointer; }
-    .methodology-details .showcase-panel-body { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; padding-top: 3px; border-top: 1px solid var(--line); }
-    .methodology-item { position: relative; padding: 12px 12px 12px 38px; color: #536079; background: #f7f8fb; border: 1px solid #e8eaf0; border-radius: 8px; font-size: 9px; line-height: 1.65; }
-    .methodology-item i { position: absolute; left: 11px; top: 12px; width: 18px; height: 18px; display: grid; place-items: center; color: #fff; background: #6678d8; border-radius: 6px; font-size: 8px; font-style: normal; }
-    .showcase-disclaimer { color: #858e9d; font-size: 9px; text-align: right; }
 
     .result-summary { align-self: center; justify-self: end; color: var(--muted); font-size: 12px; }
     .table-panel { overflow: visible; }
@@ -626,10 +538,6 @@
     .detail-field.wide { grid-column: 1 / -1; border-right: 0; }
     .detail-field label { display: block; margin-bottom: 5px; color: #7a8894; font-size: 10px; }
     .detail-field div { color: #273b4d; font-size: 12px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
-    .profile-method-hero { padding: 18px; color: #fff; background: linear-gradient(125deg, #596edb, #6c55bd 62%, #2c9d91); border-radius: 11px; box-shadow: var(--shadow); }
-    .profile-method-hero span { display: block; color: rgba(255,255,255,.72); font-size: 10px; }
-    .profile-method-hero strong { display: block; margin-top: 7px; font-size: 23px; }
-    .profile-method-hero p { margin: 9px 0 0; font-size: 12px; line-height: 1.7; }
     .method-rule-list { display: grid; gap: 8px; padding: 13px; }
     .method-rule-row { display: grid; grid-template-columns: 24px 100px 1fr; gap: 9px; align-items: center; padding: 9px 10px; color: #677186; background: #f7f8fb; border: 1px solid #e8eaf0; border-radius: 7px; font-size: 10px; }
     .method-rule-row b { color: #444e65; font-size: 11px; }
@@ -646,9 +554,8 @@
     .nav-desc, .side-note, .panel-head-note, .stat-note, .chart-caption { font-size: 11px; }
     .legend-label, .bar-label, .stacked-head strong { font-size: 12px; }
     .bar-value, .stacked-head span, .stacked-legend span, .stacked-meta span { font-size: 11px; }
-    .showcase-logic > strong, .showcase-module-tab strong, .taxonomy-section-head strong { font-size: 12px; }
-    .showcase-logic span, .showcase-logic p, .showcase-controls label, .scenario-tab strong,
-    .showcase-status, .knowledge-view-controls label, .knowledge-mode-switch button,
+    .showcase-logic > strong, .taxonomy-section-head strong { font-size: 12px; }
+    .showcase-logic span, .showcase-logic p, .knowledge-view-controls label, .knowledge-mode-switch button,
     .knowledge-mode-status, .knowledge-graph-toolbar p, .knowledge-selection p { font-size: 10px; }
     .knowledge-kpi span, .taxonomy-count span, .taxonomy-section-head span,
     .dimension-card-head span, .composite-title span, .knowledge-selection label { font-size: 9px; }
@@ -656,10 +563,6 @@
     .dimension-card p, .composite-card p, .action-card p, .taxonomy-tags span,
     .composite-meta, .knowledge-selection-tags span { font-size: 9px; }
     .graph-tool, .graph-gesture-hint, .graph-depth-legend { font-size: 9px; }
-    .evidence-item time, .evidence-item span, .profile-facet label,
-    .profile-dimension-item span, .baseline-strategy label { font-size: 9px; }
-    .evidence-item strong, .profile-facet strong, .profile-dimension-item strong,
-    .baseline-strategy p { font-size: 10px; }
     .login-screen { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 12%, rgba(91,111,219,.24), transparent 32%), radial-gradient(circle at 85% 82%, rgba(39,165,145,.20), transparent 32%), linear-gradient(145deg, #f5f7fc, #e9edf7); }
     .login-card { width: min(440px, 100%); overflow: hidden; background: rgba(255,255,255,.96); border: 1px solid rgba(205,213,230,.9); border-radius: 20px; box-shadow: 0 28px 80px rgba(43,54,88,.18); }
     .login-hero { padding: 28px 30px 24px; color: #fff; background: linear-gradient(125deg, #35446f, #586bd4 64%, #2c9d91); }
@@ -700,7 +603,6 @@
       .update-grid { grid-template-columns: repeat(3, 1fr); }
       .update-item:nth-child(3) { border-right: 0; }
       .work-layout { grid-template-columns: 1fr; }
-      .evidence-panel, .showcase-profile-panel { grid-column: 1 / -1; }
       .dimension-catalog { grid-template-columns: repeat(2, 1fr); }
       .action-catalog { grid-template-columns: repeat(3, 1fr); }
       .taxonomy-overview { grid-template-columns: repeat(3, 1fr); }
@@ -708,7 +610,6 @@
       .knowledge-selection-tags { grid-column: 1 / -1; }
       .knowledge-view-controls { grid-template-columns: auto minmax(260px, 1fr); }
       .knowledge-mode-status { grid-column: 1 / -1; justify-self: start; text-align: left; }
-      .methodology-details .showcase-panel-body { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 800px) {
       .sidebar { position: sticky; top: 0; width: 100%; height: auto; box-shadow: 0 6px 20px rgba(28,34,56,.12); }
@@ -736,12 +637,9 @@
       .filter-bar .input-wrap { grid-column: 1 / -1; }
       .result-summary { grid-column: 1 / -1; justify-self: start; }
       .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: 1 / -1; }
-      .showcase-controls { grid-template-columns: 1fr; }
-      .showcase-status { grid-column: 1; }
       .showcase-logic { grid-template-columns: 1fr; gap: 9px; }
       .showcase-logic > div { justify-content: flex-start; overflow-x: auto; }
       .showcase-logic p { text-align: left; }
-      .showcase-module-tabs { grid-template-columns: 1fr; }
       .knowledge-view-controls { grid-template-columns: 1fr; align-items: stretch; }
       .knowledge-mode-status { grid-column: auto; }
       .knowledge-summary, .taxonomy-overview { grid-template-columns: repeat(2, 1fr); }
@@ -750,11 +648,6 @@
       .knowledge-selection-tags { grid-column: auto; }
       .graph-derivation-status { top: 48px; width: calc(100% - 28px); }
       .composite-catalog { grid-template-columns: 1fr; }
-      .inference-flow { grid-template-columns: repeat(2, 1fr); }
-      .inference-arrow { display: none; }
-      .change-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .comparison-grid { grid-template-columns: 1fr; }
-      .comparison-arrow { min-height: 20px; transform: rotate(90deg); }
       .insight-panel-body .insight-list { grid-template-columns: 1fr; }
     }
     @media (max-width: 590px) {
@@ -763,8 +656,7 @@
       .lookup { grid-template-columns: 1fr; }
       .notice { grid-column: 1; }
       .metrics, .dashboard-metrics { grid-template-columns: repeat(2, 1fr); }
-      .metric, .metric:nth-child(4), .metric:nth-child(5) { grid-column: auto; }
-      .metric:last-child { grid-column: 1 / -1; }
+      .metric, .metric:nth-child(4), .metric:nth-child(5), .metric:last-child { grid-column: auto; }
       .identity-head { align-items: flex-start; flex-direction: column; }
       .identity-details { grid-template-columns: 1fr; }
       .identity-detail.wide { grid-column: auto; }
@@ -784,12 +676,9 @@
       .detail-field, .detail-field:nth-child(even) { border-right: 0; }
       .detail-field.wide { grid-column: auto; }
       .method-rule-row { grid-template-columns: 24px 88px 1fr; }
-      .rolling-strip { grid-template-columns: repeat(2, 1fr); }
-      .methodology-details .showcase-panel-body { grid-template-columns: 1fr; }
       .dimension-catalog, .service-mode-groups, .service-mode-catalog, .action-catalog { grid-template-columns: 1fr; }
       .knowledge-mode-switch { flex-direction: column; }
       .knowledge-graph-stage { height: 520px; }
-      .scenario-tab { width: 100%; }
       .recent-call-row { grid-template-columns: 72px 1fr; }
       .recent-call-row b { grid-column: 2; }
       .history-profile-grid { grid-template-columns: 1fr; }
@@ -836,7 +725,7 @@
       </button>
       <button class="nav-link" type="button" data-page="showcase" data-admin-only>
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18V8M10 18V4M16 18v-7M2 21h20M19 5l2 2-2 2M21 7h-5"/></svg></span>
-        <span class="nav-copy"><span class="nav-title">画像推演中心</span><span class="nav-desc">证据链与增量策略演示</span></span>
+        <span class="nav-copy"><span class="nav-title">画像推演中心</span><span class="nav-desc">多维画像图谱与接待方式</span></span>
       </button>
       <button class="nav-link" type="button" data-page="users" data-admin-only>
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M22 11h-6"/></svg></span>
@@ -923,7 +812,7 @@
           <div id="enterprise-resolution-chart" class="chart-body"></div>
         </article>
         <article class="panel span-12 accent-purple">
-          <div class="panel-head"><div class="panel-title"><h2>历史服务事实</h2></div><span class="panel-head-note">按来电记录统计</span></div>
+          <div class="panel-head"><div class="panel-title"><h2>历史服务事实</h2></div><span class="panel-head-note">占总来电比例</span></div>
           <div id="historical-facts" class="chart-body compact-facts"></div>
         </article>
         <article class="panel span-12 accent-coral">
@@ -956,7 +845,7 @@
           <h1>画像推演中心</h1>
           <p class="page-subtitle">展示历史来电如何沉淀为画像信息，并为坐席匹配更合适的接待方式</p>
         </div>
-        <div class="page-context">情景演示 · 结果仅供参考</div>
+        <div class="page-context">图谱浏览 · 结果仅供参考</div>
       </header>
 
       <section class="showcase-logic" aria-label="画像形成过程">
@@ -965,36 +854,7 @@
         <p>从表达方式、情绪响应和业务应对中各选择一项，组合形成完整接待策略。</p>
       </section>
 
-      <nav class="showcase-module-tabs" aria-label="画像能力模块">
-        <button class="showcase-module-tab active" type="button" data-showcase-module="inference">
-          <span>01</span><strong>增量画像推演</strong><small>观察一通新来电如何改变画像与服务策略</small>
-        </button>
-        <button class="showcase-module-tab" type="button" data-showcase-module="knowledge">
-          <span>02</span><strong>多维画像图谱</strong><small>探索三维画像、五项事实与三类组合策略</small>
-        </button>
-      </nav>
-
-      <section id="showcase-inference-module" class="showcase-module">
-        <section class="panel showcase-controls">
-          <div class="showcase-select-wrap">
-            <label for="showcase-profile-select">选择一个现有号码画像</label>
-            <div class="showcase-search"><input id="showcase-profile-search" type="search" placeholder="输入序号、完整号码或脱敏号码检索" autocomplete="off"></div>
-            <select id="showcase-profile-select" disabled><option>正在读取画像库…</option></select>
-            <small id="showcase-index-meta" class="showcase-index-meta">正在建立号码画像索引…</small>
-          </div>
-          <div class="showcase-scenario-wrap">
-            <label>选择增量推演场景</label>
-            <div id="showcase-scenarios" class="scenario-tabs" aria-label="推演场景"></div>
-          </div>
-          <div id="showcase-status" class="showcase-status">正在准备画像演示数据…</div>
-        </section>
-
-        <section id="showcase-content" class="showcase-content">
-          <div class="panel loading"><div><div class="spinner"></div>正在构建画像证据链…</div></div>
-        </section>
-      </section>
-
-      <section id="showcase-knowledge-module" class="showcase-module hidden">
+      <section id="showcase-knowledge-module" class="showcase-module">
         <section class="panel knowledge-view-controls">
           <div>
             <label>图谱查看范围</label>
@@ -1009,7 +869,7 @@
             <select id="knowledge-profile-select" disabled><option>正在读取画像库…</option></select>
             <small id="knowledge-index-meta" class="showcase-index-meta">正在建立号码画像索引…</small>
           </div>
-          <div id="knowledge-mode-status" class="knowledge-mode-status">当前展示完整画像方法论，不关联增量推演中的号码。</div>
+          <div id="knowledge-mode-status" class="knowledge-mode-status">当前展示完整画像方法论，不关联具体号码。</div>
         </section>
         <section id="profile-knowledge-content" class="showcase-content">
           <div class="panel loading"><div><div class="spinner"></div>正在构建多维画像关系图谱…</div></div>
@@ -1041,10 +901,10 @@
         <div class="table-scroll">
           <table>
             <colgroup>
-              <col style="width:15%"><col style="width:14%"><col style="width:36%"><col style="width:21%"><col style="width:14%">
+            <col style="width:19%"><col style="width:16%"><col style="width:43%"><col style="width:22%">
             </colgroup>
-            <thead><tr><th>来电号码 / 时间</th><th>咨询主体</th><th>咨询事项</th><th>处理情况</th><th>服务效果</th></tr></thead>
-            <tbody id="history-body"><tr><td class="table-empty" colspan="5">正在读取来电记录…</td></tr></tbody>
+            <thead><tr><th>来电号码 / 时间</th><th>咨询主体</th><th>咨询事项</th><th>处理情况</th></tr></thead>
+            <tbody id="history-body"><tr><td class="table-empty" colspan="4">正在读取来电记录…</td></tr></tbody>
           </table>
         </div>
         <div class="pagination">

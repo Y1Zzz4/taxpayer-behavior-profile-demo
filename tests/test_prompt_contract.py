@@ -39,6 +39,8 @@ def test_call_extraction_prompt_contains_required_business_rules() -> None:
     assert "近期情绪状态" in prompt
     assert "业务专业度" in prompt
     assert "专业" in prompt and "了解" in prompt and "小白" in prompt
+    assert 'caller_type 只能是“企业”或“个人”' in prompt
+    assert "不得输出第三种类别" in prompt
     assert PROMPT_VERSION == "call-extraction-v9"
 
 

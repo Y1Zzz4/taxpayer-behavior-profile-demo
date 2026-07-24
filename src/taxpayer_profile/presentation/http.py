@@ -38,9 +38,7 @@ class HttpApplication(Protocol):
         self, *, query: object = "", limit: object = 5
     ) -> dict[str, object]: ...
 
-    def profile_showcase(
-        self, *, profile_key: object, scenario: object = "baseline"
-    ) -> dict[str, object]: ...
+    def profile_showcase(self, *, profile_key: object) -> dict[str, object]: ...
 
     def history_page(
         self,
@@ -242,7 +240,6 @@ def handler_factory(
                         200,
                         service.profile_showcase(
                             profile_key=body.get("profile_key"),
-                            scenario=body.get("scenario", "baseline"),
                         ),
                     )
                 elif path == "/api/users/create":

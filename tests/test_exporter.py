@@ -251,26 +251,13 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert dashboard["resolution_status"] == [
         {"label": "已直接解决", "value": 1}
     ]
-    assert dashboard["question_categories"] == [
-        {
-            "label": "暂未分类",
-            "value": 1,
-            "resolved": 1,
-            "unresolved": 0,
-                "unknown": 0,
-            "share": 100.0,
-            "children": [
-                {
-                    "label": "二级专题待识别",
-                    "value": 1,
-                    "resolved": 1,
-                    "unresolved": 0,
-                    "unknown": 0,
-                    "share": 100.0,
-                }
-            ],
-        }
-    ]
+    category = dashboard["question_categories"][0]
+    assert category["label"] == "暂未分类"
+    assert category["share"] == 100.0
+    assert category["resolved_share"] == 100.0
+    assert category["unresolved_share"] == 0.0
+    assert category["children"][0]["label"] == "二级专题待识别"
+    assert category["children"][0]["resolved_share"] == 100.0
     assert dashboard["personal_resolution"] == [
         {"label": "已直接解决", "value": 1}
     ]
@@ -305,19 +292,12 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert catalog["summary"]["mode_group_count"] == 3
     assert catalog["summary"]["mode_count"] == 8
     assert "13800000001" not in str(catalog)
-    showcase = service.profile_showcase(
-        profile_key=catalog["items"][0]["profile_key"],
-        scenario="followup_signal",
-    )
-    assert showcase["after"]["state"]["contact_unresolved"] == (
-        showcase["before"]["state"]["contact_unresolved"] + 1
-    )
-    assert "历史诉求跟进" in showcase["after"]["result"]["service_mode"]
-    assert len(showcase["after"]["result"]["mode_components"]) == 3
+    showcase = service.profile_showcase(profile_key=catalog["items"][0]["profile_key"])
+    assert len(showcase["before"]["result"]["mode_components"]) == 3
     assert len(showcase["before"]["profile_model"]["items"]) == 3
     assert showcase["before"]["profile_model"]["active_category_count"] >= 3
-    assert showcase["changes"][-1]["field"] == "组合接待策略"
-    assert "不写入" in showcase["disclaimer"]
+    assert "after" not in showcase
+    assert "scenario" not in showcase
     assert "13800000001" not in str(showcase)
 
 

@@ -21,9 +21,9 @@ def _merge_incremental_extraction(
 ) -> NormalizedCallInput:
     """Merge a fresh extraction while preserving only confirmed reusable fields."""
 
-    caller_type = (
-        None if extraction.caller_type == "无法判断" else extraction.caller_type
-    )
+    # New incremental inputs do not depend on a precomputed caller-type
+    # column, so every regular ingestion uses the binary model result.
+    caller_type = extraction.caller_type
     identity = resolve_enterprise_identity(
         caller_type=caller_type,
         raw_identity=call.raw_identity_label,
@@ -93,21 +93,11 @@ def enrich_call(
         or call.topic_category
     )
     if not has_text:
-        enriched = replace(
-            call,
-            demand_category="其他类",
-            proficiency_level="暂无法判断",
-            proficiency_basis="可用文本不足，暂不预设业务熟悉程度。",
-            emotion_state="暂无法判断",
-            emotion_basis="可用文本不足，暂不预设情绪状态。",
-            service_rating="无法判断",
-            service_summary="无法判断：可用文本不足。",
-        )
-        return enriched, EnrichmentMetadata(
-            input_mode=mode,
-            analysis_source="insufficient_text",
-            analysis_status="insufficient_text",
-            model_name=None,
+        # Caller type is a binary required result. Persisting a text-free row
+        # would reintroduce the legacy "unknown" state, so reject it instead
+        # of making an arbitrary enterprise/personal assignment.
+        raise ValueError(
+            f"业务编号 {call.business_id} 缺少用于判定咨询主体的文本信息"
         )
 
     if client is None:

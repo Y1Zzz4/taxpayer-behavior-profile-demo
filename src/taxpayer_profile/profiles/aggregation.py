@@ -164,13 +164,15 @@ def update_profile(
     profile.dissatisfaction_count = sum(
         item.taxpayer_dissatisfied is True for item in ordered
     )
-    profile.caller_type = latest.caller_type or "无法判断"
+    if latest.caller_type not in {"企业", "个人"}:
+        raise ValueError(
+            f"业务编号 {latest.business_id} 的咨询主体必须为企业或个人"
+        )
+    profile.caller_type = latest.caller_type
     if profile.caller_type == "个人":
         profile.enterprise_identity = "不适用"
     elif profile.caller_type == "企业":
         profile.enterprise_identity = latest.enterprise_identity or "无法判断"
-    else:
-        profile.enterprise_identity = "无法判断"
     profile.proficiency_score = weighted_proficiency(
         [(item.call_time, item.proficiency_score) for item in ordered]
     )

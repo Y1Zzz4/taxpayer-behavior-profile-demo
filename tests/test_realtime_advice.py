@@ -153,11 +153,8 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
             "重复诉求",
         "等待推诿",
             "最近坐席答复",
-            "标准答案",
-        "历史证据回放",
-        "增量画像结果",
-        "增量画像推演",
-        "多维画像图谱",
+                "知识库参考回答",
+            "多维画像图谱",
         "整体画像逻辑",
         "号码画像实例",
         "knowledge-profile-select",
@@ -166,8 +163,8 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "拖拽旋转",
         "knowledge-graph-canvas",
         "完整分类与判定规则",
-        "三维画像字段",
-        "三类组合接待方式",
+            "纳税人画像字段",
+            "坐席接待方式",
         "情绪响应",
             "业务应对",
         "表达方式",
@@ -205,3 +202,14 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
     assert "profileBox.append(profileTypeButton" not in page
     assert "appendInfo(primary" not in page
     assert "item.label" in page
+    assert "增量画像推演" not in page
+
+
+def test_history_issue_narrative_normalizes_source_sentence_marks() -> None:
+    script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
+
+    # Individual model/manual clauses are normalized before they are joined,
+    # preventing combinations such as “；。” when a reason already has “。”.
+    assert "function formatIssueNarrative(fragments)" in script
+    assert "replace(/[；;。！？!?]+([”’）】\\]]*)$/u, '$1')" in script
+    assert "formatIssueNarrative(facts)" in script

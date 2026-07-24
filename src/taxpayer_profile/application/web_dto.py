@@ -56,6 +56,15 @@ def segmented_rows(
             "unresolved": resolution[label]["unresolved"],
             "unknown": resolution[label]["unknown"],
             "share": round(value * 100 / total, 1) if total else 0,
+            "resolved_share": round(
+                resolution[label]["resolved"] * 100 / value, 1
+            ) if value else 0,
+            "unresolved_share": round(
+                resolution[label]["unresolved"] * 100 / value, 1
+            ) if value else 0,
+            "unknown_share": round(
+                resolution[label]["unknown"] * 100 / value, 1
+            ) if value else 0,
         }
         for label, value in list(ranked)[:limit]
     ]

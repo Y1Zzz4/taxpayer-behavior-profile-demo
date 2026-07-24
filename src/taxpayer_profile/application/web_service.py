@@ -47,29 +47,6 @@ from taxpayer_profile.security import PhoneProtector
 
 REALTIME_ADVICE_TIMEOUT_SECONDS = 25.0
 
-SHOWCASE_SCENARIOS = (
-    {
-        "id": "baseline",
-        "label": "当前结果",
-        "description": "只回放现有近五个工作日证据。",
-    },
-    {
-        "id": "followup_signal",
-        "label": "新增跟进信号",
-        "description": "模拟新增一通联系相关部门后仍未解决的来电。",
-    },
-    {
-        "id": "professional_stable",
-        "label": "专业且平稳",
-        "description": "模拟近期表达呈现专业、平稳且没有服务修复或事项跟进信号。",
-    },
-    {
-        "id": "service_dissatisfaction",
-        "label": "新增不满信号",
-        "description": "模拟来电人表达明确不满。",
-    },
-)
-
 PROFILE_DIMENSION_TAXONOMY = (
     {
         "id": "proficiency",
@@ -90,10 +67,10 @@ PROFILE_DIMENSION_TAXONOMY = (
         "name": "历史服务事实",
         "description": "按该号码最近五个工作日的明确字段组合形成，可同时命中多项。",
         "categories": (
-            "等待推诿",
             "历史工单",
-            "异常中断",
             "联系后未解决",
+            "异常中断",
+            "等待推诿",
             "对坐席不满",
         ),
         "unknown": "近五个工作日未命中",
@@ -101,21 +78,21 @@ PROFILE_DIMENSION_TAXONOMY = (
 )
 
 HISTORICAL_FACT_DEFINITIONS = (
-    {
-        "id": "wait_pushback",
-        "label": "等待推诿",
-        "rule": "存在让纳税人等待表述 = 是，且坐席存在潜在推诿行为 = 是",
-    },
     {"id": "work_order", "label": "历史工单", "rule": "是否工单 = 是"},
+    {
+        "id": "contact_unresolved",
+        "label": "联系相关人员后仍未解决",
+        "rule": "联系相关人员或部门 = 是，且坐席是否解决纳税人问题 = 否",
+    },
     {
         "id": "abnormal_end",
         "label": "异常中断",
         "rule": "采用原始分析的最终非正常中断字段；新增数据按同口径分析",
     },
     {
-        "id": "contact_unresolved",
-        "label": "联系后未解决",
-        "rule": "联系相关人员或部门 = 是，且坐席是否解决纳税人问题 = 否",
+        "id": "wait_pushback",
+        "label": "等待推诿",
+        "rule": "存在让纳税人等待表述 = 是，且坐席存在潜在推诿行为 = 是",
     },
     {
         "id": "dissatisfaction",
@@ -363,9 +340,17 @@ class DemoService:
             if item.resolved_status is not None
         ]
         daily_calls = Counter(item.call_time.date().isoformat() for item in trajectories)
-        caller_types = Counter(
-            item.caller_type or "暂未识别" for item in trajectories
-        )
+        invalid_caller_types = [
+            item.business_id
+            for item in trajectories
+            if item.caller_type not in {"企业", "个人"}
+        ]
+        if invalid_caller_types:
+            # Do not silently normalize a broken invariant into a dashboard
+            # category. Legacy data must be repaired with the explicit
+            # backfill command before it can be presented as current data.
+            raise RuntimeError("数据库存在未完成咨询主体修复的来电记录")
+        caller_types = Counter(item.caller_type for item in trajectories)
         topics: Counter[str] = Counter()
         demands: Counter[str] = Counter()
         topic_resolution: dict[str, Counter[str]] = {}
@@ -409,6 +394,11 @@ class DemoService:
             {
                 **definition,
                 "value": facts[str(definition["id"])],
+                "share": round(
+                    facts[str(definition["id"])] * 100 / len(trajectories), 1
+                )
+                if trajectories
+                else 0,
             }
             for definition in HISTORICAL_FACT_DEFINITIONS
         ]
@@ -453,7 +443,7 @@ class DemoService:
                     "children": _segmented_rows(
                         secondary_topics.get(str(row["label"]), Counter()),
                         secondary_resolution.get(str(row["label"]), {}),
-                        limit=10,
+                        limit=5,
                     ),
                 }
                 for row in _segmented_rows(
@@ -630,7 +620,6 @@ class DemoService:
         ]
         return {
             "items": items,
-            "scenarios": list(SHOWCASE_SCENARIOS),
             "taxonomy": {
                 "dimensions": list(PROFILE_DIMENSION_TAXONOMY),
                 "historical_facts": list(HISTORICAL_FACT_DEFINITIONS),
@@ -662,12 +651,8 @@ class DemoService:
             ],
         }
 
-    def profile_showcase(self, *, profile_key: object, scenario: object = "baseline") -> dict[str, object]:
+    def profile_showcase(self, *, profile_key: object) -> dict[str, object]:
         key = str(profile_key or "").strip()
-        scenario_id = str(scenario or "baseline").strip()
-        scenario_map = {str(item["id"]): item for item in SHOWCASE_SCENARIOS}
-        if scenario_id not in scenario_map:
-            raise ValueError("不支持该推演场景")
         with self._sessions() as session:
             matched = self._showcase_key_map.get(key)
             profile = (
@@ -696,128 +681,12 @@ class DemoService:
             "emotion_basis": profile.emotion_basis,
             **facts,
         }
-        after_state = dict(before_state)
-        event = "当前仅回放数据库中的画像字段和历史事实。"
-        if scenario_id == "followup_signal":
-            after_state["contact_unresolved"] = int(after_state["contact_unresolved"]) + 1
-            event = "新增一通联系相关人员或部门后仍未解决的来电。"
-        elif scenario_id == "professional_stable":
-            after_state.update(
-                {
-                    "proficiency_level": "专业",
-                    "proficiency_basis": "能够准确描述业务条件和办理节点。",
-                    "emotion_state": "平稳",
-                    "emotion_basis": "表达有序，没有明显担忧或负面评价。",
-                    "wait_pushback": 0,
-                    "work_order": 0,
-                    "abnormal_end": 0,
-                    "contact_unresolved": 0,
-                    "dissatisfaction": 0,
-                }
-            )
-            event = "模拟近期窗口只保留专业、平稳表达，且服务修复和事项跟进事实均已移出窗口。"
-        elif scenario_id == "service_dissatisfaction":
-            after_state["emotion_state"] = "不满"
-            after_state["emotion_basis"] = "表达中出现明确负面评价。"
-            after_state["dissatisfaction"] = int(after_state["dissatisfaction"]) + 1
-            event = "新增一通对本通服务表达明确不满的来电。"
         before = _mode_payload(before_state)
-        after = _mode_payload(after_state)
         before_model = _profile_snapshot(before_state)
-        after_model = _profile_snapshot(after_state)
-        fields = (
-            ("proficiency_level", "业务专业度"),
-            ("emotion_state", "近期情绪状态"),
-            ("wait_pushback", "等待推诿"),
-            ("work_order", "历史工单"),
-            ("abnormal_end", "异常中断"),
-            ("contact_unresolved", "联系后未解决"),
-            ("dissatisfaction", "对坐席不满"),
-        )
-        changes = [
-            {
-                "field": label,
-                "before": before_state[key],
-                "after": after_state[key],
-                "changed": before_state[key] != after_state[key],
-            }
-            for key, label in fields
-        ]
-        before_components = {
-            str(item["category_id"]): item for item in before["mode_components"]  # type: ignore[index]
-        }
-        after_components = {
-            str(item["category_id"]): item for item in after["mode_components"]  # type: ignore[index]
-        }
-        for category_id, category_label in (
-            ("emotion_response", "情绪响应"),
-            ("matter_continuity", "业务应对"),
-            ("information_delivery", "表达方式"),
-        ):
-            before_mode = str(before_components[category_id]["mode"])
-            after_mode = str(after_components[category_id]["mode"])
-            changes.append(
-                {
-                    "field": category_label,
-                    "before": before_mode,
-                    "after": after_mode,
-                    "changed": before_mode != after_mode,
-                }
-            )
-        changes.append(
-            {
-                "field": "组合接待策略",
-                "before": before["service_mode"],
-                "after": after["service_mode"],
-                "changed": before["service_mode"] != after["service_mode"],
-            }
-        )
-        timeline = [
-            {
-                "index": index,
-                "business_id": item.business_id,
-                "call_time": item.call_time,
-                "question": item.core_question or "咨询事项未形成明确记录",
-                "resolved": item.resolved_status,
-                "contributions": [
-                    text
-                    for condition, text in (
-                        (item.proficiency_level is not None, f"业务专业度：{item.proficiency_level}"),
-                        (item.emotion_state is not None, f"情绪：{item.emotion_state}"),
-                        (_wait_pushback(item), "等待推诿"),
-                        (item.work_order is True, "历史工单"),
-                        (_abnormal(item), "异常中断"),
-                        (_contact_unresolved(item), "联系后未解决"),
-                        (item.taxpayer_dissatisfied is True, "对坐席不满"),
-                    )
-                    if condition
-                ]
-                or ["保留为基础来电事实"],
-            }
-            for index, item in enumerate(trajectories, 1)
-        ]
         return {
             "profile_key": key,
             "masked_phone": masked,
-            "scenario": {**scenario_map[scenario_id], "event": event},
-            "profile": {
-                "caller_type": profile.caller_type,
-                "enterprise_identity": profile.enterprise_identity,
-                "latest_question": profile.latest_question,
-                "topic_category": profile.latest_topic_category,
-                "demand_category": profile.latest_demand_category,
-                "proficiency_level": profile.proficiency_level,
-                "proficiency_basis": profile.proficiency_basis,
-                "emotion_state": profile.emotion_state,
-                "emotion_basis": profile.emotion_basis,
-                "first_call_time": profile.first_call_time,
-                "latest_call_time": profile.latest_call_time,
-            },
-            "timeline": timeline,
             "before": {"state": before_state, "result": before, "profile_model": before_model},
-            "after": {"state": after_state, "result": after, "profile_model": after_model},
-            "changes": changes,
-            "disclaimer": "本次为情景推演，结果不写入正式画像或来电记录，仅供演示参考。",
         }
 
     def history_page(self, *, page: object = 1, page_size: object = 10, phone: object | None = None) -> dict[str, object]:

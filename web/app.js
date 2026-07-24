@@ -24,6 +24,15 @@
     option.value = value;
     return option;
   }
+  function formatIssueNarrative(fragments) {
+    // Model and manually entered reasons may already end in a sentence mark.
+    // Normalize each independent clause before the UI adds its own separators,
+    // so punctuation remains correct regardless of the source wording.
+    const normalized = fragments
+      .map(fragment => String(fragment ?? '').trim().replace(/[；;。！？!?]+([”’）】\]]*)$/u, '$1'))
+      .filter(Boolean);
+    return normalized.length ? `${normalized.join('；')}。` : '暂无可展示的历史跟进信息。';
+  }
   const pages = new Set(['workbench', 'dashboard', 'history', 'showcase', 'users']);
   const titles = {workbench: '12366坐席接待助手', dashboard: '画像数据概览', history: '历史来电记录', showcase: '画像推演中心', users: '用户与权限'};
   const state = {
@@ -32,9 +41,6 @@
     dashboardLoaded: false,
     history: {page: 1, totalPages: 0, phone: '', loaded: false},
     showcaseCatalog: null,
-    showcaseScenario: 'baseline',
-    showcaseRequest: 0,
-    showcaseSearchRequest: 0,
     knowledgeSearchRequest: 0,
     graphCleanup: null,
   };
@@ -166,7 +172,7 @@
     const details = el('div', 'identity-details');
     identityDetail(details, '最近咨询', profile.latest_question, true);
     identityDetail(details, '最近坐席答复', profile.latest_agent_answer, true);
-    identityDetail(details, '标准答案', profile.standard_answer, true);
+    identityDetail(details, '知识库参考回答', profile.standard_answer, true);
     identityDetail(details, '最近来电时间', profile.latest_call_time);
     identityDetail(details, '登记单位', profile.latest_registration_unit);
     identityDetail(details, '专题类别', profile.latest_topic_category);
@@ -194,13 +200,21 @@
     if (item.registration_unit) meta.append(el('span', '', `· ${item.registration_unit}`));
     card.append(meta, el('div', 'issue-question', text(item.core_question, '该次咨询事项未形成明确记录')));
     const facts = [];
-    if (item.is_repeated_issue) facts.push(text(item.repeat_summary || item.matched_previous_question, '已确认重复诉求'));
+    if (item.is_repeated_issue) {
+      const question = text(item.matched_previous_question);
+      const callTime = item.matched_previous_call_time ? dateText(item.matched_previous_call_time) : '';
+      if (question) {
+        facts.push(`已确认与${callTime ? `${callTime}的` : ''}历史事项“${question}”重复`);
+      } else {
+        facts.push('已确认与既往来电属于同一事项，可查看本通与历史记录核对具体内容');
+      }
+    }
     if (item.work_order) facts.push('该通形成工单');
     if (item.wait_pushback) facts.push('同时出现等待表述和潜在推诿');
     if (item.taxpayer_dissatisfied) facts.push('来电人对当前坐席或本通服务表达不满');
     if (item.resolved === false) facts.push(`未直接解决：${text(item.unresolved_reason, '原因未形成明确记录')}`);
     facts.push(`当前记录：${resolvedText(item.resolved)}`);
-    card.append(el('div', 'issue-reason', facts.join('；')));
+    card.append(el('div', 'issue-reason', formatIssueNarrative(facts)));
     const action = el('button', 'issue-action', '查看该通来电证据 →');
     action.type = 'button'; action.addEventListener('click', () => openDetail(item.business_id)); card.append(action);
     return card;
@@ -327,8 +341,8 @@
     const svg = svgNode('svg', {class: 'combo-chart', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': '各登记单位问题解决率对比与趋势'}); svg.style.width = `${width}px`;
     for (let index = 0; index <= 4; index += 1) { const y = top + plotHeight - plotHeight * index / 4; svg.append(svgNode('line', {class:'line-grid', x1:left, x2:width-right, y1:y, y2:y})); const rate = svgNode('text', {class:'line-axis-text', x:left-9, y:y+3, 'text-anchor':'end'}); rate.textContent = `${index * 25}%`; svg.append(rate); }
     const points = [];
-    values.forEach((item, index) => { const x = left + step * (index + .5), rate = item.resolved_rate; const hasRate = rate !== null && rate !== undefined; const y = rateY(hasRate ? rate : 0); const bar = svgNode('rect', {class:`combo-bar${hasRate ? '' : ' unknown'}`, x:x-barWidth/2, y, width:barWidth, height:top+plotHeight-y, rx:5}); const barTitle = svgNode('title'); barTitle.textContent = hasRate ? `${item.label}：解决率 ${rate}%（已判定 ${Number(item.resolved || 0) + Number(item.unresolved || 0)} 通）` : `${item.label}：暂无已判定记录`; bar.append(barTitle); svg.append(bar); if (hasRate) points.push({x, y, item}); const label = svgNode('text', {class:'combo-axis-label', x, y:height-57, transform:`rotate(-36 ${x} ${height-57})`, 'text-anchor':'end'}); label.textContent = item.label; svg.append(label); });
-    if (points.length) { const line = svgNode('polyline', {class:'combo-line', points:points.map(point => `${point.x},${point.y}`).join(' ')}); svg.append(line); points.forEach(point => { const dot = svgNode('circle', {class:'combo-dot', cx:point.x, cy:point.y, r:4, tabindex:0}); const title = svgNode('title'); title.textContent = `${point.item.label}：解决率 ${point.item.resolved_rate}%（已判定 ${Number(point.item.resolved || 0) + Number(point.item.unresolved || 0)} 通）`; dot.append(title); svg.append(dot); }); }
+    values.forEach((item, index) => { const x = left + step * (index + .5), rate = item.resolved_rate; const hasRate = rate !== null && rate !== undefined; const y = rateY(hasRate ? rate : 0); const bar = svgNode('rect', {class:`combo-bar${hasRate ? '' : ' unknown'}`, x:x-barWidth/2, y, width:barWidth, height:top+plotHeight-y, rx:5}); const barTitle = svgNode('title'); barTitle.textContent = hasRate ? `${item.label}：解决率 ${rate}%` : `${item.label}：暂无已判定记录`; bar.append(barTitle); svg.append(bar); if (hasRate) points.push({x, y, item}); const label = svgNode('text', {class:'combo-axis-label', x, y:height-57, transform:`rotate(-36 ${x} ${height-57})`, 'text-anchor':'end'}); label.textContent = item.label; svg.append(label); });
+    if (points.length) { const line = svgNode('polyline', {class:'combo-line', points:points.map(point => `${point.x},${point.y}`).join(' ')}); svg.append(line); points.forEach(point => { const dot = svgNode('circle', {class:'combo-dot', cx:point.x, cy:point.y, r:4, tabindex:0}); const rateLabel = svgNode('text', {class:'combo-rate-label', x:point.x, y:Math.max(top + 10, point.y - 10), 'text-anchor':'middle'}); rateLabel.textContent = `${point.item.resolved_rate}%`; const title = svgNode('title'); title.textContent = `${point.item.label}：解决率 ${point.item.resolved_rate}%`; dot.append(title); svg.append(rateLabel, dot); }); }
     shell.append(legend, svg); target.append(shell);
   }
   function renderStacked(target, rows, drilldown = false) {
@@ -337,21 +351,21 @@
     const legend = el('div', 'stacked-legend'); [['legend-resolved', '已解决'], ['legend-unresolved', '未直接解决'], ['legend-unknown', '待判断']].forEach(([className, label]) => { const item = el('span'); item.append(el('i', className), document.createTextNode(label)); legend.append(item); });
     const list = el('div', 'stacked-list'); values.forEach(item => {
       const value = Number(item.value || 0); const share = item.share ?? Math.round(value / Math.max(total, 1) * 100);
-      const row = el('div', 'stacked-row'); const head = el('div', 'stacked-head'); head.append(el('strong', '', item.label), el('span', '', `${value}次 · 占比${share}%`));
+      const row = el('div', 'stacked-row'); const head = el('div', 'stacked-head'); head.append(el('strong', '', item.label), el('span', '', `占比${share}%`));
       const track = el('div', 'stacked-track'); const filled = el('div', 'stacked-total'); filled.style.width = `${Math.max(value ? 4 : 0, Math.min(100, share))}%`;
-      [['resolved', 'resolved', '已解决'], ['unresolved', 'unresolved', '未直接解决'], ['unknown', 'unknown', '待判断']].forEach(([key, className, label]) => { const part = el('i', `stacked-segment ${className}`); part.style.width = `${value ? Number(item[key] || 0) / value * 100 : 0}%`; part.title = `${label}：${item[key] || 0}`; filled.append(part); }); track.append(filled);
-      const meta = el('div', 'stacked-meta'); [['legend-resolved', '已解决', item.resolved], ['legend-unresolved', '未直接解决', item.unresolved], ['legend-unknown', '待判断', item.unknown]].forEach(([className, label, count]) => { const itemMeta = el('span'); itemMeta.append(el('i', className), document.createTextNode(`${label} ${count || 0}`)); meta.append(itemMeta); });
+      [['resolved', 'resolved', '已解决'], ['unresolved', 'unresolved', '未直接解决'], ['unknown', 'unknown', '待判断']].forEach(([key, className, label]) => { const rate = item[`${key}_share`] ?? (value ? Number(item[key] || 0) / value * 100 : 0); const part = el('i', `stacked-segment ${className}`); part.style.width = `${rate}%`; part.title = `${label}：${rate}%`; filled.append(part); }); track.append(filled);
+      const meta = el('div', 'stacked-meta'); [['legend-resolved', '已解决', item.resolved_share], ['legend-unresolved', '未直接解决', item.unresolved_share], ['legend-unknown', '待判断', item.unknown_share]].forEach(([className, label, rate]) => { const itemMeta = el('span'); itemMeta.append(el('i', className), document.createTextNode(`${label} ${rate ?? 0}%`)); meta.append(itemMeta); });
       row.append(head, track, meta);
       if (drilldown && Array.isArray(item.children) && item.children.length) {
         const toggle = el('button', 'topic-drill-toggle', '查看二级专题'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', 'false');
-        const detail = el('div', 'secondary-topic-list hidden'); item.children.forEach(child => { const childRow = el('div', 'secondary-topic-row'); const childShare = child.share ?? 0; const childHead = el('div'); childHead.append(el('strong', '', child.label), el('span', '', `${child.value}次 · ${childShare}%`)); const childTrack = el('div', 'secondary-topic-track'); const childFill = el('div', 'secondary-topic-fill'); childFill.style.width = `${Math.max(child.value ? 4 : 0, Math.min(100, childShare))}%`; [['resolved', '已解决'], ['unresolved', '未直接解决'], ['unknown', '待判断']].forEach(([key, label]) => { const part = el('i', key); part.style.width = `${child.value ? Number(child[key] || 0) / Number(child.value) * 100 : 0}%`; part.title = `${label}：${child[key] || 0}`; childFill.append(part); }); childTrack.append(childFill); const childMeta = el('small', '', `已解决 ${child.resolved || 0} · 未直接解决 ${child.unresolved || 0} · 待判断 ${child.unknown || 0}`); childRow.append(childHead, childTrack, childMeta); detail.append(childRow); });
+        const detail = el('div', 'secondary-topic-list hidden'); item.children.forEach(child => { const childRow = el('div', 'secondary-topic-row'); const childShare = child.share ?? 0; const childHead = el('div'); childHead.append(el('strong', '', child.label), el('span', '', `占比${childShare}%`)); const childTrack = el('div', 'secondary-topic-track'); const childFill = el('div', 'secondary-topic-fill'); childFill.style.width = `${Math.max(child.value ? 4 : 0, Math.min(100, childShare))}%`; [['resolved', '已解决'], ['unresolved', '未直接解决'], ['unknown', '待判断']].forEach(([key, label]) => { const rate = child[`${key}_share`] ?? (child.value ? Number(child[key] || 0) / Number(child.value) * 100 : 0); const part = el('i', key); part.style.width = `${rate}%`; part.title = `${label}：${rate}%`; childFill.append(part); }); childTrack.append(childFill); const childMeta = el('small', '', `已解决 ${child.resolved_share ?? 0}% · 未直接解决 ${child.unresolved_share ?? 0}% · 待判断 ${child.unknown_share ?? 0}%`); childRow.append(childHead, childTrack, childMeta); detail.append(childRow); });
         toggle.addEventListener('click', () => { const expanded = toggle.getAttribute('aria-expanded') === 'true'; toggle.setAttribute('aria-expanded', String(!expanded)); toggle.textContent = expanded ? '查看二级专题' : '收起二级专题'; detail.classList.toggle('hidden', expanded); }); row.append(toggle, detail);
       }
       list.append(row);
     }); target.append(legend, list);
   }
   function renderFacts(target, rows) {
-    target.replaceChildren(); const grid = el('div', 'fact-grid'); (rows || []).forEach(row => { const card = el('div', `fact-card${Number(row.value || 0) > 0 ? ' active' : ''}`); card.append(el('strong', '', row.value), el('span', '', row.label)); grid.append(card); }); target.append(grid);
+    target.replaceChildren(); const grid = el('div', 'fact-grid'); (rows || []).forEach(row => { const share = Number(row.share || 0); const card = el('div', `fact-card${share > 0 ? ' active' : ''}`); card.append(el('strong', '', `${share}%`), el('span', '', row.label)); grid.append(card); }); target.append(grid);
   }
   function dashboardIcon(name) {
     const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
@@ -371,7 +385,7 @@
     if (callers.length) { const total = callers.reduce((sum, item) => sum + Number(item.value || 0), 0); insights.push(`咨询主体以“${callers[0].label}”为主，占已识别来电记录的 ${total ? Math.round(callers[0].value / total * 100) : 0}%。`); }
     if (overview.resolved_rate != null) { const unresolved = (data.resolution_status || []).find(item => item.label === '未直接解决'); insights.push(`已判断记录的直接解决率为 ${overview.resolved_rate}%，未直接解决 ${unresolved?.value || 0} 条。`); }
     if (categories.length && demands.length) insights.push(`咨询较集中于“${categories[0].label}”，主要需求为“${demands[0].label}”。`);
-    const activeFact = [...facts].sort((a, b) => Number(b.value || 0) - Number(a.value || 0))[0]; if (activeFact?.value) insights.push(`历史服务事实中“${activeFact.label}”出现较多，共 ${activeFact.value} 条，建议结合明细持续关注。`);
+    const activeFact = [...facts].sort((a, b) => Number(b.share || 0) - Number(a.share || 0))[0]; if (activeFact?.share) insights.push(`历史服务事实中“${activeFact.label}”占总来电 ${activeFact.share}%，建议结合明细持续关注。`);
     const list = el('div', 'insight-list'); insights.slice(0, 4).forEach((item, index) => { const row = el('div', 'insight-item', item); row.dataset.index = index + 1; list.append(row); }); target.append(list.children.length ? list : el('div', 'empty-chart', '当前数据量不足，暂未形成整体情况分析。'));
   }
 
@@ -417,19 +431,11 @@
     );
     const resolvedCell = el('td', '', resolvedText(item.resolved));
     if (item.work_order) resolvedCell.append(el('small', '', '历史工单'));
-    const serviceState = item.wait_pushback
-      ? '等待推诿'
-      : item.taxpayer_dissatisfied
-        ? '服务不满'
-        : item.contact_unresolved
-          ? '联系后未解决'
-          : '常规记录';
     row.append(
       phoneCell,
       el('td', '', subject),
       questionCell,
       resolvedCell,
-      el('td', '', serviceState),
     );
     row.addEventListener('click', () => openDetail(item.business_id));
     return row;
@@ -437,16 +443,16 @@
 
   async function loadHistory(page = 1) {
     const body = document.querySelector('#history-body');
-    body.replaceChildren(tableMessageRow('正在读取来电记录…', 5));
+    body.replaceChildren(tableMessageRow('正在读取来电记录…', 4));
     try {
       const data = await api('/api/history', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({page, page_size: 10, phone: state.history.phone || null})});
       state.history.page = data.page; state.history.totalPages = data.total_pages; state.history.loaded = true; body.replaceChildren();
-      if (!data.items.length) body.append(tableMessageRow('没有匹配的来电记录', 5));
+      if (!data.items.length) body.append(tableMessageRow('没有匹配的来电记录', 4));
       data.items.forEach(item => body.append(historyRow(item)));
       document.querySelector('#history-summary').textContent = `${data.filtered ? '当前号码' : '全部记录'} · 共 ${data.total} 条`;
       document.querySelector('#history-page-status').textContent = `第 ${data.page} / ${data.total_pages || 1} 页`; document.querySelector('#history-prev').disabled = data.page <= 1; document.querySelector('#history-next').disabled = data.page >= data.total_pages;
     } catch (error) {
-      body.replaceChildren(tableMessageRow(`读取失败：${error.message}`, 5));
+      body.replaceChildren(tableMessageRow(`读取失败：${error.message}`, 4));
     }
   }
   document.querySelector('#history-filter').addEventListener('submit', event => { event.preventDefault(); state.history.phone = document.querySelector('#history-phone').value.trim(); loadHistory(1); });
@@ -472,55 +478,6 @@
   document.querySelector('#detail-close').addEventListener('click', closeDetail); document.querySelector('#detail-overlay').addEventListener('click', event => event.target.id === 'detail-overlay' && closeDetail());
 
   function showcasePanel(title, note = '', className = '') { const panel = el('article', `panel${className ? ` ${className}` : ''}`); const head = el('div', 'panel-head'); const titleWrap = el('div', 'panel-title'); titleWrap.append(el('h2', '', title)); head.append(titleWrap); if (note) head.append(el('span', 'panel-head-note', note)); const body = el('div', 'showcase-panel-body'); panel.append(head, body); return {panel, body}; }
-
-  function renderInference(data) {
-    const root = document.querySelector('#showcase-content'); root.replaceChildren();
-    const before = data.before.result || {}; const after = data.after.result || {}; const changedRows = (data.changes || []).filter(item => item.changed);
-    const result = showcasePanel('增量画像结果', `${data.masked_phone} · ${data.scenario.label}`, 'simulation-panel');
-    const hero = el('div', 'profile-method-hero'); const heroModes = el('div', 'mode-tags'); appendModeTags(heroModes, after.mode_components, text(after.service_mode)); hero.append(el('span', '', '推演后的组合接待策略'), heroModes, el('p', '', text(after.strategy_reason)));
-    const event = el('div', 'simulation-event'); event.append(el('i', '', '＋'), el('span', '', text(data.scenario.event)));
-    const flow = el('div', 'inference-flow');
-    const changedDimensions = changedRows.filter(item => item.field !== '组合接待策略').map(item => item.field);
-    [
-      ['新增来电情景', text(data.scenario.label)],
-      ['画像变化', changedDimensions.length ? changedDimensions.join('、') : '当前画像保持稳定'],
-      ['服务关注', (after.matched_facts || []).length ? after.matched_facts.join('、') : '未出现重点关注信号'],
-      ['接待方式', text(after.service_mode)]
-    ].forEach(([label, value], index) => {
-      const stage = el('div', 'inference-stage'); stage.append(el('span', '', label), el('strong', '', value)); flow.append(stage);
-      if (index < 3) flow.append(el('i', 'inference-arrow', '→'));
-    });
-    const comparison = el('div', 'comparison-grid');
-    const beforeCard = el('div', 'comparison-card'); const beforeTags = el('div', 'mode-tags'); appendModeTags(beforeTags, before.mode_components, text(before.service_mode)); beforeCard.append(el('span', '', '当前组合策略'), beforeTags, el('p', '', text(before.strategy_reason)));
-    const afterCard = el('div', 'comparison-card after'); const afterTags = el('div', 'mode-tags'); appendModeTags(afterTags, after.mode_components, text(after.service_mode)); afterCard.append(el('span', '', '推演后组合策略'), afterTags, el('p', '', text(after.strategy_reason)));
-    comparison.append(beforeCard, el('div', 'comparison-arrow', '→'), afterCard);
-    const changes = el('div', 'change-grid');
-    if (changedRows.length) changedRows.forEach(item => { const card = el('div', 'change-card changed'); const values = el('div', 'change-values'); values.append(el('b', '', text(item.before, '0')), el('i', '', '→'), el('b', '', text(item.after, '0'))); card.append(el('span', '', item.field), values); changes.append(card); });
-    else changes.append(el('div', 'issue-empty', '当前为画像基线回放，各项画像信息保持不变。'));
-    result.body.append(hero, event, flow, comparison, changes, el('div', 'strategy-output', `服务建议：${text(after.service_suggestion)} ${text(after.communication, '')}`)); root.append(result.panel);
-
-    const grid = el('div', 'showcase-grid'); const profile = data.profile || {}; const current = showcasePanel('现有画像基线', data.masked_phone, 'showcase-profile-panel');
-    let subject = text(profile.caller_type, '咨询主体待识别'); if (profile.caller_type === '企业') subject += profile.enterprise_identity && profile.enterprise_identity !== '无法判断' ? ` · ${profile.enterprise_identity}` : ' · 细化主体待判断';
-    const identity = el('div', 'profile-identity'); identity.append(el('span', '', '最近咨询主体'), el('strong', '', subject), el('p', '', `历史来电覆盖：${dateText(profile.first_call_time)} 至 ${dateText(profile.latest_call_time)}`));
-    const facets = el('div', 'profile-facets'); [['最近关注事项', profile.latest_question], ['专题与需求', `${text(profile.topic_category)} · ${text(profile.demand_category)}`]].forEach(([label, value]) => { const card = el('div', 'profile-facet'); card.append(el('label', '', label), el('strong', '', text(value))); facets.append(card); });
-    const dimensions = el('div', 'profile-dimension-summary'); ((data.before.profile_model || {}).items || []).forEach(item => { const card = el('div', 'profile-dimension-item'); card.title = text(item.basis); card.append(el('span', '', item.name), el('strong', '', item.value)); dimensions.append(card); });
-    const baseline = el('div', 'baseline-strategy'); const baselineTags = el('div', 'mode-tags'); appendModeTags(baselineTags, before.mode_components, text(before.service_mode)); baseline.append(el('label', '', '当前组合接待策略'), baselineTags, el('p', '', text(before.strategy_reason))); current.body.append(identity, facets, dimensions, baseline);
-
-    const evidence = showcasePanel('历史证据回放', '选择来电查看画像贡献', 'evidence-panel'); const strip = el('div', 'rolling-strip');
-    [['历史来电', (data.timeline || []).length], ['画像维度', (data.before.profile_model?.items || []).length], ['关注信号', (before.matched_facts || []).length], ['策略分项', (before.mode_components || []).length]].forEach(([label, value]) => { const card = el('div', 'rolling-signal'); card.append(el('strong', '', value), el('span', '', label)); strip.append(card); });
-    const timeline = el('div', 'evidence-timeline'); const explain = el('div', 'evidence-explain', '选择一通来电，可查看它为当前画像提供的依据。');
-    (data.timeline || []).slice(-8).reverse().forEach((item, index) => {
-      const card = el('button', `evidence-item${index === 0 ? ' active' : ''}`); card.type = 'button'; card.append(el('time', '', `${dateText(item.call_time)} · 第${item.index}通`), el('strong', '', text(item.question)), el('span', '', (item.contributions || []).join(' · ')));
-      const show = () => { timeline.querySelectorAll('.evidence-item').forEach(node => node.classList.toggle('active', node === card)); explain.replaceChildren(document.createTextNode(`本通画像贡献：${(item.contributions || []).join('；')}。`)); if (item.business_id) { const action = el('button', 'issue-action', '查看该通完整记录 →'); action.type = 'button'; action.addEventListener('click', () => openDetail(item.business_id)); explain.append(action); } };
-      card.addEventListener('click', show); timeline.append(card); if (index === 0) setTimeout(show, 0);
-    });
-    if (!timeline.children.length) timeline.append(el('div', 'issue-empty', '当前画像暂无可回放的来电记录。'));
-    evidence.body.append(strip, timeline, explain); grid.append(current.panel, evidence.panel); root.append(grid);
-
-    const methodology = el('details', 'panel methodology-details'); methodology.append(el('summary', '', '查看画像形成说明')); const methodologyBody = el('div', 'showcase-panel-body');
-    (state.showcaseCatalog?.methodology || []).forEach((item, index) => { const content = typeof item === 'string' ? item : `${item.title}：${item.description}`; const card = el('div', 'methodology-item', content); card.append(el('i', '', index + 1)); methodologyBody.append(card); }); methodology.append(methodologyBody);
-    root.append(methodology, el('div', 'showcase-disclaimer', '本次为情景推演，结果仅供演示参考。'));
-  }
 
   function renderGraph(data) {
     if (state.graphCleanup) state.graphCleanup();
@@ -630,8 +587,8 @@
   function renderClassificationCatalog(data) {
     const taxonomy = state.showcaseCatalog.taxonomy || {}; const panel = showcasePanel('完整分类与判定规则', data ? '当前画像与三个分项模式已同步突出' : '三维特征、五项事实、三类八项接待方式');
     const activeLabels = new Set(); ((data?.before?.profile_model || {}).items || []).forEach(item => (item.values || []).forEach(value => activeLabels.add(`${item.id}:${value}`))); const activeModeIds = new Set((data?.before?.result?.mode_components || []).map(item => item.mode_id));
-    const dimensions = el('section', 'taxonomy-section'); const dHead = el('div', 'taxonomy-section-head'); dHead.append(el('strong', '', '三维画像字段'), el('span', '', data ? '蓝色标签为当前画像' : '用于识别当前服务需求')); const dGrid = el('div', 'dimension-catalog'); (taxonomy.dimensions || []).forEach(dimension => { const hasCurrent = data && ((data.before.profile_model?.items || []).some(item => item.id === dimension.id)); const card = el('article', `dimension-card${hasCurrent ? ' active' : ''}`); const head = el('div', 'dimension-card-head'); head.append(el('strong', '', dimension.name), el('span', '', `${dimension.categories.length} 类`)); const tags = el('div', 'taxonomy-tags'); [...dimension.categories, dimension.unknown].forEach(category => tags.append(el('span', activeLabels.has(`${dimension.id}:${category}`) ? 'active' : '', category))); card.append(head, el('p', '', dimension.description), tags); dGrid.append(card); }); dimensions.append(dHead, dGrid);
-    const modes = el('section', 'taxonomy-section'); const mHead = el('div', 'taxonomy-section-head'); mHead.append(el('strong', '', '三类组合接待方式'), el('span', '', data ? '每类彩色边框项为当前结果' : '每个类别选择一项，三个结果同时生效')); const groupGrid = el('div', 'service-mode-groups'); (taxonomy.service_mode_groups || []).forEach(group => { const groupCard = el('section', `service-mode-group ${modeClass({category_id: group.id})}`); const head = el('div', 'service-mode-group-head'); head.append(el('strong', '', group.label), el('span', '', `${(group.modes || []).length} 种接待方式`)); const grid = el('div', 'service-mode-catalog'); (group.modes || []).forEach(mode => { const card = el('article', `service-mode-card${activeModeIds.has(mode.id) ? ' active' : ''}`); card.append(el('strong', '', mode.label), el('p', '', mode.focus), el('div', 'composite-meta', `判定规则：${mode.rule}`), el('div', 'composite-meta', `沟通建议：${mode.communication}`)); grid.append(card); }); groupCard.append(head, el('p', 'service-mode-group-description', group.description), grid); groupGrid.append(groupCard); }); modes.append(mHead, groupGrid); panel.body.append(dimensions, modes); return panel.panel;
+    const dimensions = el('section', 'taxonomy-section'); const dHead = el('div', 'taxonomy-section-head'); dHead.append(el('strong', 'taxonomy-major-heading', '纳税人画像字段'), el('span', '', data ? '蓝色标签为当前画像' : '用于识别当前服务需求')); const dGrid = el('div', 'dimension-catalog'); (taxonomy.dimensions || []).forEach(dimension => { const hasCurrent = data && ((data.before.profile_model?.items || []).some(item => item.id === dimension.id)); const card = el('article', `dimension-card${hasCurrent ? ' active' : ''}`); const head = el('div', 'dimension-card-head'); head.append(el('strong', '', dimension.name), el('span', '', `${dimension.categories.length} 类`)); const tags = el('div', 'taxonomy-tags'); [...dimension.categories, dimension.unknown].forEach(category => tags.append(el('span', activeLabels.has(`${dimension.id}:${category}`) ? 'active' : '', category))); card.append(head, el('p', '', dimension.description), tags); dGrid.append(card); }); dimensions.append(dHead, dGrid);
+    const modes = el('section', 'taxonomy-section'); const mHead = el('div', 'taxonomy-section-head'); mHead.append(el('strong', 'taxonomy-major-heading', '坐席接待方式'), el('span', '', data ? '每类彩色边框项为当前结果' : '每个类别选择一项，三个结果同时生效')); const groupGrid = el('div', 'service-mode-groups'); (taxonomy.service_mode_groups || []).forEach(group => { const groupCard = el('section', `service-mode-group ${modeClass({category_id: group.id})}`); const head = el('div', 'service-mode-group-head'); head.append(el('strong', '', group.label), el('span', '', `${(group.modes || []).length} 种接待方式`)); const grid = el('div', 'service-mode-catalog'); (group.modes || []).forEach(mode => { const card = el('article', `service-mode-card${activeModeIds.has(mode.id) ? ' active' : ''}`); card.append(el('strong', '', mode.label), el('p', '', mode.focus), el('div', 'composite-meta', `判定规则：${mode.rule}`), el('div', 'composite-meta', `沟通建议：${mode.communication}`)); grid.append(card); }); groupCard.append(head, el('p', 'service-mode-group-description', group.description), grid); groupGrid.append(groupCard); }); modes.append(mHead, groupGrid); panel.body.append(dimensions, modes); return panel.panel;
   }
 
   function profileOption(item, index) {
@@ -650,30 +607,25 @@
     return query.trim() ? `找到 ${shown} 个匹配结果；最多展示5个` : `默认展示最近 ${shown} 个；其余 ${Math.max(0, count - shown)} 个可通过号码或序号搜索`;
   }
 
-  async function searchProfiles(query, target) {
-    const isKnowledge = target === 'knowledge'; const requestKey = isKnowledge ? 'knowledgeSearchRequest' : 'showcaseSearchRequest'; const request = ++state[requestKey];
-    const select = document.querySelector(isKnowledge ? '#knowledge-profile-select' : '#showcase-profile-select'); const meta = document.querySelector(isKnowledge ? '#knowledge-index-meta' : '#showcase-index-meta');
+  async function searchProfiles(query) {
+    const request = ++state.knowledgeSearchRequest;
+    const select = document.querySelector('#knowledge-profile-select'); const meta = document.querySelector('#knowledge-index-meta');
     meta.textContent = '正在检索号码画像…';
     try {
-      const catalog = await api(`/api/showcase/catalog?limit=5&q=${encodeURIComponent(query.trim())}`); if (request !== state[requestKey]) return;
+      const catalog = await api(`/api/showcase/catalog?limit=5&q=${encodeURIComponent(query.trim())}`); if (request !== state.knowledgeSearchRequest) return;
       state.showcaseCatalog = {...state.showcaseCatalog, ...catalog, items:catalog.items}; const changed = replaceProfileOptions(select, catalog.items || []); meta.textContent = profileSearchMeta(catalog, query);
-      if (select.value && (changed || query.trim())) { if (isKnowledge) await loadGraphInstance(); else await loadShowcase(); }
-    } catch (error) { if (request === state[requestKey]) meta.textContent = `检索失败：${error.message}`; }
+      if (select.value && (changed || query.trim())) await loadGraphInstance();
+    } catch (error) { if (request === state.knowledgeSearchRequest) meta.textContent = `检索失败：${error.message}`; }
   }
 
   async function loadShowcaseCatalog() {
     try {
-      const catalog = await api('/api/showcase/catalog?limit=5'); state.showcaseCatalog = catalog; const select = document.querySelector('#showcase-profile-select'); const knowledgeSelect = document.querySelector('#knowledge-profile-select'); replaceProfileOptions(select, catalog.items || []); replaceProfileOptions(knowledgeSelect, catalog.items || []); document.querySelector('#showcase-index-meta').textContent = profileSearchMeta(catalog); document.querySelector('#knowledge-index-meta').textContent = profileSearchMeta(catalog);
-      const scenarios = document.querySelector('#showcase-scenarios'); scenarios.replaceChildren(); (catalog.scenarios || []).forEach((item, index) => { const button = el('button', `scenario-tab${item.id === state.showcaseScenario ? ' active' : ''}`); button.type = 'button'; const copy = el('div'); copy.append(el('strong', '', item.label), el('span', '', item.description)); button.append(el('i', '', String(index + 1).padStart(2, '0')), copy); button.addEventListener('click', () => { state.showcaseScenario = item.id; scenarios.querySelectorAll('button').forEach(node => node.classList.toggle('active', node === button)); loadShowcase(); }); scenarios.append(button); }); if (select.value) loadShowcase();
-    } catch (error) { document.querySelector('#showcase-status').textContent = `画像目录读取失败：${error.message}`; }
+      const catalog = await api('/api/showcase/catalog?limit=5'); state.showcaseCatalog = catalog; const knowledgeSelect = document.querySelector('#knowledge-profile-select'); replaceProfileOptions(knowledgeSelect, catalog.items || []); document.querySelector('#knowledge-index-meta').textContent = profileSearchMeta(catalog); renderGraph(null);
+    } catch (error) { document.querySelector('#knowledge-mode-status').textContent = `画像目录读取失败：${error.message}`; }
   }
-  async function loadShowcase() { const key = document.querySelector('#showcase-profile-select').value; if (!key) return; const request = ++state.showcaseRequest; const status = document.querySelector('#showcase-status'); status.textContent = '正在回放历史信息并生成推演结果…'; try { const data = await api('/api/showcase', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({profile_key:key, scenario:state.showcaseScenario})}); if (request !== state.showcaseRequest) return; renderInference(data); status.textContent = `${data.masked_phone} · ${data.scenario.label} · 情景推演结果仅供参考`; } catch(error) { if (request === state.showcaseRequest) status.textContent = `推演失败：${error.message}`; } }
-  document.querySelector('#showcase-profile-select').addEventListener('change', loadShowcase);
-  let showcaseSearchTimer = 0; document.querySelector('#showcase-profile-search').addEventListener('input', event => { clearTimeout(showcaseSearchTimer); showcaseSearchTimer = setTimeout(() => searchProfiles(event.target.value, 'inference'), 260); });
-  let knowledgeSearchTimer = 0; document.querySelector('#knowledge-profile-search').addEventListener('input', event => { clearTimeout(knowledgeSearchTimer); knowledgeSearchTimer = setTimeout(() => searchProfiles(event.target.value, 'knowledge'), 260); });
-  document.querySelectorAll('[data-showcase-module]').forEach(button => button.addEventListener('click', () => { const knowledge = button.dataset.showcaseModule === 'knowledge'; document.querySelector('#showcase-inference-module').classList.toggle('hidden', knowledge); document.querySelector('#showcase-knowledge-module').classList.toggle('hidden', !knowledge); document.querySelectorAll('[data-showcase-module]').forEach(node => node.classList.toggle('active', node === button)); if (knowledge) renderGraph(null); else if (state.graphCleanup) { state.graphCleanup(); state.graphCleanup = null; } }));
+  let knowledgeSearchTimer = 0; document.querySelector('#knowledge-profile-search').addEventListener('input', event => { clearTimeout(knowledgeSearchTimer); knowledgeSearchTimer = setTimeout(() => searchProfiles(event.target.value), 260); });
   document.querySelectorAll('[data-knowledge-mode]').forEach(button => button.addEventListener('click', async () => { const instance = button.dataset.knowledgeMode === 'instance'; document.querySelectorAll('[data-knowledge-mode]').forEach(node => node.classList.toggle('active', node === button)); document.querySelector('#knowledge-profile-wrap').classList.toggle('hidden', !instance); if (!instance) { document.querySelector('#knowledge-mode-status').textContent = '当前展示整体画像方法论，不关联具体号码。'; renderGraph(null); } else { await loadGraphInstance(); } }));
-  async function loadGraphInstance() { const key = document.querySelector('#knowledge-profile-select').value; if (!key) return; try { const data = await api('/api/showcase', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({profile_key:key, scenario:'baseline'})}); document.querySelector('#knowledge-mode-status').textContent = `${data.masked_phone} · 仅高亮该号码当前画像，不影响增量推演。`; renderGraph(data); } catch(error) { document.querySelector('#knowledge-mode-status').textContent = `读取失败：${error.message}`; } }
+  async function loadGraphInstance() { const key = document.querySelector('#knowledge-profile-select').value; if (!key) return; try { const data = await api('/api/showcase', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({profile_key:key})}); document.querySelector('#knowledge-mode-status').textContent = `${data.masked_phone} · 仅高亮该号码当前画像，不改变已有画像数据。`; renderGraph(data); } catch(error) { document.querySelector('#knowledge-mode-status').textContent = `读取失败：${error.message}`; } }
   document.querySelector('#knowledge-profile-select').addEventListener('change', loadGraphInstance);
 
   async function loadUsers() {

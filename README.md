@@ -108,6 +108,9 @@ python scripts/generate_local_secrets.py
 `申请人员身份`仅作为身份判断证据，不直接作为最终分析结论。其他分析字段由当前
 规则或模型重新生成；输入文件不需要包含历史流程中的可选判断字段。
 
+`咨询主体`由当前模型根据原始业务证据判定，结果只会是“企业”或“个人”。常规
+增量不会读取或依赖旧表可能存在的`咨询主体(大模型判断)`列。
+
 批次处理遵循以下一致性规则：
 
 - 相同批次指纹且已成功完成时，直接幂等跳过；
@@ -158,6 +161,28 @@ python scripts/update_database.py /path/to/incremental.xlsx \
 批次开始、完成、行处理失败和熔断事件以单行 JSON 输出。运行日志不记录电话号码、
 转写内容、业务原文或模型提示词。
 
+## 修复历史咨询主体
+
+仅当已有历史库中存在空值或“无法判断”的咨询主体，且手中有经确认的旧来源列
+`咨询主体(大模型判断)`时，才使用以下受控修复命令。该命令不是日常增量导入方式：
+它只修复缺失结果，不覆盖已有“企业/个人”结果。
+
+先预览影响范围：
+
+```bash
+python scripts/backfill_caller_type.py /path/to/legacy.xlsx \
+  --database /path/to/profiles.sqlite3
+```
+
+确认后加上 `--apply`。写入前会自动在数据库同目录创建带时间戳的备份，并同步重建
+受影响号码画像：
+
+```bash
+python scripts/backfill_caller_type.py /path/to/legacy.xlsx \
+  --database /path/to/profiles.sqlite3 \
+  --apply
+```
+
 ## 启动服务
 
 ```bash
@@ -169,8 +194,7 @@ python scripts/run_demo.py \
 
 启动后访问 `http://127.0.0.1:8000`。
 
-当前 HTTP 服务用于受控单机环境。需要跨主机访问时，应在完成安全评估后配置反向
-代理、TLS、网络访问控制、日志留存和数据库备份，不应直接将内置服务暴露到公网。
+当前 HTTP 服务面向本机演示与受控使用，不应直接暴露到公网。
 
 ## 导出结果
 

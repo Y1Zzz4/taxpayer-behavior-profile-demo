@@ -24,7 +24,7 @@ RepeatReason = Literal[
     "已解决后再次确认",
     "无法判断",
 ]
-CallerType = Literal["个人", "企业", "无法判断"]
+CallerType = Literal["个人", "企业"]
 EnterpriseIdentity = Literal[
     "法定代表人", "财务负责人", "办税人员", "其他", "无法判断", "不适用"
 ]
