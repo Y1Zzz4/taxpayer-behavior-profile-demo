@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -10,18 +10,25 @@ from sqlalchemy import select
 
 from taxpayer_profile.database import make_engine, make_session_factory
 from taxpayer_profile.models import CallerProfile, CallTrajectory
+from taxpayer_profile.profiles.aggregation import repeat_label_is_active
 from taxpayer_profile.profiling import classify_reception_mode
 from taxpayer_profile.security import PhoneProtector, normalize_phone
+from taxpayer_profile.service_calendar import recent_service_days
 
 
 def _five_workdays(anchor: date) -> list[date]:
-    days: list[date] = []
-    current = anchor
-    while len(days) < 5:
-        if current.weekday() < 5:
-            days.append(current)
-        current -= timedelta(days=1)
-    return sorted(days)
+    """Compatibility name for the five-day statutory service window."""
+
+    return recent_service_days(anchor, count=5)
+
+
+def _recent_service_items(trajectories: list[CallTrajectory]) -> list[CallTrajectory]:
+    """Select one phone's calls in the latest five statutory workdays."""
+
+    if not trajectories:
+        return []
+    allowed = set(_five_workdays(trajectories[0].call_time.date()))
+    return [item for item in trajectories if item.call_time.date() in allowed]
 
 
 def _abnormal(item: CallTrajectory) -> bool:
@@ -57,38 +64,12 @@ def _recent_workday_statistics(
 ) -> dict[str, Any]:
     latest = trajectories[0]
     workdays = _five_workdays(latest.call_time.date())
-    allowed = set(workdays)
-    recent = [item for item in trajectories if item.call_time.date() in allowed]
-    latest_demands = {
-        label.strip()
-        for label in (latest.demand_category or "").replace("，", ",").split(",")
-        if label.strip()
-    }
-    if latest_demands:
-        same_kind = sum(
-            bool(
-                latest_demands
-                & {
-                    label.strip()
-                    for label in (item.demand_category or "")
-                    .replace("，", ",")
-                    .split(",")
-                    if label.strip()
-                }
-            )
-            for item in recent
-        )
-    elif latest.topic_category:
-        same_kind = sum(
-            item.topic_category == latest.topic_category for item in recent
-        )
-    else:
-        same_kind = 0
+    recent = _recent_service_items(trajectories)
     return {
         "start_date": workdays[0].isoformat(),
         "end_date": workdays[-1].isoformat(),
         "call_count": len(recent),
-        "same_demand_count": same_kind,
+        "repeated_issue_count": sum(repeat_label_is_active(item) for item in recent),
         "work_order_count": sum(item.work_order is True for item in recent),
         "wait_pushback_count": sum(_wait_pushback(item) for item in recent),
         "abnormal_end_count": sum(_abnormal(item) for item in recent),
@@ -302,6 +283,11 @@ def query_profile(
     recent_stats = _recent_workday_statistics(trajectories)
     mode = _mode_payload(profile, recent_stats)
     serialized = [_full_trajectory(item) for item in trajectories]
+    recent_items = _recent_service_items(trajectories)
+    recent_serialized = [_full_trajectory(item) for item in recent_items]
+    active_repeat_ids = {
+        item.business_id for item in recent_items if repeat_label_is_active(item)
+    }
     latest = trajectories[0]
     return {
         "caller_type": profile.caller_type,
@@ -337,20 +323,22 @@ def query_profile(
         "repeated_questions_summary": profile.repeated_questions_summary,
         "recent_workday_statistics": recent_stats,
         "history_focus": {
-            "same_demand": [
-                item for item in serialized if item["is_repeated_issue"] is True
+            "repeated_issues": [
+                item
+                for item in recent_serialized
+                if item["business_id"] in active_repeat_ids
             ],
-            "work_orders": [item for item in serialized if item["work_order"] is True],
+            "work_orders": [item for item in recent_serialized if item["work_order"] is True],
             "wait_pushback": [
-                item for item in serialized if item["wait_pushback"] is True
+                item for item in recent_serialized if item["wait_pushback"] is True
             ],
             "dissatisfaction": [
                 item
-                for item in serialized
+                for item in recent_serialized
                 if item["taxpayer_dissatisfied"] is True
             ],
             "unresolved": [
-                item for item in serialized if item["resolved"] is False
+                item for item in recent_serialized if item["resolved"] is False
             ],
         },
         "agent_context": build_agent_context(profile, trajectories),

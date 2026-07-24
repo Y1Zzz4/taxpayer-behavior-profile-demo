@@ -403,12 +403,12 @@ def test_showcase_catalog_returns_five_defaults_and_searches_all_profiles(
     assert "13800000001" not in str(searched_catalog)
 
 
-def test_information_overview_uses_five_workdays_and_overlapping_demand_labels() -> None:
+def test_information_overview_uses_five_statutory_service_days() -> None:
     assert [item.isoformat() for item in _five_workdays(datetime(2026, 6, 22).date())] == [
+        "2026-06-15",
         "2026-06-16",
         "2026-06-17",
         "2026-06-18",
-        "2026-06-19",
         "2026-06-22",
     ]
     trajectories = [
@@ -419,6 +419,8 @@ def test_information_overview_uses_five_workdays_and_overlapping_demand_labels()
             work_order=False,
             resolved_status=True,
             taxpayer_dissatisfied=False,
+            is_repeated_issue=False,
+            repeat_label_expires_at=None,
         ),
         SimpleNamespace(
             call_time=datetime(2026, 6, 21, 9),
@@ -427,6 +429,8 @@ def test_information_overview_uses_five_workdays_and_overlapping_demand_labels()
             work_order=True,
             resolved_status=False,
             taxpayer_dissatisfied=True,
+            is_repeated_issue=True,
+            repeat_label_expires_at=None,
         ),
         SimpleNamespace(
             call_time=datetime(2026, 6, 19, 9),
@@ -435,6 +439,8 @@ def test_information_overview_uses_five_workdays_and_overlapping_demand_labels()
             work_order=False,
             resolved_status=True,
             taxpayer_dissatisfied=False,
+            is_repeated_issue=False,
+            repeat_label_expires_at=None,
         ),
         SimpleNamespace(
             call_time=datetime(2026, 6, 16, 9),
@@ -443,14 +449,16 @@ def test_information_overview_uses_five_workdays_and_overlapping_demand_labels()
             work_order=True,
             resolved_status=False,
             taxpayer_dissatisfied=False,
+            is_repeated_issue=True,
+            repeat_label_expires_at=None,
         ),
     ]
 
     assert _recent_workday_statistics(trajectories) == {
-        "start_date": "2026-06-16",
+        "start_date": "2026-06-15",
         "end_date": "2026-06-22",
-        "call_count": 3,
-        "same_demand_count": 2,
+        "call_count": 2,
+        "repeated_issue_count": 1,
         "work_order_count": 1,
         "wait_pushback_count": 0,
         "abnormal_end_count": 0,

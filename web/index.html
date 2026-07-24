@@ -170,15 +170,15 @@
     .mode-tag.emotion-response { color: #75469e; background: #f5edfb; border-color: #dfc9ef; }
     .mode-tag.matter-continuity { color: #8a571e; background: #fff4e7; border-color: #efd5b5; }
     .mode-tag.information-delivery { color: #286c91; background: #eaf6fb; border-color: #c7e2ee; }
-    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(78px, 1fr)); gap: 10px; align-content: stretch; }
-    .metric { min-height: 0; padding: 14px 15px; background: #f7f8fb; border: 1px solid #eaecf2; border-top: 3px solid #8190d8; border-radius: 8px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(92px, 1fr)); gap: 10px; align-content: stretch; }
+    .metric { position: relative; min-height: 0; padding: 13px 14px 12px; background: linear-gradient(145deg, #fff, #f5f7fc); border: 1px solid #e2e6ef; border-top: 3px solid #8190d8; border-radius: 10px; box-shadow: 0 3px 9px rgba(47,58,92,.04); }
     .metric:nth-child(2) { border-top-color: #8470c8; }
     .metric:nth-child(3) { border-top-color: #28a394; }
     .metric:nth-child(4) { border-top-color: #dda440; }
     .metric:nth-child(5) { border-top-color: #d56b76; }
     .metric:nth-child(6) { border-top-color: #da7f46; }
-    .metric span { display: block; color: var(--muted); font-size: 10px; }
-    .metric b { display: block; margin-top: 5px; color: #343c55; font-size: 22px; font-variant-numeric: tabular-nums; }
+    .metric span { position: absolute; left: 14px; top: 13px; color: #667287; font-size: 12px; font-weight: 750; line-height: 1.35; }
+    .metric b { position: absolute; inset: 0; display: grid; place-items: center; padding-top: 8px; color: #303a55; font-size: clamp(26px, 2vw, 32px); font-variant-numeric: tabular-nums; letter-spacing: -.03em; line-height: 1; }
     .priority { grid-column: 1 / -1; padding: 12px 14px; border-left: 4px solid var(--primary-2); background: #f1f3ff; border-radius: 0 7px 7px 0; line-height: 1.65; font-size: 13px; }
     .priority.warning { color: #70490f; background: var(--warning-soft); border-left-color: var(--warning); }
     .work-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); gap: 18px; align-items: start; }
@@ -392,6 +392,8 @@
     .showcase-logic span { padding: 5px 9px; color: #56627c; background: rgba(255,255,255,.72); border: 1px solid #dfe3ed; border-radius: 7px; font-size: 9px; font-weight: 700; white-space: nowrap; }
     .showcase-logic i { color: #3aa294; font-size: 11px; font-style: normal; }
     .showcase-logic p { margin: 0; color: #7b8495; font-size: 9px; line-height: 1.5; text-align: right; }
+    .profile-update-notice { display: grid; grid-template-columns: auto 1fr; gap: 13px; align-items: start; margin: -3px 0 14px; padding: 11px 14px; color: #536079; background: #f4f8f7; border: 1px solid #d8e8e3; border-left: 4px solid #2d9d8f; border-radius: 0 9px 9px 0; font-size: 10px; line-height: 1.65; }
+    .profile-update-notice strong { color: #256e65; font-size: 11px; white-space: nowrap; }
     .showcase-search { position: relative; margin-bottom: 8px; }
     .showcase-search::before { content: "⌕"; position: absolute; left: 11px; top: 50%; color: #768399; font-size: 17px; transform: translateY(-52%); pointer-events: none; }
     .showcase-search input { height: 37px; padding-left: 35px; background: #f8f9fc; border-color: #dfe3eb; }
@@ -640,6 +642,7 @@
       .showcase-logic { grid-template-columns: 1fr; gap: 9px; }
       .showcase-logic > div { justify-content: flex-start; overflow-x: auto; }
       .showcase-logic p { text-align: left; }
+      .profile-update-notice { grid-template-columns: 1fr; gap: 4px; }
       .knowledge-view-controls { grid-template-columns: 1fr; align-items: stretch; }
       .knowledge-mode-status { grid-column: auto; }
       .knowledge-summary, .taxonomy-overview { grid-template-columns: repeat(2, 1fr); }
@@ -771,7 +774,7 @@
         </article>
         <article class="panel profile-panel">
           <div class="panel-head">
-            <div class="panel-title"><h2>未解决历史问题衔接</h2></div>
+            <div class="panel-title"><h2>未解决问题衔接（近五个工作日）</h2></div>
             <button id="view-current-history" class="button secondary compact hidden" type="button">查看全部来电</button>
           </div>
           <div id="profile" class="panel-body placeholder">请输入来电号码查询需要衔接的历史问题。</div>
@@ -796,7 +799,7 @@
       <div id="dashboard-metrics" class="dashboard-metrics"></div>
       <section class="dashboard-grid">
         <article class="panel span-12 accent-indigo">
-          <div class="panel-head"><div class="panel-title"><h2>来电量趋势</h2></div><span class="panel-head-note">最近14个自然日（以库内最新日期为准）</span></div>
+          <div class="panel-head"><div class="panel-title"><h2>来电量趋势</h2></div><span class="panel-head-note">最近14个工作日（剔除法定节假日，含调休）</span></div>
           <div id="daily-chart" class="chart-body trend-only"></div>
         </article>
         <article class="panel span-4 accent-indigo">
@@ -853,6 +856,11 @@
         <div><span>业务专业度</span><i>+</i><span>近期情绪状态</span><i>+</i><span>五项历史事实</span><i>→</i><span>三类组合策略</span></div>
         <p>从表达方式、情绪响应和业务应对中各选择一项，组合形成完整接待策略。</p>
       </section>
+
+      <aside class="profile-update-notice" aria-label="画像动态更新说明">
+        <strong>画像动态更新说明</strong>
+        <span>每次导入并完成一通新来电后，系统会按该号码的完整历史重新聚合画像、近五个工作日事实和坐席接待方式。本页只展示已入库结果，不进行模拟写入。</span>
+      </aside>
 
       <section id="showcase-knowledge-module" class="showcase-module">
         <section class="panel knowledge-view-controls">

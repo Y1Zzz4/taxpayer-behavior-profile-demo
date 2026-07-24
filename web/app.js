@@ -181,7 +181,7 @@
     const recent = profile.recent_workday_statistics || {};
     const metrics = el('div', 'metrics');
     metric(metrics, '历史来电', recent.call_count);
-    metric(metrics, '重复诉求', recent.same_demand_count);
+    metric(metrics, '重复诉求', recent.repeated_issue_count);
     metric(metrics, '历史工单', recent.work_order_count);
     metric(metrics, '等待推诿', recent.wait_pushback_count);
     metric(metrics, '服务不满', recent.dissatisfaction_count);
@@ -233,7 +233,7 @@
     const box = document.querySelector('#profile');
     box.className = 'panel-body'; box.replaceChildren();
     const groups = profile.history_focus || {};
-    issueSection(box, '重复诉求', groups.same_demand || [], '当前没有已确认的重复诉求。');
+    issueSection(box, '重复诉求', groups.repeated_issues || [], '当前没有已确认的重复诉求。');
     issueSection(box, '历史工单', groups.work_orders || [], '当前没有历史工单记录。');
     issueSection(box, '等待推诿', groups.wait_pushback || [], '当前没有同时命中等待和潜在推诿的记录。');
     issueSection(box, '服务不满', groups.dissatisfaction || [], '当前没有对坐席或本通服务不满的记录。');

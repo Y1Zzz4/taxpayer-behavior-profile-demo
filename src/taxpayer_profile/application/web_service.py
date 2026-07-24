@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from dataclasses import dataclass
-from datetime import timedelta
 from functools import cached_property
 from math import ceil
 from pathlib import Path
@@ -44,6 +43,7 @@ from taxpayer_profile.realtime_advice import (
     generate_realtime_advice,
 )
 from taxpayer_profile.security import PhoneProtector
+from taxpayer_profile.service_calendar import recent_service_days
 
 REALTIME_ADVICE_TIMEOUT_SECONDS = 25.0
 
@@ -122,12 +122,7 @@ def _recent_five_workday_items(
     if not items:
         return []
     anchor = max(item.call_time.date() for item in items)
-    workdays = set()
-    current = anchor
-    while len(workdays) < 5:
-        if current.weekday() < 5:
-            workdays.add(current)
-        current -= timedelta(days=1)
+    workdays = set(recent_service_days(anchor, count=5))
     return [item for item in items if item.call_time.date() in workdays]
 
 
@@ -388,7 +383,7 @@ class DemoService:
         trend_dates = []
         if sorted_dates:
             latest_date = max(item.call_time.date() for item in trajectories)
-            trend_dates = [latest_date - timedelta(days=offset) for offset in range(13, -1, -1)]
+            trend_dates = recent_service_days(latest_date, count=14)
         facts = _fact_counts(trajectories)
         fact_rows = [
             {

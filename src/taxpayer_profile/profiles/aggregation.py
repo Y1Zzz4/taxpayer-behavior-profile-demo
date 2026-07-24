@@ -7,13 +7,14 @@ history and can therefore be rebuilt safely whenever aggregation rules change.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from taxpayer_profile.models import CallerProfile, CallTrajectory
 from taxpayer_profile.profiling import (
     normalize_proficiency_level,
     weighted_proficiency,
 )
+from taxpayer_profile.service_calendar import recent_service_days
 
 
 def trajectory_key(trajectory: CallTrajectory) -> tuple[datetime, str]:
@@ -123,20 +124,10 @@ def _personalized_profile_summary(profile: CallerProfile) -> str:
 def _recent_five_workday_items(
     ordered: list[CallTrajectory],
 ) -> list[CallTrajectory]:
-    """Return calls in the five weekdays ending at the latest call date.
-
-    This is intentionally a weekday window rather than a holiday calendar. It
-    preserves the established business rule until an authoritative holiday
-    source is introduced.
-    """
+    """Return calls in the five statutory workdays ending at the latest call."""
 
     anchor = ordered[-1].call_time.date()
-    workdays: set[date] = set()
-    current = anchor
-    while len(workdays) < 5:
-        if current.weekday() < 5:
-            workdays.add(current)
-        current -= timedelta(days=1)
+    workdays = set(recent_service_days(anchor, count=5))
     return [item for item in ordered if item.call_time.date() in workdays]
 
 
