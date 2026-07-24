@@ -42,7 +42,6 @@ DemandCategory = Literal[
     "其他类",
 ]
 PROMPT_VERSION = "call-extraction-v9"
-HISTORY_ENRICHMENT_PROMPT_VERSION = "history-enrichment-v1"
 REPEAT_PROMPT_VERSION = "repeat-issue-v4"
 REALTIME_ADVICE_PROMPT_VERSION = "realtime-service-advice-v8"
 
@@ -103,48 +102,6 @@ class CallExtractionResult(BaseModel):
             and self.effective_qa_turns > self.natural_qa_turns
         ):
             raise ValueError("有效问答轮次不能大于自然问答轮次")
-        if self.resolved_status is False and not self.unresolved_reason:
-            raise ValueError("未直接解决时必须提供简要原因")
-        if self.resolved_status is not False and self.unresolved_reason is not None:
-            raise ValueError("直接解决或无法判断时未解决原因必须为空")
-        return self
-
-
-class HistoryEnrichmentResult(BaseModel):
-    """Compact model output for trusted history whose analytical facts already exist."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    core_question: str | None = Field(default=None, max_length=300)
-    father_question: str | None = Field(default=None, max_length=300)
-    father_question_2: str | None = Field(default=None, max_length=300)
-    agent_answer_summary: str | None = Field(max_length=300)
-    demand_categories: list[DemandCategory] = Field(min_length=1, max_length=2)
-    caller_type: CallerType
-    explicit_enterprise_identity: EnterpriseIdentity
-    resolved_status: bool | None
-    unresolved_reason: str | None = Field(default=None, max_length=300)
-    proficiency_score: float | None = Field(default=None, ge=1, le=10)
-    proficiency_summary: str = Field(min_length=1, max_length=200)
-    proficiency_level: ProficiencyLevel = "暂无法判断"
-    proficiency_basis: str = Field(min_length=1, max_length=300)
-    emotion_state: EmotionState = "暂无法判断"
-    emotion_basis: str = Field(min_length=1, max_length=300)
-    service_rating: ServiceRating
-    service_summary: str = Field(min_length=1, max_length=300)
-
-    @model_validator(mode="after")
-    def validate_consistency(self) -> "HistoryEnrichmentResult":
-        if self.proficiency_score is None and self.proficiency_summary != "无法判断":
-            raise ValueError("熟练度为空时说明必须为“无法判断”")
-        if self.proficiency_level == "暂无法判断" and self.proficiency_score is not None:
-            self.proficiency_level = (
-                "专业"
-                if self.proficiency_score >= 8
-                else "了解"
-                if self.proficiency_score >= 5
-                else "小白"
-            )
         if self.resolved_status is False and not self.unresolved_reason:
             raise ValueError("未直接解决时必须提供简要原因")
         if self.resolved_status is not False and self.unresolved_reason is not None:
@@ -277,7 +234,6 @@ class OpenAICompatibleClient:
     max_attempts: int = 3
     prompt_path: Path = PROJECT_ROOT / "prompts/repeat_issue_system.txt"
     extraction_prompt_path: Path = PROJECT_ROOT / "prompts/call_extraction_system.txt"
-    history_prompt_path: Path = PROJECT_ROOT / "prompts/history_enrichment_system.txt"
     advice_prompt_path: Path = PROJECT_ROOT / "prompts/realtime_service_advice_system.txt"
 
     @cached_property
@@ -347,16 +303,6 @@ class OpenAICompatibleClient:
             prompt_path=self.extraction_prompt_path,
             result_type=CallExtractionResult,
             max_tokens=4096,
-        )
-
-    def analyze_history(
-        self, payload: dict[str, str | None]
-    ) -> HistoryEnrichmentResult:
-        return self._request_json(
-            payload=payload,
-            prompt_path=self.history_prompt_path,
-            result_type=HistoryEnrichmentResult,
-            max_tokens=2048,
         )
 
     def analyze_repeat_issue(self, payload: dict[str, object]) -> RepeatIssueModelResult:

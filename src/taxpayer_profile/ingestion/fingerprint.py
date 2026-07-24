@@ -14,7 +14,6 @@ def batch_processing_fingerprint(
     source_fingerprint: str,
     input_mode: str,
     analysis_version: str,
-    trusted_through: date | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> str:
@@ -24,7 +23,6 @@ def batch_processing_fingerprint(
         (
             source_fingerprint,
             input_mode,
-            trusted_through.isoformat() if trusted_through else "",
             start_date.isoformat() if start_date else "",
             end_date.isoformat() if end_date else "",
             analysis_version,

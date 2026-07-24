@@ -10,6 +10,20 @@
     if (content !== undefined) node.textContent = content;
     return node;
   };
+  // Table messages may contain API errors, so they must always enter the DOM
+  // as text rather than through an HTML parsing sink.
+  function tableMessageRow(message, columnCount) {
+    const row = el('tr');
+    const cell = el('td', 'table-empty', message);
+    cell.colSpan = columnCount;
+    row.append(cell);
+    return row;
+  }
+  function selectOption(value, label) {
+    const option = el('option', '', label);
+    option.value = value;
+    return option;
+  }
   const pages = new Set(['workbench', 'dashboard', 'history', 'showcase', 'users']);
   const titles = {workbench: '12366坐席接待助手', dashboard: '画像数据概览', history: '历史来电记录', showcase: '画像推演中心', users: '用户与权限'};
   const state = {
@@ -381,16 +395,59 @@
   }
   document.querySelector('#refresh-dashboard').addEventListener('click', () => loadDashboard(true));
 
+  function historyRow(item) {
+    const row = el('tr');
+    row.tabIndex = 0;
+    const subject = item.caller_type === '企业'
+      ? `企业 · ${text(item.enterprise_identity, '细化主体待判断')}`
+      : text(item.caller_type);
+    const phoneCell = el('td');
+    phoneCell.append(
+      el('strong', '', text(item.masked_phone)),
+      el('small', '', dateText(item.call_time)),
+    );
+    const questionCell = el('td');
+    questionCell.append(
+      el('strong', '', text(item.core_question)),
+      el(
+        'small',
+        '',
+        `${text(item.question_category)} · ${text(item.demand_category)}`,
+      ),
+    );
+    const resolvedCell = el('td', '', resolvedText(item.resolved));
+    if (item.work_order) resolvedCell.append(el('small', '', '历史工单'));
+    const serviceState = item.wait_pushback
+      ? '等待推诿'
+      : item.taxpayer_dissatisfied
+        ? '服务不满'
+        : item.contact_unresolved
+          ? '联系后未解决'
+          : '常规记录';
+    row.append(
+      phoneCell,
+      el('td', '', subject),
+      questionCell,
+      resolvedCell,
+      el('td', '', serviceState),
+    );
+    row.addEventListener('click', () => openDetail(item.business_id));
+    return row;
+  }
+
   async function loadHistory(page = 1) {
-    const body = document.querySelector('#history-body'); body.innerHTML = '<tr><td class="table-empty" colspan="5">正在读取来电记录…</td></tr>';
+    const body = document.querySelector('#history-body');
+    body.replaceChildren(tableMessageRow('正在读取来电记录…', 5));
     try {
       const data = await api('/api/history', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({page, page_size: 10, phone: state.history.phone || null})});
       state.history.page = data.page; state.history.totalPages = data.total_pages; state.history.loaded = true; body.replaceChildren();
-      if (!data.items.length) body.innerHTML = '<tr><td class="table-empty" colspan="5">没有匹配的来电记录</td></tr>';
-      data.items.forEach(item => { const row = el('tr'); row.tabIndex = 0; const subject = item.caller_type === '企业' ? `企业 · ${text(item.enterprise_identity, '细化主体待判断')}` : text(item.caller_type); row.innerHTML = `<td><strong>${text(item.masked_phone)}</strong><small>${dateText(item.call_time)}</small></td><td>${subject}</td><td><strong>${text(item.core_question)}</strong><small>${text(item.question_category)} · ${text(item.demand_category)}</small></td><td>${resolvedText(item.resolved)}${item.work_order ? '<small>历史工单</small>' : ''}</td><td>${item.wait_pushback ? '等待推诿' : item.taxpayer_dissatisfied ? '服务不满' : item.contact_unresolved ? '联系后未解决' : '常规记录'}</td>`; row.addEventListener('click', () => openDetail(item.business_id)); body.append(row); });
+      if (!data.items.length) body.append(tableMessageRow('没有匹配的来电记录', 5));
+      data.items.forEach(item => body.append(historyRow(item)));
       document.querySelector('#history-summary').textContent = `${data.filtered ? '当前号码' : '全部记录'} · 共 ${data.total} 条`;
       document.querySelector('#history-page-status').textContent = `第 ${data.page} / ${data.total_pages || 1} 页`; document.querySelector('#history-prev').disabled = data.page <= 1; document.querySelector('#history-next').disabled = data.page >= data.total_pages;
-    } catch (error) { body.innerHTML = `<tr><td class="table-empty" colspan="5">读取失败：${error.message}</td></tr>`; }
+    } catch (error) {
+      body.replaceChildren(tableMessageRow(`读取失败：${error.message}`, 5));
+    }
   }
   document.querySelector('#history-filter').addEventListener('submit', event => { event.preventDefault(); state.history.phone = document.querySelector('#history-phone').value.trim(); loadHistory(1); });
   document.querySelector('#history-clear').addEventListener('click', () => { document.querySelector('#history-phone').value = ''; state.history.phone = ''; loadHistory(1); });
@@ -402,7 +459,7 @@
     fields.forEach(([label, key, wide = false, formatter = text]) => { const item = el('div', `detail-field${wide ? ' wide' : ''}`); item.append(el('label', '', label), el('div', '', formatter(data?.[key]))); grid.append(item); }); section.append(grid); return section;
   }
   async function openDetail(businessId) {
-    const overlay = document.querySelector('#detail-overlay'); const content = document.querySelector('#detail-content'); overlay.classList.remove('hidden'); document.body.classList.add('drawer-open'); content.innerHTML = '<div class="loading">正在读取详情…</div>';
+    const overlay = document.querySelector('#detail-overlay'); const content = document.querySelector('#detail-content'); overlay.classList.remove('hidden'); document.body.classList.add('drawer-open'); content.replaceChildren(el('div', 'loading', '正在读取详情…'));
     try {
       const result = await api('/api/history/detail', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({business_id: businessId})}); if (!result.found) throw new Error('记录不存在'); const detail = result.detail;
       document.querySelector('#detail-title').textContent = `来电详情 · ${text(detail.original.business_id)}`; content.replaceChildren(
@@ -620,8 +677,64 @@
   document.querySelector('#knowledge-profile-select').addEventListener('change', loadGraphInstance);
 
   async function loadUsers() {
-    const body = document.querySelector('#user-body'); body.innerHTML = '<tr><td class="table-empty" colspan="6">正在读取用户…</td></tr>';
-    try { const data = await api('/api/users'); body.replaceChildren(); data.items.forEach(user => { const row = el('tr'); const roleSelect = el('select'); roleSelect.innerHTML = '<option value="agent">坐席</option><option value="admin">管理员</option>'; roleSelect.value = user.role; roleSelect.addEventListener('change', () => updateUser(user.id, {role: roleSelect.value})); const status = el('span', `user-status ${user.is_active ? 'active' : 'disabled'}`, user.is_active ? '已启用' : '已停用'); const actions = el('div'); const toggle = el('button', 'button secondary compact', user.is_active ? '停用' : '启用'); toggle.addEventListener('click', () => updateUser(user.id, {is_active: !user.is_active})); const reset = el('button', 'button ghost compact', '重置密码'); reset.addEventListener('click', () => { const password = prompt('请输入至少8位的新密码'); if (password) updateUser(user.id, {password}); }); actions.append(toggle, reset); [user.username, user.display_name].forEach(value => { const cell = el('td', '', value); row.append(cell); }); const roleCell = el('td'); roleCell.append(roleSelect); row.append(roleCell); const statusCell = el('td'); statusCell.append(status); row.append(statusCell, el('td', '', dateText(user.created_at))); const actionCell = el('td'); actionCell.append(actions); row.append(actionCell); body.append(row); }); } catch(error) { body.innerHTML = `<tr><td class="table-empty" colspan="6">读取失败：${error.message}</td></tr>`; }
+    const body = document.querySelector('#user-body');
+    body.replaceChildren(tableMessageRow('正在读取用户…', 6));
+    try {
+      const data = await api('/api/users');
+      body.replaceChildren();
+      data.items.forEach(user => {
+        const row = el('tr');
+        const roleSelect = el('select');
+        roleSelect.append(
+          selectOption('agent', '坐席'),
+          selectOption('admin', '管理员'),
+        );
+        roleSelect.value = user.role;
+        roleSelect.addEventListener(
+          'change',
+          () => updateUser(user.id, {role: roleSelect.value}),
+        );
+        const status = el(
+          'span',
+          `user-status ${user.is_active ? 'active' : 'disabled'}`,
+          user.is_active ? '已启用' : '已停用',
+        );
+        const actions = el('div');
+        const toggle = el(
+          'button',
+          'button secondary compact',
+          user.is_active ? '停用' : '启用',
+        );
+        toggle.addEventListener(
+          'click',
+          () => updateUser(user.id, {is_active: !user.is_active}),
+        );
+        const reset = el('button', 'button ghost compact', '重置密码');
+        reset.addEventListener('click', () => {
+          const password = prompt('请输入至少8位的新密码');
+          if (password) updateUser(user.id, {password});
+        });
+        actions.append(toggle, reset);
+        [user.username, user.display_name].forEach(
+          value => row.append(el('td', '', value)),
+        );
+        const roleCell = el('td');
+        roleCell.append(roleSelect);
+        const statusCell = el('td');
+        statusCell.append(status);
+        const actionCell = el('td');
+        actionCell.append(actions);
+        row.append(
+          roleCell,
+          statusCell,
+          el('td', '', dateText(user.created_at)),
+          actionCell,
+        );
+        body.append(row);
+      });
+    } catch(error) {
+      body.replaceChildren(tableMessageRow(`读取失败：${error.message}`, 6));
+    }
   }
   async function updateUser(userId, fields) { try { await api('/api/users/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:userId, ...fields})}); loadUsers(); } catch(error) { alert(error.message); loadUsers(); } }
   document.querySelector('#user-form').addEventListener('submit', async event => { event.preventDefault(); const notice = document.querySelector('#user-notice'); try { await api('/api/users/create', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:document.querySelector('#new-username').value.trim(), display_name:document.querySelector('#new-display-name').value.trim(), password:document.querySelector('#new-password').value, role:document.querySelector('#new-role').value})}); event.target.reset(); notice.textContent = '用户创建成功。'; notice.className = 'notice'; loadUsers(); } catch(error) { notice.textContent = error.message; notice.className = 'notice error'; } });

@@ -1,4 +1,4 @@
-"""Application use cases for legacy history and incremental ingestion."""
+"""Application use cases for incremental ingestion."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Callable
 from uuid import uuid4
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
 from taxpayer_profile.analysis.batch import (
     prefetch_model_extractions,
@@ -43,13 +44,9 @@ from taxpayer_profile.ingestion.fingerprint import (
     source_record_fingerprint as _source_record_fingerprint,
 )
 from taxpayer_profile.ingestion.modes import InputMode
-from taxpayer_profile.ingestion.policy import (
-    INCREMENTAL_REUSE_POLICY,
-    TRUSTED_HISTORY_REUSE_POLICY,
-)
+from taxpayer_profile.ingestion.policy import INCREMENTAL_REUSE_POLICY
 from taxpayer_profile.ingestion.schema import validate_input_rows
 from taxpayer_profile.llm_client import (
-    HISTORY_ENRICHMENT_PROMPT_VERSION,
     PROMPT_VERSION,
     REPEAT_PROMPT_VERSION,
     RepeatIssueModelResult,
@@ -92,44 +89,109 @@ class ProcessingSummary:
     already_processed: bool = False
 
 
-def _mode_for_call(
-    requested_mode: InputMode,
-    call: NormalizedCallInput,
-    trusted_through: date | None,
-) -> InputMode:
-    if requested_mode != InputMode.BOOTSTRAP_MIXED:
-        return requested_mode
-    if trusted_through is None:
-        raise ValueError("bootstrap_mixed 模式必须提供 trusted_through")
-    if call.registration_time is None:
-        return InputMode.RAW_ANALYSIS
-    return (
-        InputMode.TRUSTED_IMPORT
-        if call.registration_time.date() <= trusted_through
-        else InputMode.RAW_ANALYSIS
+@dataclass(frozen=True)
+class PreparedInputSource:
+    """Validated source identity prepared without parsing the full input."""
+
+    path: Path
+    adapter: TabularInputAdapter
+    name: str
+    source_fingerprint: str
+    processing_fingerprint: str
+
+
+@dataclass(frozen=True)
+class PreparedInputRows:
+    """Validated source rows and their deterministic processing order."""
+
+    rows: list[dict[str, object]]
+    calls: list[tuple[NormalizedCallInput, InputMode]]
+
+
+@dataclass(frozen=True)
+class ExistingIngestionState:
+    """Read-only database snapshot required before analyzing a new batch."""
+
+    trajectories: list[CallTrajectory]
+    profile_hashes: set[str]
+
+
+def _prepare_input_source(
+    *,
+    input_path: Path | str,
+    input_adapter: TabularInputAdapter | None,
+    input_mode: InputMode,
+    start_date: date | None,
+    end_date: date | None,
+) -> PreparedInputSource:
+    """Resolve auditable source metadata before the idempotency lookup."""
+
+    source = Path(input_path).expanduser().resolve()
+    adapter = input_adapter or ExcelInputAdapter()
+    identity = adapter.identify(source)
+    return PreparedInputSource(
+        path=source,
+        adapter=adapter,
+        name=identity.name,
+        source_fingerprint=identity.fingerprint,
+        processing_fingerprint=batch_processing_fingerprint(
+            source_fingerprint=identity.fingerprint,
+            input_mode=input_mode.value,
+            start_date=start_date,
+            end_date=end_date,
+            analysis_version=ANALYSIS_VERSION,
+        ),
+    )
+
+
+def _read_and_normalize_input(
+    *,
+    prepared_source: PreparedInputSource,
+    input_mode: InputMode,
+    start_date: date | None,
+    end_date: date | None,
+) -> PreparedInputRows:
+    """Read once, enforce the application contract, and order all calls."""
+
+    rows = prepared_source.adapter.read_rows(
+        prepared_source.path,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    # Validation stays at the application boundary so custom adapters cannot
+    # bypass the same source-evidence contract enforced by the Excel adapter.
+    validate_input_rows(rows)
+    return PreparedInputRows(rows=rows, calls=_normalize_rows(rows, input_mode))
+
+
+def _load_existing_state(
+    sessions: sessionmaker[Session],
+) -> ExistingIngestionState:
+    """Load the deterministic history snapshot used throughout one batch."""
+
+    with sessions() as read_session:
+        trajectories = list(
+            read_session.scalars(
+                select(CallTrajectory).order_by(CallTrajectory.call_time)
+            )
+        )
+        profile_hashes = set(
+            read_session.scalars(select(CallerProfile.phone_hash))
+        )
+    return ExistingIngestionState(
+        trajectories=trajectories,
+        profile_hashes=profile_hashes,
     )
 
 
 def _normalize_rows(
     rows: list[dict[str, object]],
     requested_mode: InputMode,
-    trusted_through: date | None,
 ) -> list[tuple[NormalizedCallInput, InputMode]]:
     normalized: list[tuple[NormalizedCallInput, InputMode]] = []
     for row in rows:
-        # Mode selection needs only source dates. Using the incremental policy
-        # here also prevents legacy analytical fields from influencing routing.
-        registration = normalize_call_row(row, reuse_policy=INCREMENTAL_REUSE_POLICY)
-        row_mode = _mode_for_call(requested_mode, registration, trusted_through)
-        call = normalize_call_row(
-            row,
-            reuse_policy=(
-                TRUSTED_HISTORY_REUSE_POLICY
-                if row_mode == InputMode.TRUSTED_IMPORT
-                else INCREMENTAL_REUSE_POLICY
-            ),
-        )
-        normalized.append((call, row_mode))
+        call = normalize_call_row(row, reuse_policy=INCREMENTAL_REUSE_POLICY)
+        normalized.append((call, requested_mode))
     normalized.sort(
         key=lambda item: (
             item[0].call_time or datetime.max,
@@ -140,6 +202,33 @@ def _normalize_rows(
 
 
 PreparedEnrichment = tuple[NormalizedCallInput, EnrichmentMetadata]
+
+
+@dataclass(frozen=True)
+class PrefetchedBatchAnalysis:
+    """Model outputs prepared before sequential history-dependent processing."""
+
+    extractions: dict[str, ModelExtraction | Exception]
+    enrichments: dict[str, PreparedEnrichment | Exception]
+    repeat_reviews: dict[str, RepeatIssueModelResult | Exception]
+
+
+@dataclass(frozen=True)
+class BatchWriteSet:
+    """Complete analyzed state ready for one atomic database transaction."""
+
+    histories_by_phone: dict[str, list[CallTrajectory]]
+    new_trajectories: list[CallTrajectory]
+    conflicts: list[IngestionConflict]
+    encrypted_phones: dict[str, str]
+    affected_hashes: set[str]
+    skipped_count: int
+    conflict_count: int
+    failed_count: int
+    repeated_call_count: int
+    repeated_issue_count: int
+    unresolved_count: int
+    failure_reasons: Counter[str]
 
 
 def _prepare_enrichments_and_repeat_payloads(
@@ -223,6 +312,49 @@ def _prepare_enrichments_and_repeat_payloads(
         histories_by_phone[phone_hash].append(placeholder)
         histories_by_phone[phone_hash].sort(key=_trajectory_key)
     return prepared, repeat_payloads
+
+
+def _prefetch_batch_analysis(
+    *,
+    calls: list[tuple[NormalizedCallInput, InputMode]],
+    existing_trajectories: list[CallTrajectory],
+    existing_business_ids: set[str],
+    client: AnalysisClient | None,
+    protector: PhoneProtector,
+    workers: int,
+    cache_path: Path | str | None,
+    progress_callback: Callable[[int, int, str], None] | None,
+) -> PrefetchedBatchAnalysis:
+    """Run independent model work while preserving sequential history logic."""
+
+    extractions = prefetch_model_extractions(
+        calls=calls,
+        existing_business_ids=existing_business_ids,
+        client=client,
+        workers=workers,
+        cache_path=cache_path,
+        progress_callback=progress_callback,
+    )
+    enrichments, repeat_payloads = _prepare_enrichments_and_repeat_payloads(
+        calls=calls,
+        existing_trajectories=existing_trajectories,
+        existing_business_ids=existing_business_ids,
+        prefetched_extractions=extractions,
+        client=client,
+        protector=protector,
+    )
+    repeat_reviews = prefetch_repeat_reviews(
+        payloads=repeat_payloads,
+        client=client,
+        workers=workers,
+        cache_path=cache_path,
+        progress_callback=progress_callback,
+    )
+    return PrefetchedBatchAnalysis(
+        extractions=extractions,
+        enrichments=enrichments,
+        repeat_reviews=repeat_reviews,
+    )
 
 
 def _trajectory_from_call(
@@ -317,8 +449,7 @@ def _trajectory_from_call(
         analysis_source=metadata.analysis_source,
         model_name=metadata.model_name,
         prompt_version=(
-            f"{HISTORY_ENRICHMENT_PROMPT_VERSION if metadata.input_mode == InputMode.TRUSTED_IMPORT else PROMPT_VERSION};"
-            f"{REPEAT_PROMPT_VERSION}"
+            f"{PROMPT_VERSION};{REPEAT_PROMPT_VERSION}"
             if metadata.model_name
             else None
         ),
@@ -334,129 +465,139 @@ def _trajectory_from_call(
     )
 
 
-def process_workbook(
+def _commit_batch(
     *,
-    input_path: Path | str,
-    database_path: Path | str,
-    protector: PhoneProtector,
-    llm_client: AnalysisClient | None = None,
-    input_mode: InputMode = InputMode.INCREMENTAL,
-    trusted_through: date | None = None,
-    start_date: date | None = None,
-    end_date: date | None = None,
-    model_workers: int = 1,
-    extraction_cache_path: Path | str | None = None,
-    progress_callback: Callable[[int, int, str], None] | None = None,
-    input_adapter: TabularInputAdapter | None = None,
+    sessions: sessionmaker[Session],
+    write_set: BatchWriteSet,
+    batch_id: str,
+    source_name: str,
+    processing_fingerprint: str,
+    input_mode: InputMode,
+    source_row_count: int,
+    date_range: str,
+    started_at: datetime,
+    initial_profile_hashes: set[str],
+) -> None:
+    """Persist trajectories, profiles, audit log and conflicts atomically."""
+
+    new_business_ids = {
+        item.business_id for item in write_set.new_trajectories
+    }
+    with transactional_session(sessions) as session:
+        for phone_hash in write_set.affected_hashes:
+            for trajectory in write_set.histories_by_phone[phone_hash]:
+                if trajectory.business_id in new_business_ids:
+                    session.add(trajectory)
+                else:
+                    session.merge(trajectory)
+        profiles = {
+            item.phone_hash: item for item in session.scalars(select(CallerProfile))
+        }
+        for phone_hash in write_set.affected_hashes:
+            history = write_set.histories_by_phone[phone_hash]
+            profile = profiles.get(phone_hash)
+            if profile is None:
+                first = min(history, key=lambda item: item.call_time)
+                profile = CallerProfile(
+                    phone_hash=phone_hash,
+                    phone_encrypted=write_set.encrypted_phones[phone_hash],
+                    first_call_time=first.call_time,
+                    latest_call_time=first.call_time,
+                )
+                profiles[phone_hash] = profile
+                session.add(profile)
+            _update_profile(profile=profile, trajectories=history)
+        update_log = UpdateLog(
+            batch_id=batch_id,
+            data_date=date_range,
+            input_filename=source_name,
+            input_fingerprint=processing_fingerprint,
+            input_mode=input_mode.value,
+            analysis_version=ANALYSIS_VERSION,
+            source_row_count=source_row_count,
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc),
+            new_call_count=len(write_set.new_trajectories),
+            new_phone_count=len(
+                write_set.affected_hashes.difference(initial_profile_hashes)
+            ),
+            updated_profile_count=len(write_set.affected_hashes),
+            repeated_call_count=write_set.repeated_call_count,
+            repeated_issue_count=write_set.repeated_issue_count,
+            unresolved_count=write_set.unresolved_count,
+            failed_count=write_set.failed_count,
+            skipped_count=write_set.skipped_count,
+            conflict_count=write_set.conflict_count,
+            status=(
+                "completed"
+                if write_set.failed_count == 0
+                else "completed_with_errors"
+            ),
+            summary=(
+                f"新增 {len(write_set.new_trajectories)}，"
+                f"跳过 {write_set.skipped_count}，"
+                f"冲突 {write_set.conflict_count}，"
+                f"失败 {write_set.failed_count}。"
+                + (
+                    "失败类型："
+                    + "、".join(
+                        f"{name}={count}"
+                        for name, count in sorted(
+                            write_set.failure_reasons.items()
+                        )
+                    )
+                    if write_set.failure_reasons
+                    else ""
+                )
+            ),
+        )
+        session.add(update_log)
+        # No ORM relationship is needed for read paths, so make the foreign-key
+        # ordering explicit while retaining one surrounding transaction.
+        session.flush()
+        session.add_all(write_set.conflicts)
+
+
+def _summarize_batch(
+    *,
+    batch_id: str,
+    source_name: str,
+    write_set: BatchWriteSet,
+    initial_profile_hashes: set[str],
 ) -> ProcessingSummary:
-    """Analyze and atomically ingest one independent tabular source."""
+    """Build the public result from the exact state passed to persistence."""
 
-    source = Path(input_path).expanduser().resolve()
-    adapter = input_adapter or ExcelInputAdapter()
-    source_identity = adapter.identify(source)
-    source_name = source_identity.name
-    file_fingerprint = source_identity.fingerprint
-    processing_fingerprint = batch_processing_fingerprint(
-        source_fingerprint=file_fingerprint,
-        input_mode=input_mode.value,
-        trusted_through=trusted_through,
-        start_date=start_date,
-        end_date=end_date,
-        analysis_version=ANALYSIS_VERSION,
-    )
-    engine = make_engine(database_path)
-    create_schema(engine)
-    sessions = make_session_factory(engine)
-    with sessions() as read_session:
-        completed_log = read_session.scalar(
-            select(UpdateLog).where(
-                UpdateLog.input_fingerprint == processing_fingerprint,
-                UpdateLog.status == "completed",
-            )
-        )
-    if completed_log is not None:
-        log_event(
-            LOGGER,
-            logging.INFO,
-            "ingestion.batch_already_completed",
-            batch_id=completed_log.batch_id,
-            input_filename=source_name,
-            source_row_count=completed_log.source_row_count or 0,
-        )
-        return ProcessingSummary(
-            batch_id=completed_log.batch_id,
-            input_filename=source_name,
-            new_call_count=0,
-            skipped_call_count=completed_log.source_row_count or 0,
-            conflict_count=0,
-            new_phone_count=0,
-            updated_profile_count=0,
-            repeated_call_count=0,
-            repeated_issue_count=0,
-            unresolved_count=0,
-            failed_count=0,
-            already_processed=True,
-        )
-
-    # The identifier is allocated before analysis so every rejected conflict
-    # can be attached to the same auditable batch that reports its count.
-    batch_id = uuid4().hex
-    started_at = datetime.now(timezone.utc)
-    rows = adapter.read_rows(
-        source,
-        start_date=start_date,
-        end_date=end_date,
-    )
-    # Validation belongs to the application boundary so custom adapters cannot
-    # bypass the same source-evidence contract enforced by the Excel adapter.
-    validate_input_rows(rows)
-    log_event(
-        LOGGER,
-        logging.INFO,
-        "ingestion.batch_started",
+    return ProcessingSummary(
         batch_id=batch_id,
         input_filename=source_name,
-        input_mode=input_mode.value,
-        source_row_count=len(rows),
+        new_call_count=len(write_set.new_trajectories),
+        skipped_call_count=write_set.skipped_count,
+        conflict_count=write_set.conflict_count,
+        new_phone_count=len(
+            write_set.affected_hashes.difference(initial_profile_hashes)
+        ),
+        updated_profile_count=len(write_set.affected_hashes),
+        repeated_call_count=write_set.repeated_call_count,
+        repeated_issue_count=write_set.repeated_issue_count,
+        unresolved_count=write_set.unresolved_count,
+        failed_count=write_set.failed_count,
     )
-    with sessions() as read_session:
-        existing_trajectories = list(
-            read_session.scalars(
-                select(CallTrajectory).order_by(CallTrajectory.call_time)
-            )
-        )
-        initial_profile_hashes = set(
-            read_session.scalars(select(CallerProfile.phone_hash))
-        )
 
-    calls = _normalize_rows(rows, input_mode, trusted_through)
-    histories_by_phone: dict[str, list[CallTrajectory]] = defaultdict(list)
-    for trajectory in existing_trajectories:
-        histories_by_phone[trajectory.phone_hash].append(trajectory)
-    existing_by_business = {item.business_id: item for item in existing_trajectories}
-    prefetched_extractions = prefetch_model_extractions(
-        calls=calls,
-        existing_business_ids=set(existing_by_business),
-        client=llm_client,
-        workers=model_workers,
-        cache_path=extraction_cache_path,
-        progress_callback=progress_callback,
-    )
-    prepared_enrichments, repeat_payloads = _prepare_enrichments_and_repeat_payloads(
-        calls=calls,
-        existing_trajectories=existing_trajectories,
-        existing_business_ids=set(existing_by_business),
-        prefetched_extractions=prefetched_extractions,
-        client=llm_client,
-        protector=protector,
-    )
-    prefetched_repeat_reviews = prefetch_repeat_reviews(
-        payloads=repeat_payloads,
-        client=llm_client,
-        workers=model_workers,
-        cache_path=extraction_cache_path,
-        progress_callback=progress_callback,
-    )
+
+def _analyze_calls_sequentially(
+    *,
+    batch_id: str,
+    source_name: str,
+    source_fingerprint: str,
+    calls: list[tuple[NormalizedCallInput, InputMode]],
+    histories_by_phone: dict[str, list[CallTrajectory]],
+    existing_by_business: dict[str, CallTrajectory],
+    prefetched_analysis: PrefetchedBatchAnalysis,
+    client: AnalysisClient | None,
+    protector: PhoneProtector,
+    progress_callback: Callable[[int, int, str], None] | None,
+) -> BatchWriteSet:
+    """Apply history-dependent analysis in deterministic call order."""
 
     new_trajectories: list[CallTrajectory] = []
     conflict_records: list[IngestionConflict] = []
@@ -486,7 +627,11 @@ def process_workbook(
         record_fingerprint = _source_record_fingerprint(call)
         existing = existing_by_business.get(call.business_id)
         if existing is not None:
-            if existing.source_record_fingerprint not in {None, record_fingerprint}:
+            has_conflict = existing.source_record_fingerprint not in {
+                None,
+                record_fingerprint,
+            }
+            if has_conflict:
                 conflicts += 1
                 conflict_records.append(
                     IngestionConflict(
@@ -504,7 +649,7 @@ def process_workbook(
                 progress_callback(
                     position,
                     total_calls,
-                    "业务编号冲突" if existing.source_record_fingerprint not in {None, record_fingerprint} else "已跳过",
+                    "业务编号冲突" if has_conflict else "已跳过",
                 )
             continue
         phone_hash = protector.hash_phone(call.phone)
@@ -514,28 +659,28 @@ def process_workbook(
             item for item in all_phone_histories if _trajectory_key(item) < current_key
         ]
         try:
-            prepared = prepared_enrichments.get(call.business_id)
+            prepared = prefetched_analysis.enrichments.get(call.business_id)
             if isinstance(prepared, Exception):
                 raise prepared
             if prepared is None:
-                prefetched = prefetched_extractions.get(call.business_id)
+                prefetched = prefetched_analysis.extractions.get(call.business_id)
                 if isinstance(prefetched, Exception):
                     raise prefetched
                 enriched, metadata = enrich_call(
                     call,
                     row_mode,
-                    llm_client,
+                    client,
                     extraction_override=prefetched,
                 )
             else:
                 enriched, metadata = prepared
-            repeat_review = prefetched_repeat_reviews.get(call.business_id)
+            repeat_review = prefetched_analysis.repeat_reviews.get(call.business_id)
             if isinstance(repeat_review, Exception):
                 raise repeat_review
             repeat = _analyze_repeat(
                 enriched,
                 histories,
-                llm_client,
+                client,
                 result_override=repeat_review,
             )
             consecutive_model_failures = 0
@@ -593,7 +738,7 @@ def process_workbook(
             repeat=repeat,
             metadata=metadata,
             source_filename=source_name,
-            source_file_fingerprint=file_fingerprint,
+            source_file_fingerprint=source_fingerprint,
         )
         new_trajectories.append(trajectory)
         all_phone_histories.append(trajectory)
@@ -612,10 +757,139 @@ def process_workbook(
         histories_by_phone[phone_hash] = _reassess_after_backfill(
             histories_by_phone[phone_hash],
             new_business_ids=new_business_ids,
-            client=llm_client,
+            client=client,
         )
     repeated_calls = sum(item.is_repeated_call for item in new_trajectories)
-    repeated_issues = sum(_repeat_label_is_active(item) for item in new_trajectories)
+    repeated_issues = sum(
+        _repeat_label_is_active(item) for item in new_trajectories
+    )
+    return BatchWriteSet(
+        histories_by_phone=histories_by_phone,
+        new_trajectories=new_trajectories,
+        conflicts=conflict_records,
+        encrypted_phones=encrypted_phones,
+        affected_hashes=affected_hashes,
+        skipped_count=skipped,
+        conflict_count=conflicts,
+        failed_count=failed,
+        repeated_call_count=repeated_calls,
+        repeated_issue_count=repeated_issues,
+        unresolved_count=unresolved,
+        failure_reasons=failure_reasons,
+    )
+
+
+def process_workbook(
+    *,
+    input_path: Path | str,
+    database_path: Path | str,
+    protector: PhoneProtector,
+    llm_client: AnalysisClient | None = None,
+    input_mode: InputMode = InputMode.INCREMENTAL,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    model_workers: int = 1,
+    extraction_cache_path: Path | str | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+    input_adapter: TabularInputAdapter | None = None,
+) -> ProcessingSummary:
+    """Analyze and atomically ingest one independent tabular source."""
+
+    prepared_source = _prepare_input_source(
+        input_path=input_path,
+        input_adapter=input_adapter,
+        input_mode=input_mode,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    source_name = prepared_source.name
+    file_fingerprint = prepared_source.source_fingerprint
+    processing_fingerprint = prepared_source.processing_fingerprint
+    engine = make_engine(database_path)
+    create_schema(engine)
+    sessions = make_session_factory(engine)
+    with sessions() as read_session:
+        completed_log = read_session.scalar(
+            select(UpdateLog).where(
+                UpdateLog.input_fingerprint == processing_fingerprint,
+                UpdateLog.status == "completed",
+            )
+        )
+    if completed_log is not None:
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "ingestion.batch_already_completed",
+            batch_id=completed_log.batch_id,
+            input_filename=source_name,
+            source_row_count=completed_log.source_row_count or 0,
+        )
+        return ProcessingSummary(
+            batch_id=completed_log.batch_id,
+            input_filename=source_name,
+            new_call_count=0,
+            skipped_call_count=completed_log.source_row_count or 0,
+            conflict_count=0,
+            new_phone_count=0,
+            updated_profile_count=0,
+            repeated_call_count=0,
+            repeated_issue_count=0,
+            unresolved_count=0,
+            failed_count=0,
+            already_processed=True,
+        )
+
+    # The identifier is allocated before analysis so every rejected conflict
+    # can be attached to the same auditable batch that reports its count.
+    batch_id = uuid4().hex
+    started_at = datetime.now(timezone.utc)
+    prepared_input = _read_and_normalize_input(
+        prepared_source=prepared_source,
+        input_mode=input_mode,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    rows = prepared_input.rows
+    calls = prepared_input.calls
+    log_event(
+        LOGGER,
+        logging.INFO,
+        "ingestion.batch_started",
+        batch_id=batch_id,
+        input_filename=source_name,
+        input_mode=input_mode.value,
+        source_row_count=len(rows),
+    )
+    existing_state = _load_existing_state(sessions)
+    existing_trajectories = existing_state.trajectories
+    initial_profile_hashes = existing_state.profile_hashes
+
+    histories_by_phone: dict[str, list[CallTrajectory]] = defaultdict(list)
+    for trajectory in existing_trajectories:
+        histories_by_phone[trajectory.phone_hash].append(trajectory)
+    existing_by_business = {item.business_id: item for item in existing_trajectories}
+    prefetched_analysis = _prefetch_batch_analysis(
+        calls=calls,
+        existing_business_ids=set(existing_by_business),
+        existing_trajectories=existing_trajectories,
+        client=llm_client,
+        protector=protector,
+        workers=model_workers,
+        cache_path=extraction_cache_path,
+        progress_callback=progress_callback,
+    )
+    write_set = _analyze_calls_sequentially(
+        batch_id=batch_id,
+        source_name=source_name,
+        source_fingerprint=file_fingerprint,
+        calls=calls,
+        histories_by_phone=histories_by_phone,
+        existing_by_business=existing_by_business,
+        prefetched_analysis=prefetched_analysis,
+        client=llm_client,
+        protector=protector,
+        progress_callback=progress_callback,
+    )
 
     valid_dates = [
         call.registration_time.date()
@@ -627,72 +901,28 @@ def process_workbook(
         if valid_dates
         else "unknown"
     )
-    with transactional_session(sessions) as session:
-        for phone_hash in affected_hashes:
-            for trajectory in histories_by_phone[phone_hash]:
-                if trajectory.business_id in new_business_ids:
-                    session.add(trajectory)
-                else:
-                    session.merge(trajectory)
-        profiles = {
-            item.phone_hash: item for item in session.scalars(select(CallerProfile))
-        }
-        for phone_hash in affected_hashes:
-            history = histories_by_phone[phone_hash]
-            profile = profiles.get(phone_hash)
-            if profile is None:
-                first = min(history, key=lambda item: item.call_time)
-                profile = CallerProfile(
-                    phone_hash=phone_hash,
-                    phone_encrypted=encrypted_phones[phone_hash],
-                    first_call_time=first.call_time,
-                    latest_call_time=first.call_time,
-                )
-                profiles[phone_hash] = profile
-                session.add(profile)
-            _update_profile(profile=profile, trajectories=history)
-        update_log = UpdateLog(
-            batch_id=batch_id,
-            data_date=date_range,
-            input_filename=source_name,
-            input_fingerprint=processing_fingerprint,
-            input_mode=input_mode.value,
-            analysis_version=ANALYSIS_VERSION,
-            source_row_count=len(rows),
-            started_at=started_at,
-            finished_at=datetime.now(timezone.utc),
-            new_call_count=len(new_trajectories),
-            new_phone_count=len(affected_hashes.difference(initial_profile_hashes)),
-            updated_profile_count=len(affected_hashes),
-            repeated_call_count=repeated_calls,
-            repeated_issue_count=repeated_issues,
-            unresolved_count=unresolved,
-            failed_count=failed,
-            skipped_count=skipped,
-            conflict_count=conflicts,
-            status="completed" if failed == 0 else "completed_with_errors",
-            summary=(
-                f"新增 {len(new_trajectories)}，跳过 {skipped}，"
-                f"冲突 {conflicts}，失败 {failed}。"
-                + (
-                    "失败类型："
-                    + "、".join(
-                        f"{name}={count}"
-                        for name, count in sorted(failure_reasons.items())
-                    )
-                    if failure_reasons
-                    else ""
-                )
-            ),
-        )
-        session.add(update_log)
-        # No ORM relationship is needed for read paths, so make the foreign-key
-        # ordering explicit: the parent batch must exist before conflict rows.
-        # The surrounding transaction still commits or rolls back as one unit.
-        session.flush()
-        session.add_all(conflict_records)
+    _commit_batch(
+        sessions=sessions,
+        write_set=write_set,
+        batch_id=batch_id,
+        source_name=source_name,
+        processing_fingerprint=processing_fingerprint,
+        input_mode=input_mode,
+        source_row_count=len(rows),
+        date_range=date_range,
+        started_at=started_at,
+        initial_profile_hashes=initial_profile_hashes,
+    )
 
-    status = "completed" if failed == 0 else "completed_with_errors"
+    summary = _summarize_batch(
+        batch_id=batch_id,
+        source_name=source_name,
+        write_set=write_set,
+        initial_profile_hashes=initial_profile_hashes,
+    )
+    status = (
+        "completed" if summary.failed_count == 0 else "completed_with_errors"
+    )
     log_event(
         LOGGER,
         logging.INFO,
@@ -700,25 +930,13 @@ def process_workbook(
         batch_id=batch_id,
         input_filename=source_name,
         status=status,
-        new_call_count=len(new_trajectories),
-        skipped_count=skipped,
-        conflict_count=conflicts,
-        failed_count=failed,
-        updated_profile_count=len(affected_hashes),
+        new_call_count=summary.new_call_count,
+        skipped_count=summary.skipped_call_count,
+        conflict_count=summary.conflict_count,
+        failed_count=summary.failed_count,
+        updated_profile_count=summary.updated_profile_count,
     )
-    return ProcessingSummary(
-        batch_id=batch_id,
-        input_filename=source_name,
-        new_call_count=len(new_trajectories),
-        skipped_call_count=skipped,
-        conflict_count=conflicts,
-        new_phone_count=len(affected_hashes.difference(initial_profile_hashes)),
-        updated_profile_count=len(affected_hashes),
-        repeated_call_count=repeated_calls,
-        repeated_issue_count=repeated_issues,
-        unresolved_count=unresolved,
-        failed_count=failed,
-    )
+    return summary
 
 
 def process_raw_directory(

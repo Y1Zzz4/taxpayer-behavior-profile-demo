@@ -13,13 +13,10 @@ from pathlib import Path
 
 from taxpayer_profile.llm_client import (
     CallExtractionResult,
-    HistoryEnrichmentResult,
     RepeatIssueModelResult,
 )
 
-CachedModelResult = (
-    CallExtractionResult | HistoryEnrichmentResult | RepeatIssueModelResult
-)
+CachedModelResult = CallExtractionResult | RepeatIssueModelResult
 
 
 class ModelExtractionCache:

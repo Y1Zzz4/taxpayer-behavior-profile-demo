@@ -5,18 +5,19 @@ import time
 
 from cryptography.fernet import Fernet
 import pandas as pd
+import pytest
 from sqlalchemy import select
 
+from taxpayer_profile.application.ingest import process_workbook
 from taxpayer_profile.database import make_engine, make_session_factory
-from taxpayer_profile.excel_reader import InputMode, discover_workbooks
 from taxpayer_profile.ingestion.contracts import InputSourceIdentity
+from taxpayer_profile.ingestion.excel import discover_workbooks
+from taxpayer_profile.ingestion.modes import InputMode
 from taxpayer_profile.llm_client import (
     CallExtractionResult,
-    HistoryEnrichmentResult,
     RepeatIssueModelResult,
 )
 from taxpayer_profile.models import CallTrajectory, UpdateLog
-from taxpayer_profile.processor import process_workbook
 from taxpayer_profile.security import PhoneProtector
 
 
@@ -25,7 +26,6 @@ class FakeAnalysisClient:
 
     def __init__(self) -> None:
         self.payloads: list[dict[str, str | None]] = []
-        self.history_payloads: list[dict[str, str | None]] = []
 
     def analyze_call(self, payload: dict[str, str | None]) -> CallExtractionResult:
         self.payloads.append(payload)
@@ -55,31 +55,6 @@ class FakeAnalysisClient:
             proficiency_summary="能够说明具体办理事项。",
             service_rating="一般" if is_raw else "良好",
             service_summary="给出了相关处理路径。",
-        )
-
-    def analyze_history(
-        self, payload: dict[str, str | None]
-    ) -> HistoryEnrichmentResult:
-        self.payloads.append(payload)
-        self.history_payloads.append(payload)
-        return HistoryEnrichmentResult(
-            core_question="模型不应覆盖可信问题",
-            father_question="模型不应覆盖可信父问题",
-            father_question_2="历史事项",
-            agent_answer_summary="坐席提炼了历史答复和办理路径。",
-            demand_categories=["操作辅导类"],
-            caller_type="企业",
-            explicit_enterprise_identity="无法判断",
-            resolved_status=True,
-            unresolved_reason=None,
-            proficiency_score=7,
-            proficiency_summary="能够说明具体办理事项。",
-            proficiency_level="了解",
-            proficiency_basis="能够说明业务事项，但仍需确认办理路径。",
-            emotion_state="平稳",
-            emotion_basis="表达有序且正常确认答复。",
-            service_rating="良好",
-            service_summary="答复相关并给出处理路径。",
         )
 
     def analyze_repeat_issue(self, payload):  # pragma: no cover - no ambiguous case here
@@ -157,64 +132,6 @@ def test_raw_mode_reuses_direct_core_question_but_reanalyzes_other_fields(
         assert trajectory.analysis_source == "model+rules"
 
 
-def test_bootstrap_mixed_keeps_trusted_fields_and_can_model_enrich_history(
-    tmp_path: Path,
-) -> None:
-    workbook = tmp_path / "bootstrap.xlsx"
-    database = tmp_path / "profiles.sqlite3"
-    pd.DataFrame(
-        {
-            "业务编号": ["HISTORY-1", "RAW-1"],
-            "来电号码": ["13800000001", "13800000002"],
-            "登记日期": ["2026/6/9 09:00", "2026/6/10 09:00"],
-            "通话开始时间": ["2026/6/9 09:00", "2026/6/10 09:00"],
-            "转写结果": ["历史转写，谢谢。", "新增转写，谢谢。"],
-            "业务内容": ["HISTORY", "RAW"],
-            "答复内容": ["历史答复", "新增答复"],
-            "登记处理方式": ["1001", "1001"],
-            "申请人员身份": ["zrr", "cwfzr"],
-            "大模型核心问题": ["可信历史核心问题", "不可信6月10日问题"],
-            "father_question": ["可信历史父问题", "不可信父问题"],
-            "咨询主体(大模型判断)": ["个人", "个人"],
-            "是否未直接解决问题": [False, False],
-        }
-    ).to_excel(workbook, index=False)
-
-    client = FakeAnalysisClient()
-    process_workbook(
-        input_path=workbook,
-        database_path=database,
-        protector=_protector(),
-        llm_client=client,
-        input_mode=InputMode.BOOTSTRAP_MIXED,
-        trusted_through=date(2026, 6, 9),
-    )
-
-    sessions = make_session_factory(make_engine(database))
-    with sessions() as session:
-        trajectories = {
-            item.business_id: item for item in session.scalars(select(CallTrajectory))
-        }
-        history = trajectories["HISTORY-1"]
-        raw = trajectories["RAW-1"]
-        assert history.core_question == "可信历史核心问题"
-        assert history.father_question == "可信历史父问题"
-        assert history.caller_type == "个人"
-        assert history.resolved_status is True
-        assert history.agent_answer_summary == "坐席提炼了历史答复和办理路径。"
-        assert history.input_mode == "trusted_import"
-        assert raw.core_question == "不可信6月10日问题"
-        assert raw.caller_type == "企业"
-        assert raw.resolved_status is False
-        assert raw.input_mode == "raw_analysis"
-        assert len(client.payloads) == 2
-        assert len(client.history_payloads) == 1
-        assert [item["business_content"] for item in client.payloads] == [
-            "HISTORY",
-            "RAW",
-        ]
-
-
 def test_model_extraction_cache_resumes_without_repeating_successful_call(
     tmp_path: Path,
 ) -> None:
@@ -237,7 +154,7 @@ def test_model_extraction_cache_resumes_without_repeating_successful_call(
         database_path=tmp_path / "first.sqlite3",
         protector=_protector(),
         llm_client=first_client,
-        input_mode=InputMode.RAW_ANALYSIS,
+        input_mode=InputMode.INCREMENTAL,
         model_workers=2,
         extraction_cache_path=cache,
     )
@@ -247,7 +164,7 @@ def test_model_extraction_cache_resumes_without_repeating_successful_call(
         database_path=tmp_path / "second.sqlite3",
         protector=_protector(),
         llm_client=second_client,
-        input_mode=InputMode.RAW_ANALYSIS,
+        input_mode=InputMode.INCREMENTAL,
         model_workers=2,
         extraction_cache_path=cache,
     )
@@ -295,7 +212,7 @@ def test_model_extraction_uses_bounded_parallel_workers(tmp_path: Path) -> None:
         database_path=tmp_path / "parallel.sqlite3",
         protector=_protector(),
         llm_client=client,
-        input_mode=InputMode.RAW_ANALYSIS,
+        input_mode=InputMode.INCREMENTAL,
         model_workers=3,
     )
 
@@ -353,7 +270,7 @@ def test_repeat_model_reviews_are_parallel_and_resume_from_cache(
         database_path=tmp_path / "repeat-first.sqlite3",
         protector=_protector(),
         llm_client=first_client,
-        input_mode=InputMode.RAW_ANALYSIS,
+        input_mode=InputMode.INCREMENTAL,
         model_workers=3,
         extraction_cache_path=cache,
     )
@@ -363,7 +280,7 @@ def test_repeat_model_reviews_are_parallel_and_resume_from_cache(
         database_path=tmp_path / "repeat-second.sqlite3",
         protector=_protector(),
         llm_client=second_client,
-        input_mode=InputMode.RAW_ANALYSIS,
+        input_mode=InputMode.INCREMENTAL,
         model_workers=3,
         extraction_cache_path=cache,
     )
@@ -413,7 +330,7 @@ def test_three_consecutive_model_failures_abort_without_database_writes(
             database_path=database,
             protector=_protector(),
             llm_client=UnavailableClient(),
-            input_mode=InputMode.RAW_ANALYSIS,
+            input_mode=InputMode.INCREMENTAL,
         )
 
     sessions = make_session_factory(make_engine(database))
@@ -467,18 +384,21 @@ def test_application_accepts_non_excel_tabular_adapter_and_skips_repeat_read(
             ]
 
     adapter = MemoryAdapter()
+    client = FakeAnalysisClient()
     first = process_workbook(
         input_path=source,
         database_path=database,
         protector=_protector(),
-        input_mode=InputMode.TRUSTED_IMPORT,
+        llm_client=client,
+        input_mode=InputMode.INCREMENTAL,
         input_adapter=adapter,
     )
     second = process_workbook(
         input_path=source,
         database_path=database,
         protector=_protector(),
-        input_mode=InputMode.TRUSTED_IMPORT,
+        llm_client=client,
+        input_mode=InputMode.INCREMENTAL,
         input_adapter=adapter,
     )
 
@@ -492,3 +412,48 @@ def test_application_accepts_non_excel_tabular_adapter_and_skips_repeat_read(
         assert trajectory is not None
         assert trajectory.source_filename == "memory-batch-1"
         assert trajectory.core_question == "增值税如何申报"
+
+
+def test_application_rejects_invalid_adapter_values_before_analysis(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "profiles.sqlite3"
+    source = tmp_path / "invalid.table"
+
+    class InvalidAdapter:
+        def identify(self, input_source: Path) -> InputSourceIdentity:
+            assert input_source == source.resolve()
+            return InputSourceIdentity(name="invalid-batch", fingerprint="b" * 64)
+
+        def read_rows(
+            self,
+            input_source: Path,
+            *,
+            start_date: date | None = None,
+            end_date: date | None = None,
+        ) -> list[dict[str, object]]:
+            del input_source, start_date, end_date
+            return [
+                {
+                    "业务编号": "INVALID-1",
+                    "来电号码": "13800000008",
+                    "登记日期": "not-a-date",
+                    "转写结果": "这条记录不应进入模型分析。",
+                }
+            ]
+
+    client = FakeAnalysisClient()
+    with pytest.raises(ValueError, match="第 1 条记录的登记日期无效"):
+        process_workbook(
+            input_path=source,
+            database_path=database,
+            protector=_protector(),
+            llm_client=client,
+            input_adapter=InvalidAdapter(),
+        )
+
+    assert client.payloads == []
+    sessions = make_session_factory(make_engine(database))
+    with sessions() as session:
+        assert list(session.scalars(select(CallTrajectory))) == []
+        assert list(session.scalars(select(UpdateLog))) == []

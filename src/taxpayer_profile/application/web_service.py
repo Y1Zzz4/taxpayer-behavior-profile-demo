@@ -238,29 +238,13 @@ def _profile_snapshot(state: dict[str, object]) -> dict[str, object]:
 
 
 @dataclass
-class DemoService:
+class ProfileAdviceService:
+    """Phone-level profile lookup and realtime reception advice."""
+
     database_path: Path
     protector: PhoneProtector
     settings: Settings
     advice_client_factory: Callable[[], AdviceClient | None] | None = None
-
-    @cached_property
-    def _sessions(self):  # type: ignore[no-untyped-def]
-        engine = make_engine(self.database_path)
-        create_schema(engine)
-        return make_session_factory(engine)
-
-    @cached_property
-    def auth(self) -> AuthService:
-        return AuthService(self._sessions)
-
-    def initialize_auth(self) -> None:
-        self.auth.ensure_default_users(
-            admin_username=self.settings.default_admin_username,
-            admin_password=self.settings.default_admin_password,
-            agent_username=self.settings.default_agent_username,
-            agent_password=self.settings.default_agent_password,
-        )
 
     def lookup_profile(self, phone: object) -> dict[str, object] | None:
         return query_profile(
@@ -321,6 +305,50 @@ class DemoService:
                 self._advice_client(),
             ),
         }
+
+
+@dataclass
+class DemoService:
+    """Stable façade composing the UI's focused application services."""
+
+    database_path: Path
+    protector: PhoneProtector
+    settings: Settings
+    advice_client_factory: Callable[[], AdviceClient | None] | None = None
+
+    @cached_property
+    def _sessions(self):  # type: ignore[no-untyped-def]
+        engine = make_engine(self.database_path)
+        create_schema(engine)
+        return make_session_factory(engine)
+
+    @cached_property
+    def auth(self) -> AuthService:
+        return AuthService(self._sessions)
+
+    @cached_property
+    def profile_advice(self) -> ProfileAdviceService:
+        return ProfileAdviceService(
+            database_path=self.database_path,
+            protector=self.protector,
+            settings=self.settings,
+            advice_client_factory=self.advice_client_factory,
+        )
+
+    def initialize_auth(self) -> None:
+        self.auth.ensure_default_users(
+            admin_username=self.settings.default_admin_username,
+            admin_password=self.settings.default_admin_password,
+            agent_username=self.settings.default_agent_username,
+            agent_password=self.settings.default_agent_password,
+        )
+
+    def lookup_profile(self, phone: object) -> dict[str, object] | None:
+        return self.profile_advice.lookup_profile(phone)
+
+    def generate_advice(self, phone: object) -> dict[str, object]:
+        return self.profile_advice.generate_advice(phone)
+
     def dashboard_summary(self) -> dict[str, object]:
         with self._sessions() as session:
             profiles = session.scalars(select(CallerProfile)).all()

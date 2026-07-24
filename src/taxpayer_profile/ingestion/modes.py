@@ -4,11 +4,8 @@ from enum import Enum
 
 
 class InputMode(str, Enum):
-    """Select the analytical trust contract for an ingestion batch."""
+    """Stable persisted name for the unified incremental analysis path."""
 
-    TRUSTED_IMPORT = "trusted_import"
-    # Keep the stored value stable so existing databases, extraction caches and
-    # external callers do not require a migration merely for clearer naming.
+    # Keep the stored value for compatibility with existing SQLite records and
+    # model-cache keys; the old raw/history behavioral split no longer exists.
     INCREMENTAL = "raw_analysis"
-    RAW_ANALYSIS = "raw_analysis"  # Backward-compatible alias.
-    BOOTSTRAP_MIXED = "bootstrap_mixed"

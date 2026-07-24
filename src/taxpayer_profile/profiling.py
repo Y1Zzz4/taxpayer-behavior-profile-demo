@@ -123,7 +123,7 @@ RECEPTION_MODE_CATALOG = tuple(
 
 
 def proficiency_level_from_score(score: float | None) -> str:
-    """Convert the legacy numeric score into the approved three-level label."""
+    """Convert a numeric score into the approved three-level label."""
 
     if score is None:
         return "暂无法判断"

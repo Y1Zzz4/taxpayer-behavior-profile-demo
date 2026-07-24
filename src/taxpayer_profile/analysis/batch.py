@@ -15,11 +15,9 @@ from taxpayer_profile.analysis.contracts import AnalysisClient, ModelExtraction
 from taxpayer_profile.ingestion.fingerprint import source_record_fingerprint
 from taxpayer_profile.ingestion.modes import InputMode
 from taxpayer_profile.llm_client import (
-    HISTORY_ENRICHMENT_PROMPT_VERSION,
     PROMPT_VERSION,
     REPEAT_PROMPT_VERSION,
     CallExtractionResult,
-    HistoryEnrichmentResult,
     RepeatIssueModelResult,
     build_call_payload,
 )
@@ -31,11 +29,7 @@ ProgressCallback = Callable[[int, int, str], None]
 def _model_cache_key(
     call: NormalizedCallInput, mode: InputMode, client: AnalysisClient
 ) -> tuple[str, str]:
-    prompt_version = (
-        HISTORY_ENRICHMENT_PROMPT_VERSION
-        if mode == InputMode.TRUSTED_IMPORT
-        else PROMPT_VERSION
-    )
+    prompt_version = PROMPT_VERSION
     value = "|".join(
         (
             source_record_fingerprint(call),
@@ -59,11 +53,7 @@ def _extract_model_fields(
         core_question=call.core_question,
         topic_category=call.topic_category,
     )
-    return (
-        client.analyze_history(payload)
-        if mode == InputMode.TRUSTED_IMPORT
-        else client.analyze_call(payload)
-    )
+    return client.analyze_call(payload)
 
 
 def _is_model_pressure_error(error: Exception) -> bool:
@@ -130,12 +120,7 @@ def prefetch_model_extractions(
     try:
         for business_id, call, mode in pending:
             cache_key, prompt_version = _model_cache_key(call, mode, client)
-            result_type: type[CachedModelResult] = (
-                HistoryEnrichmentResult
-                if mode == InputMode.TRUSTED_IMPORT
-                else CallExtractionResult
-            )
-            cached = cache.get(cache_key, result_type) if cache else None
+            cached = cache.get(cache_key, CallExtractionResult) if cache else None
             if cached is not None:
                 results[business_id] = cached
                 completed += 1

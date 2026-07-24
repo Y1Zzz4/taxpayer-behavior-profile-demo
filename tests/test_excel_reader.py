@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from taxpayer_profile.excel_reader import read_excel_records
+from taxpayer_profile.ingestion.excel import read_excel_records
 
 
 def test_reader_uses_registration_date_and_allowed_fields(tmp_path: Path) -> None:
@@ -69,3 +69,25 @@ def test_reader_requires_source_evidence_on_every_row(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="第 2 条记录缺少原始业务信息"):
         read_excel_records(workbook, date(2026, 6, 1), date(2026, 6, 30))
+
+
+def test_reader_rejects_invalid_required_values_with_row_numbers(
+    tmp_path: Path,
+) -> None:
+    workbook = tmp_path / "calls.xlsx"
+    pd.DataFrame(
+        {
+            "业务编号": ["B1", "B2", "B" * 129],
+            "来电号码": ["13800000001", "not-a-phone", "13800000003"],
+            "登记日期": ["not-a-date", "2026/6/10 10:00", "2026/6/10 11:00"],
+            "转写结果": ["有效转写", "有效转写", "有效转写"],
+        }
+    ).to_excel(workbook, index=False)
+
+    with pytest.raises(ValueError) as captured:
+        read_excel_records(workbook, date(2026, 6, 1), date(2026, 6, 30))
+
+    message = str(captured.value)
+    assert "第 1 条记录的登记日期无效" in message
+    assert "第 2 条记录的来电号码无效" in message
+    assert "第 3 条记录的业务编号无效" in message

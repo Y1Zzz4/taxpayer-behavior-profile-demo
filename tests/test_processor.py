@@ -1,15 +1,63 @@
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 from cryptography.fernet import Fernet
 import pandas as pd
 from sqlalchemy import func, select
 
+from taxpayer_profile.application.ingest import process_workbook
 from taxpayer_profile.database import make_engine, make_session_factory
 from taxpayer_profile.ingestion.modes import InputMode
+from taxpayer_profile.llm_client import CallExtractionResult, RepeatIssueModelResult
 from taxpayer_profile.models import CallerProfile, CallTrajectory, IngestionConflict
-from taxpayer_profile.processor import process_workbook
 from taxpayer_profile.security import PhoneProtector
+
+
+class ProcessorAnalysisClient:
+    """Deterministic model double used to exercise the production ingestion path."""
+
+    model = "processor-test-model"
+
+    def analyze_call(self, payload: dict[str, object]) -> CallExtractionResult:
+        unresolved = payload["business_content"] == "咨询申报步骤"
+        return CallExtractionResult(
+            core_question=payload["core_question"],
+            father_question="模型父问题",
+            father_question_2=None,
+            agent_answer_summary="坐席说明了操作路径。",
+            demand_categories=["操作辅导类"],
+            caller_type="企业",
+            explicit_enterprise_identity="无法判断",
+            model_abnormal_end=False,
+            waiting_expression=False,
+            potential_pushback=False,
+            taxpayer_dissatisfied=False,
+            contacted_other_department=False,
+            contact_target=None,
+            active_contacted_other_department=False,
+            resolved_status=not unresolved,
+            unresolved_reason="需继续确认操作结果" if unresolved else None,
+            natural_qa_turns=2,
+            core_question_turns=1,
+            effective_qa_turns=2,
+            effective_qa_content="模型提取的有效问答",
+            proficiency_score=7,
+            proficiency_summary="能够描述具体办理事项。",
+            service_rating="一般" if unresolved else "良好",
+            service_summary="坐席给出了相关操作路径。",
+        )
+
+    def analyze_repeat_issue(
+        self, payload: dict[str, object]
+    ) -> RepeatIssueModelResult:
+        assert payload["history"]
+        return RepeatIssueModelResult(
+            is_repeated_issue=True,
+            matched_history_index=0,
+            repeat_reason="同一事项继续追问",
+            explanation="当前问题与上一通核心问题一致。",
+            confidence=0.95,
+        )
 
 
 def _write_calls(path: Path) -> None:
@@ -50,27 +98,26 @@ def test_processing_is_idempotent_and_updates_latest_profile(tmp_path: Path) -> 
     database = tmp_path / "profiles.sqlite3"
     _write_calls(workbook)
     protector = PhoneProtector("test-hash-key", Fernet.generate_key().decode())
+    client = ProcessorAnalysisClient()
 
     first = process_workbook(
         input_path=workbook,
         database_path=database,
-        start_date=date(2026, 6, 1),
-        end_date=date(2026, 6, 9),
         protector=protector,
-        input_mode=InputMode.TRUSTED_IMPORT,
+        llm_client=client,
+        input_mode=InputMode.INCREMENTAL,
     )
     second = process_workbook(
         input_path=workbook,
         database_path=database,
-        start_date=date(2026, 6, 1),
-        end_date=date(2026, 6, 9),
         protector=protector,
-        input_mode=InputMode.TRUSTED_IMPORT,
+        llm_client=client,
+        input_mode=InputMode.INCREMENTAL,
     )
 
     assert first.new_call_count == 2
     assert first.repeated_call_count == 1
-    assert first.repeated_issue_count == 0
+    assert first.repeated_issue_count == 1
     assert second.new_call_count == 0
     assert second.skipped_call_count == 2
 
@@ -99,15 +146,15 @@ def test_processing_is_idempotent_and_updates_latest_profile(tmp_path: Path) -> 
         assert not hasattr(profile, "service_suggestion")
         second_call = session.get(CallTrajectory, "BIZ-2")
         assert second_call is not None
-        assert second_call.is_repeated_issue is None
-        assert second_call.repeat_review_status == "pending_review"
-        assert second_call.repeat_confidence is None
+        assert second_call.is_repeated_issue is True
+        assert second_call.repeat_review_status == "model_reviewed"
+        assert second_call.repeat_confidence == 0.95
         assert second_call.repeat_candidate_score == 1.0
         assert second_call.registration_time == datetime(2026, 6, 2, 10)
         assert second_call.call_end_time == datetime(2026, 6, 2, 10, 10)
         assert second_call.call_time_source == "call_start"
-        assert second_call.effective_qa_turns == 3
-        assert second_call.effective_qa_content == "基于答复继续确认"
+        assert second_call.effective_qa_turns == 2
+        assert second_call.effective_qa_content == "模型提取的有效问答"
 
 
 def test_backfill_resequences_existing_later_call(tmp_path: Path) -> None:
@@ -146,18 +193,21 @@ def test_backfill_resequences_existing_later_call(tmp_path: Path) -> None:
         }
     ).to_excel(earlier, index=False)
     protector = PhoneProtector("test-hash-key", Fernet.generate_key().decode())
+    client = ProcessorAnalysisClient()
 
     process_workbook(
         input_path=later,
         database_path=database,
         protector=protector,
-        input_mode=InputMode.TRUSTED_IMPORT,
+        llm_client=client,
+        input_mode=InputMode.INCREMENTAL,
     )
     process_workbook(
         input_path=earlier,
         database_path=database,
         protector=protector,
-        input_mode=InputMode.TRUSTED_IMPORT,
+        llm_client=client,
+        input_mode=InputMode.INCREMENTAL,
     )
 
     sessions = make_session_factory(make_engine(database))
@@ -187,18 +237,21 @@ def test_changed_business_id_is_rejected_and_audited(tmp_path: Path) -> None:
     changed.loc[0, "答复内容"] = "试图覆盖的修正答复"
     changed.to_excel(correction, index=False)
     protector = PhoneProtector("test-hash-key", Fernet.generate_key().decode())
+    client = ProcessorAnalysisClient()
 
     process_workbook(
         input_path=original,
         database_path=database,
         protector=protector,
-        input_mode=InputMode.TRUSTED_IMPORT,
+        llm_client=client,
+        input_mode=InputMode.INCREMENTAL,
     )
     summary = process_workbook(
         input_path=correction,
         database_path=database,
         protector=protector,
-        input_mode=InputMode.TRUSTED_IMPORT,
+        llm_client=client,
+        input_mode=InputMode.INCREMENTAL,
     )
 
     assert summary.conflict_count == 1

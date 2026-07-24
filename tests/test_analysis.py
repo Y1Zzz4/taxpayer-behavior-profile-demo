@@ -8,7 +8,7 @@ from taxpayer_profile.profiling import (
     weighted_proficiency,
 )
 from taxpayer_profile.models import CallTrajectory
-from taxpayer_profile.processor import _reassess_after_backfill
+from taxpayer_profile.analysis.repetition import reassess_after_backfill
 from taxpayer_profile.repeat_analysis import analyze_repeat_issue
 
 
@@ -103,7 +103,7 @@ def test_backfill_does_not_override_an_optional_manual_review() -> None:
         **common,
     )
 
-    _reassess_after_backfill(
+    reassess_after_backfill(
         [old, backfill, reviewed],
         new_business_ids={"BACKFILL"},
         client=None,

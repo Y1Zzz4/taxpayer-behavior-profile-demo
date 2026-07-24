@@ -66,25 +66,6 @@ WORKBOOK_ANALYSIS_COLUMNS = frozenset(
     }
 )
 
-# These fields appeared in an internal normalization contract but are not part
-# of the current workbook adapter. Keeping them in the trusted-history policy
-# preserves the compatibility behavior for direct programmatic callers.
-LEGACY_INTERNAL_ANALYSIS_COLUMNS = frozenset(
-    {
-        "业务熟悉度",
-        "业务熟悉度依据",
-        "近期情绪状态",
-        "情绪状态依据",
-    }
-)
-
-# The initial bootstrap workbook contained historical analytical outputs. This
-# complete set is retained only for the legacy trusted-history import path.
-LEGACY_ANALYSIS_COLUMNS = (
-    WORKBOOK_ANALYSIS_COLUMNS | LEGACY_INTERNAL_ANALYSIS_COLUMNS
-)
-
-
 @dataclass(frozen=True)
 class FieldReusePolicy:
     """Whitelist analytical fields that an ingestion path may trust.
@@ -122,9 +103,4 @@ INCREMENTAL_REUSE_POLICY = FieldReusePolicy(
             "申请人员身份",
         }
     ),
-)
-
-TRUSTED_HISTORY_REUSE_POLICY = FieldReusePolicy(
-    name="trusted_history",
-    reusable_analysis_columns=LEGACY_ANALYSIS_COLUMNS,
 )

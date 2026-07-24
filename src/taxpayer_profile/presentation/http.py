@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Callable
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Protocol
@@ -15,6 +17,7 @@ from taxpayer_profile.models import SystemUser
 WEB_ROOT = PROJECT_ROOT / "web"
 MAX_REQUEST_BYTES = 16_384
 SESSION_COOKIE = "tp_session"
+LOGGER = logging.getLogger(__name__)
 
 
 class HttpApplication(Protocol):
@@ -118,7 +121,25 @@ def handler_factory(
                 return None
             return user
 
-        def do_GET(self) -> None:  # noqa: N802
+        def _run_request(self, method: str, operation: Callable[[], None]) -> None:
+            """Convert unexpected application failures into one stable response."""
+
+            try:
+                operation()
+            except Exception:
+                LOGGER.exception(
+                    "http.request_failed",
+                    extra={
+                        "event_name": "http.request_failed",
+                        "event_fields": {
+                            "method": method,
+                            "path": urlparse(self.path).path,
+                        },
+                    },
+                )
+                self._error(500, "服务器处理请求失败")
+
+        def _dispatch_get(self) -> None:
             parsed_url = urlparse(self.path)
             path = parsed_url.path
             if path == "/":
@@ -154,7 +175,7 @@ def handler_factory(
             else:
                 self._error(404, "接口不存在")
 
-        def do_POST(self) -> None:  # noqa: N802
+        def _dispatch_post(self) -> None:
             path = urlparse(self.path).path
             try:
                 body = self._read_json()
@@ -253,6 +274,12 @@ def handler_factory(
                     self._error(404, "接口不存在")
             except ValueError as exc:
                 self._error(400, str(exc))
+
+        def do_GET(self) -> None:  # noqa: N802
+            self._run_request("GET", self._dispatch_get)
+
+        def do_POST(self) -> None:  # noqa: N802
+            self._run_request("POST", self._dispatch_post)
 
         def log_message(self, format: str, *args: object) -> None:
             del format, args

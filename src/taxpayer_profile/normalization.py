@@ -12,7 +12,7 @@ import pandas as pd
 
 from taxpayer_profile.identity import infer_enterprise_identity, normalize_caller_type
 from taxpayer_profile.ingestion.policy import (
-    TRUSTED_HISTORY_REUSE_POLICY,
+    INCREMENTAL_REUSE_POLICY,
     FieldReusePolicy,
 )
 from taxpayer_profile.security import normalize_phone
@@ -211,7 +211,7 @@ class NormalizedCallInput:
 def normalize_call_row(
     row: dict[str, Any],
     *,
-    reuse_policy: FieldReusePolicy = TRUSTED_HISTORY_REUSE_POLICY,
+    reuse_policy: FieldReusePolicy = INCREMENTAL_REUSE_POLICY,
 ) -> NormalizedCallInput:
     """Normalize one adapter row according to an explicit field-source policy.
 
@@ -223,7 +223,7 @@ def normalize_call_row(
     def reused(column: str) -> object | None:
         return reuse_policy.value(row, column)
 
-    reuses_trusted_history = reuse_policy.reuses("咨询主体(大模型判断)")
+    reuses_precomputed_identity = reuse_policy.reuses("咨询主体(大模型判断)")
     registration_time = parse_datetime(row.get("登记日期"))
     call_start = parse_datetime(row.get("通话开始时间"))
     transcript = text_or_none(row.get("转写结果"))
@@ -306,7 +306,7 @@ def normalize_call_row(
             text_or_none(reused("业务熟悉度依据"))
             or (
                 "现有字段未提供业务熟悉度依据。"
-                if reuses_trusted_history
+                if reuses_precomputed_identity
                 else "等待分析。"
             )
         ),
@@ -317,14 +317,16 @@ def normalize_call_row(
             text_or_none(reused("情绪状态依据"))
             or (
                 "现有字段未提供情绪状态依据。"
-                if reuses_trusted_history
+                if reuses_precomputed_identity
                 else "等待分析。"
             )
         ),
         service_rating=None,
         service_summary=None,
         enterprise_identity_source=(
-            "trusted_source_or_transcript" if reuses_trusted_history else "unknown"
+            "trusted_source_or_transcript"
+            if reuses_precomputed_identity
+            else "unknown"
         ),
         enterprise_identity_conflict=False,
     )

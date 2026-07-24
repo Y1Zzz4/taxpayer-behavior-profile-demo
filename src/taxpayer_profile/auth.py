@@ -51,6 +51,20 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _optional_boolean(value: object | None, *, field_label: str) -> bool | None:
+    """Accept JSON boolean values without truthiness coercion.
+
+    Strings such as ``"false"`` are truthy in Python and must not silently
+    reverse an administrative action.
+    """
+
+    if value is None:
+        return None
+    if type(value) is not bool:
+        raise ValueError(f"{field_label}必须是布尔值")
+    return value
+
+
 def user_payload(user: SystemUser) -> dict[str, object]:
     return {
         "id": user.id,
@@ -197,6 +211,7 @@ class AuthService:
             identifier = int(user_id)
         except (TypeError, ValueError) as exc:
             raise ValueError("用户编号无效") from exc
+        active_value = _optional_boolean(is_active, field_label="启用状态")
         with self.sessions.begin() as session:
             user = session.get(SystemUser, identifier)
             if user is None:
@@ -223,12 +238,16 @@ class AuthService:
                 ):
                     raise ValueError("至少需要保留一个启用的管理员")
                 user.role = role_value
-            if is_active is not None:
-                active = bool(is_active)
-                if user.role == "admin" and user.is_active and not active and active_admins <= 1:
+            if active_value is not None:
+                if (
+                    user.role == "admin"
+                    and user.is_active
+                    and not active_value
+                    and active_admins <= 1
+                ):
                     raise ValueError("至少需要保留一个启用的管理员")
-                user.is_active = active
-                if not active:
+                user.is_active = active_value
+                if not active_value:
                     for item in session.scalars(
                         select(AuthSession).where(AuthSession.user_id == user.id)
                     ).all():

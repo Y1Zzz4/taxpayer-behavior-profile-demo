@@ -1,7 +1,4 @@
-from taxpayer_profile.ingestion.policy import (
-    INCREMENTAL_REUSE_POLICY,
-    TRUSTED_HISTORY_REUSE_POLICY,
-)
+from taxpayer_profile.ingestion.policy import INCREMENTAL_REUSE_POLICY
 from taxpayer_profile.normalization import normalize_call_row
 
 
@@ -14,7 +11,6 @@ def test_incremental_policy_reuses_only_confirmed_analytical_fields() -> None:
     }
 
     assert INCREMENTAL_REUSE_POLICY.reusable_analysis_columns == expected
-    assert TRUSTED_HISTORY_REUSE_POLICY.reusable_analysis_columns > expected
 
 
 def test_incremental_normalization_ignores_optional_legacy_decisions() -> None:

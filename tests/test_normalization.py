@@ -89,7 +89,7 @@ def test_work_order_uses_existing_field_or_processing_code() -> None:
     assert determine_work_order("否", "1001") is False
 
 
-def test_trusted_resolved_field_is_used_as_a_fallback_and_time_source_is_kept() -> None:
+def test_incremental_policy_ignores_old_resolution_and_keeps_source_facts() -> None:
     call = normalize_call_row(
         {
             "业务编号": "BIZ-1",
@@ -101,7 +101,7 @@ def test_trusted_resolved_field_is_used_as_a_fallback_and_time_source_is_kept() 
         }
     )
 
-    assert call.resolved_status is True
+    assert call.resolved_status is None
     assert call.call_time == datetime(2026, 6, 5, 13, 44)
     assert call.call_time_source == "registration_fallback"
     assert call.call_end_time == datetime(2026, 6, 5, 13, 50)

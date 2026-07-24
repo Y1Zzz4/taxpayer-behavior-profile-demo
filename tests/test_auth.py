@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from taxpayer_profile.auth import AuthService, hash_password, verify_password
 from taxpayer_profile.database import create_schema, make_engine, make_session_factory
 
@@ -31,7 +33,23 @@ def test_default_roles_sessions_and_last_admin_guard(tmp_path: Path) -> None:
 
     users = service.list_users()
     admin = next(item for item in users if item["role"] == "admin")
-    import pytest
-
     with pytest.raises(ValueError, match="至少需要保留一个"):
         service.update_user(user_id=admin["id"], role="agent")
+
+
+def test_user_active_state_requires_a_real_boolean(tmp_path: Path) -> None:
+    engine = make_engine(tmp_path / "auth.sqlite3")
+    create_schema(engine)
+    service = AuthService(make_session_factory(engine))
+    user = service.create_user(
+        username="agent",
+        display_name="测试坐席",
+        password="Agent@12366",
+        role="agent",
+    )
+
+    for invalid in ("false", "true", 0, 1, [], {}):
+        with pytest.raises(ValueError, match="启用状态必须是布尔值"):
+            service.update_user(user_id=user["id"], is_active=invalid)
+    assert service.update_user(user_id=user["id"], is_active=False)["is_active"] is False
+    assert service.update_user(user_id=user["id"], is_active=True)["is_active"] is True

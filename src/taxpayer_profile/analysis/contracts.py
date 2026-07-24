@@ -8,7 +8,6 @@ from typing import Protocol
 from taxpayer_profile.ingestion.modes import InputMode
 from taxpayer_profile.llm_client import (
     CallExtractionResult,
-    HistoryEnrichmentResult,
     RepeatIssueModelResult,
 )
 
@@ -19,10 +18,6 @@ class AnalysisClient(Protocol):
     model: str
 
     def analyze_call(self, payload: dict[str, str | None]) -> CallExtractionResult: ...
-
-    def analyze_history(
-        self, payload: dict[str, str | None]
-    ) -> HistoryEnrichmentResult: ...
 
     def analyze_repeat_issue(
         self, payload: dict[str, object]
@@ -40,4 +35,4 @@ class EnrichmentMetadata:
     analysis_error: str | None = None
 
 
-ModelExtraction = CallExtractionResult | HistoryEnrichmentResult
+ModelExtraction = CallExtractionResult
