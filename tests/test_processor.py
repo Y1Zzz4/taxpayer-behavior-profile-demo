@@ -6,7 +6,8 @@ import pandas as pd
 from sqlalchemy import func, select
 
 from taxpayer_profile.database import make_engine, make_session_factory
-from taxpayer_profile.models import CallerProfile, CallTrajectory
+from taxpayer_profile.ingestion.modes import InputMode
+from taxpayer_profile.models import CallerProfile, CallTrajectory, IngestionConflict
 from taxpayer_profile.processor import process_workbook
 from taxpayer_profile.security import PhoneProtector
 
@@ -56,6 +57,7 @@ def test_processing_is_idempotent_and_updates_latest_profile(tmp_path: Path) -> 
         start_date=date(2026, 6, 1),
         end_date=date(2026, 6, 9),
         protector=protector,
+        input_mode=InputMode.TRUSTED_IMPORT,
     )
     second = process_workbook(
         input_path=workbook,
@@ -63,6 +65,7 @@ def test_processing_is_idempotent_and_updates_latest_profile(tmp_path: Path) -> 
         start_date=date(2026, 6, 1),
         end_date=date(2026, 6, 9),
         protector=protector,
+        input_mode=InputMode.TRUSTED_IMPORT,
     )
 
     assert first.new_call_count == 2
@@ -144,8 +147,18 @@ def test_backfill_resequences_existing_later_call(tmp_path: Path) -> None:
     ).to_excel(earlier, index=False)
     protector = PhoneProtector("test-hash-key", Fernet.generate_key().decode())
 
-    process_workbook(input_path=later, database_path=database, protector=protector)
-    process_workbook(input_path=earlier, database_path=database, protector=protector)
+    process_workbook(
+        input_path=later,
+        database_path=database,
+        protector=protector,
+        input_mode=InputMode.TRUSTED_IMPORT,
+    )
+    process_workbook(
+        input_path=earlier,
+        database_path=database,
+        protector=protector,
+        input_mode=InputMode.TRUSTED_IMPORT,
+    )
 
     sessions = make_session_factory(make_engine(database))
     with sessions() as session:
@@ -163,3 +176,43 @@ def test_backfill_resequences_existing_later_call(tmp_path: Path) -> None:
         assert profile is not None
         assert profile.latest_business_id == "LATER"
         assert profile.repeated_call_count == 1
+
+
+def test_changed_business_id_is_rejected_and_audited(tmp_path: Path) -> None:
+    database = tmp_path / "profiles.sqlite3"
+    original = tmp_path / "original.xlsx"
+    correction = tmp_path / "correction.xlsx"
+    _write_calls(original)
+    changed = pd.read_excel(original)
+    changed.loc[0, "答复内容"] = "试图覆盖的修正答复"
+    changed.to_excel(correction, index=False)
+    protector = PhoneProtector("test-hash-key", Fernet.generate_key().decode())
+
+    process_workbook(
+        input_path=original,
+        database_path=database,
+        protector=protector,
+        input_mode=InputMode.TRUSTED_IMPORT,
+    )
+    summary = process_workbook(
+        input_path=correction,
+        database_path=database,
+        protector=protector,
+        input_mode=InputMode.TRUSTED_IMPORT,
+    )
+
+    assert summary.conflict_count == 1
+    assert summary.skipped_call_count == 1
+    sessions = make_session_factory(make_engine(database))
+    with sessions() as session:
+        original_call = session.get(CallTrajectory, "BIZ-1")
+        conflict = session.scalar(select(IngestionConflict))
+        assert original_call is not None
+        assert original_call.answer_content == "给出操作路径"
+        assert conflict is not None
+        assert conflict.business_id == "BIZ-1"
+        assert conflict.source_filename == "correction.xlsx"
+        assert (
+            conflict.existing_record_fingerprint
+            != conflict.incoming_record_fingerprint
+        )

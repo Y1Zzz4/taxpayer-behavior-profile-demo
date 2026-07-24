@@ -6,14 +6,16 @@ import argparse
 import atexit
 from pathlib import Path
 
+from taxpayer_profile.application.ingest import process_workbook
 from taxpayer_profile.config import PROJECT_ROOT, load_settings
 from taxpayer_profile.ingestion.modes import InputMode
 from taxpayer_profile.llm_client import OpenAICompatibleClient
-from taxpayer_profile.processor import process_workbook
+from taxpayer_profile.observability import configure_event_logging
 from taxpayer_profile.security import PhoneProtector
 
 
 def main() -> None:
+    configure_event_logging()
     parser = argparse.ArgumentParser(
         description="按显式字段复用策略分析一个新 Excel，并增量更新画像数据库。"
     )

@@ -125,8 +125,15 @@ def test_realtime_advice_timeout_allows_normal_model_latency_variation() -> None
 
 
 def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
-    page = (PROJECT_ROOT / "web/index.html").read_text(encoding="utf-8")
-    page += (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
+    html = (PROJECT_ROOT / "web/index.html").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
+    page = html + script
+
+    # The browser must exercise the same JavaScript that this contract checks.
+    # A previous text/plain copy in index.html made stale UI assertions pass
+    # even though that implementation was never executed.
+    assert html.count('<script src="/app.js"></script>') == 1
+    assert 'type="text/plain"' not in html
 
     for required in (
         "12366",
@@ -147,7 +154,7 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "等待推诿",
             "最近坐席答复",
             "标准答案",
-        "画像证据回放",
+        "历史证据回放",
         "增量画像结果",
         "增量画像推演",
         "多维画像图谱",

@@ -6,21 +6,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event, inspect
+from sqlalchemy import Connection, Engine, create_engine, event, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from taxpayer_profile.models import Base
-
-SCHEMA_VERSION = 8
-
-# Only nullable, additive columns are migrated in place so an existing demo
-# database remains readable after a display-oriented schema extension.
-ADDITIVE_MIGRATIONS = {
-    "call_trajectories": {
-        "secondary_topic": "TEXT",
-        "agent_answer_summary": "TEXT",
-    },
-}
+from taxpayer_profile.persistence.migrations import (
+    SCHEMA_VERSION,
+    apply_pending_sqlite_migrations,
+    sqlite_schema_version,
+)
 
 
 def make_engine(database: Path | str) -> Engine:
@@ -43,25 +37,12 @@ def make_engine(database: Path | str) -> Engine:
     return engine
 
 
-def create_schema(engine: Engine) -> None:
-    inspector = inspect(engine)
+def _validate_existing_tables(connection: Connection) -> None:
+    """Reject shapes that cannot be upgraded by registered safe migrations."""
+
+    inspector = inspect(connection)
     incompatibilities: list[str] = []
     existing_tables = set(inspector.get_table_names())
-    if engine.dialect.name == "sqlite":
-        with engine.begin() as connection:
-            for table_name, columns in ADDITIVE_MIGRATIONS.items():
-                if table_name not in existing_tables:
-                    continue
-                actual = {
-                    column["name"] for column in inspector.get_columns(table_name)
-                }
-                for column_name, column_type in columns.items():
-                    if column_name not in actual:
-                        connection.exec_driver_sql(
-                            f'ALTER TABLE "{table_name}" '
-                            f'ADD COLUMN "{column_name}" {column_type}'
-                        )
-        inspector = inspect(engine)
     for table in Base.metadata.sorted_tables:
         if table.name not in existing_tables:
             continue
@@ -72,12 +53,24 @@ def create_schema(engine: Engine) -> None:
             incompatibilities.append(f"{table.name} 缺少字段：{', '.join(missing)}")
     if incompatibilities:
         raise RuntimeError(
-            "数据库结构与当前代码不兼容。本项目尚未提供迁移；请备份后删除旧数据库并重新构建。"
+            "数据库结构与当前代码不兼容，且无法通过已注册迁移安全升级；"
+            "请备份后删除旧数据库并重新构建。"
             + "；".join(incompatibilities)
         )
-    Base.metadata.create_all(engine)
-    if engine.dialect.name == "sqlite":
-        with engine.begin() as connection:
+
+
+def create_schema(engine: Engine) -> None:
+    """Migrate, validate and create the application schema atomically."""
+
+    with engine.begin() as connection:
+        if engine.dialect.name == "sqlite":
+            current_version = sqlite_schema_version(connection)
+            apply_pending_sqlite_migrations(
+                connection, current_version=current_version
+            )
+        _validate_existing_tables(connection)
+        Base.metadata.create_all(connection)
+        if engine.dialect.name == "sqlite":
             connection.exec_driver_sql(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 

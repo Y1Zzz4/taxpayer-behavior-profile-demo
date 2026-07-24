@@ -173,6 +173,24 @@ class UpdateLog(Base):
     summary: Mapped[str | None] = mapped_column(Text)
 
 
+class IngestionConflict(Base):
+    """Audit one rejected correction without persisting sensitive source text."""
+
+    __tablename__ = "ingestion_conflicts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[str] = mapped_column(
+        ForeignKey("update_logs.batch_id"), nullable=False, index=True
+    )
+    business_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    source_filename: Mapped[str] = mapped_column(String(300), nullable=False)
+    existing_record_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    incoming_record_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, nullable=False
+    )
+
+
 class SystemUser(Base):
     __tablename__ = "system_users"
 

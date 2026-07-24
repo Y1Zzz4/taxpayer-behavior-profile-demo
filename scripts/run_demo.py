@@ -5,13 +5,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from taxpayer_profile.application.web_service import DemoService
 from taxpayer_profile.config import load_settings
 from taxpayer_profile.database import create_schema, make_engine
+from taxpayer_profile.observability import configure_event_logging
+from taxpayer_profile.presentation.http import run_server
 from taxpayer_profile.security import PhoneProtector
-from taxpayer_profile.web_app import DemoService, run_server
 
 
 def main() -> None:
+    configure_event_logging()
     parser = argparse.ArgumentParser(description="启动 12366 坐席接待辅助演示系统。")
     parser.add_argument("--database", type=Path)
     parser.add_argument("--host", default="127.0.0.1")

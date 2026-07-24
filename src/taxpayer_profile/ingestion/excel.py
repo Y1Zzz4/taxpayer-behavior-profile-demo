@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
+from taxpayer_profile.ingestion.contracts import InputSourceIdentity
 from taxpayer_profile.ingestion.policy import (
     SOURCE_FACT_COLUMNS,
     WORKBOOK_ANALYSIS_COLUMNS,
@@ -23,6 +25,31 @@ STRING_COLUMNS = {
     "登记处理方式": "string",
     "申请人员身份": "string",
 }
+
+
+@dataclass(frozen=True)
+class ExcelInputAdapter:
+    """Adapt the current whitelisted workbook format to generic input rows."""
+
+    def identify(self, source: Path) -> InputSourceIdentity:
+        return InputSourceIdentity(
+            name=source.name,
+            fingerprint=workbook_fingerprint(source),
+        )
+
+    def read_rows(
+        self,
+        source: Path,
+        *,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[dict[str, object]]:
+        frame = read_excel_workbook(
+            source,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return frame.to_dict(orient="records")
 
 
 def read_excel_records(

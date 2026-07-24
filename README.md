@@ -91,6 +91,15 @@ python scripts/update_database.py data/raw/增量来电.xlsx
 可以缺失；输入结构变化时，应在 `taxpayer_profile.ingestion` 中增加适配器，
 而不是修改画像和模型分析逻辑。
 
+自定义表格来源只需实现
+`taxpayer_profile.ingestion.contracts.TabularInputAdapter` 的两个方法：
+`identify()` 提供非敏感来源名称和稳定指纹，`read_rows()` 将来源映射为标准字段字典。
+然后通过 `process_workbook(..., input_adapter=adapter)` 接入。应用层、模型分析、
+冲突审计和 SQLite 事务均不依赖具体文件格式。
+
+批次开始、完成、行处理失败和熔断事件由命令行入口输出为单行 JSON，便于本地留档
+和故障定位；日志不会记录电话号码、转写内容、业务原文或模型提示词。
+
 ### 5. 遗留数据初始化与本地规则预览
 
 以下命令仅用于从早期混合数据文件重建演示库，不是后续增量更新的标准入口。

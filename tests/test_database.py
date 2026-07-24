@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from taxpayer_profile.database import create_schema, make_engine, make_session_factory
 from taxpayer_profile.models import CallTrajectory
+from taxpayer_profile.persistence.migrations import SCHEMA_VERSION
 
 
 def test_database_creates_profile_and_auth_tables(tmp_path: Path) -> None:
@@ -17,6 +18,7 @@ def test_database_creates_profile_and_auth_tables(tmp_path: Path) -> None:
     assert set(inspect(engine).get_table_names()) == {
         "caller_profiles",
         "call_trajectories",
+        "ingestion_conflicts",
         "update_logs",
         "system_users",
         "auth_sessions",
@@ -92,4 +94,36 @@ def test_incompatible_database_requires_clean_rebuild(tmp_path: Path) -> None:
         connection.execute("CREATE TABLE caller_profiles (phone_hash TEXT PRIMARY KEY)")
 
     with pytest.raises(RuntimeError, match="删除旧数据库并重新构建"):
+        create_schema(make_engine(database))
+
+
+def test_versioned_migrations_upgrade_v6_database(tmp_path: Path) -> None:
+    database = tmp_path / "v6.sqlite3"
+    engine = make_engine(database)
+    create_schema(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            'ALTER TABLE "call_trajectories" DROP COLUMN "secondary_topic"'
+        )
+        connection.exec_driver_sql(
+            'ALTER TABLE "call_trajectories" DROP COLUMN "agent_answer_summary"'
+        )
+        connection.exec_driver_sql("PRAGMA user_version=6")
+
+    create_schema(engine)
+
+    columns = {
+        item["name"] for item in inspect(engine).get_columns("call_trajectories")
+    }
+    assert {"secondary_topic", "agent_answer_summary"}.issubset(columns)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+
+
+def test_database_newer_than_application_is_rejected(tmp_path: Path) -> None:
+    database = tmp_path / "future.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
+
+    with pytest.raises(RuntimeError, match="高于当前程序支持"):
         create_schema(make_engine(database))

@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from taxpayer_profile.database import make_engine, make_session_factory
 from taxpayer_profile.excel_reader import InputMode, discover_workbooks
+from taxpayer_profile.ingestion.contracts import InputSourceIdentity
 from taxpayer_profile.llm_client import (
     CallExtractionResult,
     HistoryEnrichmentResult,
@@ -122,7 +123,6 @@ def test_raw_mode_reuses_direct_core_question_but_reanalyzes_other_fields(
         database_path=database,
         protector=_protector(),
         llm_client=client,
-        input_mode=InputMode.RAW_ANALYSIS,
     )
 
     assert summary.new_call_count == 1
@@ -420,3 +420,75 @@ def test_three_consecutive_model_failures_abort_without_database_writes(
     with sessions() as session:
         assert list(session.scalars(select(CallTrajectory))) == []
         assert list(session.scalars(select(UpdateLog))) == []
+
+
+def test_application_accepts_non_excel_tabular_adapter_and_skips_repeat_read(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "profiles.sqlite3"
+    source = tmp_path / "future-input.table"
+
+    class MemoryAdapter:
+        def __init__(self) -> None:
+            self.read_count = 0
+
+        def identify(self, input_source: Path) -> InputSourceIdentity:
+            assert input_source == source.resolve()
+            return InputSourceIdentity(
+                name="memory-batch-1",
+                fingerprint="a" * 64,
+            )
+
+        def read_rows(
+            self,
+            input_source: Path,
+            *,
+            start_date: date | None = None,
+            end_date: date | None = None,
+        ) -> list[dict[str, object]]:
+            assert input_source == source.resolve()
+            assert start_date is None
+            assert end_date is None
+            self.read_count += 1
+            return [
+                {
+                    "业务编号": "MEM-1",
+                    "来电号码": "13800000008",
+                    "登记日期": "2026/7/24 10:00",
+                    "通话开始时间": "2026/7/24 10:00",
+                    "转写结果": "企业财务人员咨询增值税申报操作。",
+                    "业务内容": "咨询增值税申报",
+                    "答复内容": "说明了线上申报操作步骤。",
+                    "大模型核心问题": "增值税如何申报",
+                    "一级专题类别": "增值税申报",
+                    "二级标签": "增值税申报-一般纳税人申报",
+                    "申请人员身份": "企业财务人员",
+                }
+            ]
+
+    adapter = MemoryAdapter()
+    first = process_workbook(
+        input_path=source,
+        database_path=database,
+        protector=_protector(),
+        input_mode=InputMode.TRUSTED_IMPORT,
+        input_adapter=adapter,
+    )
+    second = process_workbook(
+        input_path=source,
+        database_path=database,
+        protector=_protector(),
+        input_mode=InputMode.TRUSTED_IMPORT,
+        input_adapter=adapter,
+    )
+
+    assert first.input_filename == "memory-batch-1"
+    assert first.new_call_count == 1
+    assert second.already_processed is True
+    assert adapter.read_count == 1
+    sessions = make_session_factory(make_engine(database))
+    with sessions() as session:
+        trajectory = session.get(CallTrajectory, "MEM-1")
+        assert trajectory is not None
+        assert trajectory.source_filename == "memory-batch-1"
+        assert trajectory.core_question == "增值税如何申报"
