@@ -47,6 +47,7 @@ from taxpayer_profile.ingestion.policy import (
     INCREMENTAL_REUSE_POLICY,
     TRUSTED_HISTORY_REUSE_POLICY,
 )
+from taxpayer_profile.ingestion.schema import validate_input_rows
 from taxpayer_profile.llm_client import (
     HISTORY_ENRICHMENT_PROMPT_VERSION,
     PROMPT_VERSION,
@@ -406,6 +407,9 @@ def process_workbook(
         start_date=start_date,
         end_date=end_date,
     )
+    # Validation belongs to the application boundary so custom adapters cannot
+    # bypass the same source-evidence contract enforced by the Excel adapter.
+    validate_input_rows(rows)
     log_event(
         LOGGER,
         logging.INFO,

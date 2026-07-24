@@ -14,9 +14,13 @@ from taxpayer_profile.ingestion.policy import (
     SOURCE_FACT_COLUMNS,
     WORKBOOK_ANALYSIS_COLUMNS,
 )
+from taxpayer_profile.ingestion.schema import (
+    REQUIRED_COLUMNS,
+    validate_input_columns,
+    validate_input_rows,
+)
 
 ALLOWED_COLUMNS = SOURCE_FACT_COLUMNS | WORKBOOK_ANALYSIS_COLUMNS
-REQUIRED_COLUMNS = {"业务编号", "来电号码", "登记日期"}
 STRING_COLUMNS = {
     "业务编号": "string",
     "来电号码": "string",
@@ -75,9 +79,7 @@ def read_excel_workbook(
         raise ValueError("结束日期不能早于开始日期")
 
     header = pd.read_excel(source, sheet_name=0, nrows=0)
-    missing = REQUIRED_COLUMNS.difference(header.columns)
-    if missing:
-        raise ValueError(f"缺少必要字段：{', '.join(sorted(missing))}")
+    validate_input_columns(header.columns)
 
     frame = pd.read_excel(
         source,
@@ -85,6 +87,7 @@ def read_excel_workbook(
         usecols=lambda column: column in ALLOWED_COLUMNS,
         dtype=STRING_COLUMNS,
     )
+    validate_input_rows(frame.to_dict(orient="records"))
     registration = pd.to_datetime(frame["登记日期"], errors="coerce")
     selected = frame.copy()
     dates = registration.dt.date
