@@ -1,4 +1,4 @@
-"""Analyze and ingest one or more independent raw workbooks."""
+"""Analyze and ingest an independent incremental workbook."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import atexit
 from pathlib import Path
 
 from taxpayer_profile.config import PROJECT_ROOT, load_settings
-from taxpayer_profile.excel_reader import InputMode
+from taxpayer_profile.ingestion.modes import InputMode
 from taxpayer_profile.llm_client import OpenAICompatibleClient
 from taxpayer_profile.processor import process_workbook
 from taxpayer_profile.security import PhoneProtector
@@ -15,7 +15,7 @@ from taxpayer_profile.security import PhoneProtector
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="将独立的新 Excel 当作原始数据重新分析并增量更新数据库。"
+        description="按显式字段复用策略分析一个新 Excel，并增量更新画像数据库。"
     )
     parser.add_argument(
         "input",
@@ -36,7 +36,7 @@ def main() -> None:
     settings = load_settings()
     hash_key, encryption_key = settings.require_phone_keys()
     if not settings.llm_configured:
-        raise RuntimeError("原始数据分析需要配置 LLM_BASE_URL、LLM_API_KEY 和 LLM_MODEL")
+        raise RuntimeError("增量分析需要配置 LLM_BASE_URL、LLM_API_KEY 和 LLM_MODEL")
     client = OpenAICompatibleClient(
         settings.llm_base_url, settings.llm_api_key, settings.llm_model  # type: ignore[arg-type]
     )
@@ -52,7 +52,7 @@ def main() -> None:
             database_path=database,
             protector=protector,
             llm_client=client,
-            input_mode=InputMode.RAW_ANALYSIS,
+            input_mode=InputMode.INCREMENTAL,
             model_workers=args.workers,
             extraction_cache_path=cache_path,
             progress_callback=lambda current, total, status: print(

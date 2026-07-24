@@ -22,6 +22,7 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+.refactor-plan.md
 
 # Sensitive source data and generated artifacts
 data/raw/*

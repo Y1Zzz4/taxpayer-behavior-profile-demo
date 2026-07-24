@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from taxpayer_profile.config import PROJECT_ROOT, load_settings
-from taxpayer_profile.excel_reader import InputMode
+from taxpayer_profile.ingestion.modes import InputMode
 from taxpayer_profile.llm_client import OpenAICompatibleClient
 from taxpayer_profile.processor import process_workbook
 from taxpayer_profile.security import PhoneProtector

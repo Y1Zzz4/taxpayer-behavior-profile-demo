@@ -1,35 +1,44 @@
-"""General, versioned ingestion for trusted history and new raw workbooks."""
+"""Versioned orchestration for legacy history and incremental workbooks."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 from collections import Counter, defaultdict
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable
 from uuid import uuid4
 
 import httpx
 from sqlalchemy import select
 
+from taxpayer_profile.analysis.cache import CachedModelResult, ModelExtractionCache
+from taxpayer_profile.analysis.contracts import (
+    AnalysisClient,
+    EnrichmentMetadata,
+    ModelExtraction,
+)
+from taxpayer_profile.analysis.enrichment import enrich_call
 from taxpayer_profile.database import (
     create_schema,
     make_engine,
     make_session_factory,
     transactional_session,
 )
-from taxpayer_profile.excel_reader import (
-    InputMode,
+from taxpayer_profile.ingestion.excel import (
     discover_workbooks,
     read_excel_workbook,
     workbook_fingerprint,
     workbook_registration_bounds,
 )
-from taxpayer_profile.identity import resolve_enterprise_identity
+from taxpayer_profile.ingestion.modes import InputMode
+from taxpayer_profile.ingestion.policy import (
+    INCREMENTAL_REUSE_POLICY,
+    TRUSTED_HISTORY_REUSE_POLICY,
+)
 from taxpayer_profile.llm_client import (
     HISTORY_ENRICHMENT_PROMPT_VERSION,
     PROMPT_VERSION,
@@ -42,32 +51,16 @@ from taxpayer_profile.llm_client import (
 )
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
 from taxpayer_profile.normalization import NormalizedCallInput, normalize_call_row
-from taxpayer_profile.profiling import (
-    analyze_proficiency,
-    analyze_service,
-    infer_emotion_state,
-    normalize_proficiency_level,
-    weighted_proficiency,
+from taxpayer_profile.profiles.aggregation import (
+    repeat_label_is_active as _repeat_label_is_active,
+    trajectory_key as _trajectory_key,
+    update_profile as _update_profile,
 )
 from taxpayer_profile.repeat_analysis import RepeatDecision, analyze_repeat_issue
 from taxpayer_profile.security import PhoneProtector
 
 ANALYSIS_VERSION = "profile-2026-07-22-v6"
 EXTRACTION_VERSION = "extraction-2026-07-22-v6"
-
-
-class AnalysisClient(Protocol):
-    model: str
-
-    def analyze_call(self, payload: dict[str, str | None]) -> CallExtractionResult: ...
-
-    def analyze_history(
-        self, payload: dict[str, str | None]
-    ) -> HistoryEnrichmentResult: ...
-
-    def analyze_repeat_issue(
-        self, payload: dict[str, object]
-    ) -> RepeatIssueModelResult: ...
 
 
 @dataclass(frozen=True)
@@ -84,295 +77,6 @@ class ProcessingSummary:
     unresolved_count: int
     failed_count: int
     already_processed: bool = False
-
-
-@dataclass(frozen=True)
-class EnrichmentMetadata:
-    input_mode: InputMode
-    analysis_source: str
-    analysis_status: str
-    model_name: str | None
-    analysis_error: str | None = None
-
-
-CachedModelResult = (
-    CallExtractionResult | HistoryEnrichmentResult | RepeatIssueModelResult
-)
-ModelExtraction = CallExtractionResult | HistoryEnrichmentResult
-
-
-class ModelExtractionCache:
-    """Persistent, privacy-minimized cache for validated per-call model outputs."""
-
-    def __init__(self, path: Path | str) -> None:
-        self.path = Path(path).expanduser().resolve()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(self.path)
-        self._connection.execute("PRAGMA journal_mode=WAL")
-        self._connection.execute("PRAGMA synchronous=NORMAL")
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS extraction_cache (
-                cache_key TEXT PRIMARY KEY,
-                result_kind TEXT NOT NULL,
-                result_json TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                prompt_version TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        self._connection.commit()
-
-    def get(
-        self, cache_key: str, result_type: type[CachedModelResult]
-    ) -> CachedModelResult | None:
-        row = self._connection.execute(
-            "SELECT result_kind, result_json FROM extraction_cache WHERE cache_key = ?",
-            (cache_key,),
-        ).fetchone()
-        if row is None or row[0] != result_type.__name__:
-            return None
-        try:
-            return result_type.model_validate_json(row[1])
-        except ValueError:
-            self._connection.execute(
-                "DELETE FROM extraction_cache WHERE cache_key = ?", (cache_key,)
-            )
-            self._connection.commit()
-            return None
-
-    def put(
-        self,
-        cache_key: str,
-        result: CachedModelResult,
-        *,
-        model_name: str,
-        prompt_version: str,
-    ) -> None:
-        self._connection.execute(
-            """
-            INSERT OR REPLACE INTO extraction_cache (
-                cache_key, result_kind, result_json, model_name,
-                prompt_version, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                cache_key,
-                type(result).__name__,
-                result.model_dump_json(),
-                model_name,
-                prompt_version,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        self._connection.commit()
-
-    def close(self) -> None:
-        self._connection.close()
-
-
-def _trajectory_key(trajectory: CallTrajectory) -> tuple[datetime, str]:
-    return trajectory.call_time, trajectory.business_id
-
-
-def _repeat_label_is_active(trajectory: CallTrajectory) -> bool:
-    if trajectory.is_repeated_issue is not True:
-        return False
-    expires_at = trajectory.repeat_label_expires_at
-    if expires_at is None:
-        return True
-    comparable = expires_at.replace(tzinfo=None)
-    return comparable > datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _recent_unique_questions(
-    trajectories: list[CallTrajectory],
-    *,
-    limit: int = 3,
-    unresolved_only: bool = False,
-    repeated_only: bool = False,
-) -> list[str]:
-    questions: list[str] = []
-    for item in reversed(trajectories):
-        if unresolved_only and item.resolved_status is not False:
-            continue
-        if repeated_only and not _repeat_label_is_active(item):
-            continue
-        question = item.core_question or item.father_question
-        if not question or question in questions:
-            continue
-        questions.append(question)
-        if len(questions) >= limit:
-            break
-    return questions
-
-
-def _question_summary(questions: list[str]) -> str | None:
-    if not questions:
-        return None
-    return "；".join(f"{index}. {question}" for index, question in enumerate(questions, 1))
-
-
-def _unresolved_summary(trajectories: list[CallTrajectory], limit: int = 3) -> str | None:
-    rows: list[str] = []
-    for item in reversed(trajectories):
-        if item.resolved_status is not False:
-            continue
-        question = item.core_question or item.topic_category or "该次咨询事项"
-        reason = item.unresolved_reason or "未直接解决原因未形成明确记录"
-        rendered = f"{question}（原因：{reason}）"
-        if rendered not in rows:
-            rows.append(rendered)
-        if len(rows) >= limit:
-            break
-    return _question_summary(rows)
-
-
-def _personalized_profile_summary(profile: CallerProfile) -> str:
-    sentences: list[str] = []
-    if profile.caller_type == "企业":
-        if profile.enterprise_identity in {None, "无法判断"}:
-            sentences.append("最近一次为企业咨询，细化主体暂无法判断。")
-        else:
-            sentences.append(f"最近一次为企业咨询，细化主体为{profile.enterprise_identity}。")
-    elif profile.caller_type == "个人":
-        sentences.append("最近一次以个人身份咨询。")
-    if profile.latest_question:
-        categories = [
-            value
-            for value in (profile.latest_topic_category, profile.latest_demand_category)
-            if value
-        ]
-        suffix = f"，归入{'、'.join(categories)}" if categories else ""
-        sentences.append(f"最近关注“{profile.latest_question}”{suffix}。")
-    if profile.proficiency_level:
-        sentences.append(
-            f"近期沟通显示其业务专业度为{profile.proficiency_level}，"
-            f"{profile.proficiency_basis or '建议在本次接待中继续观察理解程度'}"
-        )
-    if profile.emotion_state:
-        sentences.append(
-            f"近期情绪状态为{profile.emotion_state}，"
-            f"{profile.emotion_basis or '建议根据本次表达动态调整沟通方式'}"
-        )
-    if profile.unresolved_count:
-        reason = profile.latest_unresolved_reason or "仍需核对具体处理节点"
-        sentences.append(
-            f"历史有{profile.unresolved_count}次未直接解决，最近原因是“{reason}”。"
-        )
-    elif profile.latest_service_rating:
-        sentences.append(f"最近一次服务效果评估为“{profile.latest_service_rating}”。")
-    return "".join(sentences)
-
-
-def _recent_five_workday_items(
-    ordered: list[CallTrajectory],
-) -> list[CallTrajectory]:
-    anchor = ordered[-1].call_time.date()
-    workdays: set[date] = set()
-    current = anchor
-    while len(workdays) < 5:
-        if current.weekday() < 5:
-            workdays.add(current)
-        current -= timedelta(days=1)
-    return [item for item in ordered if item.call_time.date() in workdays]
-
-
-def _update_profile(
-    *, profile: CallerProfile, trajectories: list[CallTrajectory]
-) -> None:
-    ordered = sorted(trajectories, key=_trajectory_key)
-    latest = ordered[-1]
-    profile.first_call_time = ordered[0].call_time
-    profile.latest_call_time = latest.call_time
-    profile.total_call_count = len(ordered)
-    profile.repeated_call_count = sum(item.is_repeated_call for item in ordered)
-    profile.repeated_issue_count = sum(_repeat_label_is_active(item) for item in ordered)
-    profile.unresolved_count = sum(item.resolved_status is False for item in ordered)
-    profile.work_order_count = sum(item.work_order is True for item in ordered)
-    profile.abnormal_end_count = sum(
-        item.rule_abnormal_end is True or item.model_abnormal_end is True
-        for item in ordered
-    )
-    profile.dissatisfaction_count = sum(
-        item.taxpayer_dissatisfied is True for item in ordered
-    )
-    profile.caller_type = latest.caller_type or "无法判断"
-    if profile.caller_type == "个人":
-        profile.enterprise_identity = "不适用"
-    elif profile.caller_type == "企业":
-        profile.enterprise_identity = latest.enterprise_identity or "无法判断"
-    else:
-        profile.enterprise_identity = "无法判断"
-    profile.proficiency_score = weighted_proficiency(
-        [(item.call_time, item.proficiency_score) for item in ordered]
-    )
-    profile.proficiency_summary = next(
-        (
-            item.proficiency_summary
-            for item in reversed(ordered)
-            if item.proficiency_score is not None
-        ),
-        "无法判断",
-    )
-    recent = _recent_five_workday_items(ordered)
-    recent_level = next(
-        (
-            item
-            for item in reversed(recent)
-            if normalize_proficiency_level(
-                item.proficiency_level, item.proficiency_score
-            )
-            != "暂无法判断"
-        ),
-        latest,
-    )
-    profile.proficiency_level = normalize_proficiency_level(
-        recent_level.proficiency_level, recent_level.proficiency_score
-    )
-    profile.proficiency_basis = (
-        recent_level.proficiency_basis
-        or recent_level.proficiency_summary
-        or "近期可用表达不足，暂不预设业务熟悉程度。"
-    )
-    recent_emotion = next(
-        (
-            item
-            for item in reversed(recent)
-            if item.emotion_state in {"平稳", "焦虑", "不满"}
-        ),
-        latest,
-    )
-    profile.emotion_state = recent_emotion.emotion_state or "暂无法判断"
-    profile.emotion_basis = (
-        recent_emotion.emotion_basis or "近期可用表达不足，暂不预设情绪状态。"
-    )
-    profile.latest_business_id = latest.business_id
-    profile.latest_question = latest.core_question
-    profile.latest_topic_category = latest.topic_category
-    profile.latest_demand_category = latest.demand_category
-    profile.latest_registration_unit = latest.registration_unit
-    profile.latest_father_question = latest.father_question
-    profile.latest_resolved = latest.resolved_status
-    profile.latest_unresolved_reason = next(
-        (
-            item.unresolved_reason
-            for item in reversed(ordered)
-            if item.resolved_status is False and item.unresolved_reason
-        ),
-        None,
-    )
-    profile.latest_service_rating = latest.service_rating
-    recent_questions = _recent_unique_questions(ordered)
-    repeated_questions = _recent_unique_questions(ordered, repeated_only=True)
-    profile.recent_questions_summary = _question_summary(recent_questions)
-    profile.unresolved_questions_summary = _unresolved_summary(ordered)
-    profile.repeated_questions_summary = _question_summary(repeated_questions)
-    profile.service_profile_type = None
-    profile.service_profile_basis = None
-    profile.profile_summary = _personalized_profile_summary(profile)
-    profile.updated_at = datetime.now(timezone.utc)
 
 
 def _mode_for_call(
@@ -400,10 +104,17 @@ def _normalize_rows(
 ) -> list[tuple[NormalizedCallInput, InputMode]]:
     normalized: list[tuple[NormalizedCallInput, InputMode]] = []
     for row in rows:
-        registration = normalize_call_row(row, trust_analyzed_fields=False)
+        # Mode selection needs only source dates. Using the incremental policy
+        # here also prevents legacy analytical fields from influencing routing.
+        registration = normalize_call_row(row, reuse_policy=INCREMENTAL_REUSE_POLICY)
         row_mode = _mode_for_call(requested_mode, registration, trusted_through)
         call = normalize_call_row(
-            row, trust_analyzed_fields=row_mode == InputMode.TRUSTED_IMPORT
+            row,
+            reuse_policy=(
+                TRUSTED_HISTORY_REUSE_POLICY
+                if row_mode == InputMode.TRUSTED_IMPORT
+                else INCREMENTAL_REUSE_POLICY
+            ),
         )
         normalized.append((call, row_mode))
     normalized.sort(
@@ -413,351 +124,6 @@ def _normalize_rows(
         )
     )
     return normalized
-
-
-def _local_trusted_enrichment(call: NormalizedCallInput) -> NormalizedCallInput:
-    service = analyze_service(
-        resolved=call.resolved_status,
-        waiting=call.waiting_expression,
-        pushback=call.potential_pushback,
-        dissatisfied=call.taxpayer_dissatisfied,
-        has_answer=bool(call.answer_content),
-    )
-    proficiency = analyze_proficiency(
-        transcript=call.transcript,
-        business_content=call.business_content,
-        core_question=call.core_question,
-        effective_qa_content=call.effective_qa_content,
-        effective_qa_turns=call.effective_qa_turns,
-        service_was_unclear=bool(call.potential_pushback),
-    )
-    proficiency_level = normalize_proficiency_level(
-        (
-            call.proficiency_level
-            if call.proficiency_level not in {"", "无法判断", "暂无法判断"}
-            else None
-        ),
-        proficiency.score,
-    )
-    proficiency_basis = (
-        call.proficiency_basis
-        if call.proficiency_level not in {None, "暂无法判断", "无法判断"}
-        else proficiency.summary
-    )
-    emotion_state, emotion_basis = infer_emotion_state(
-        transcript=call.transcript,
-        business_content=call.business_content,
-        answer_content=call.answer_content,
-    )
-    combined = " ".join(
-        value
-        for value in (call.core_question, call.business_content, call.answer_content)
-        if value
-    )
-    if call.work_order:
-        demand_category = "工单/拉起类"
-    elif any(term in combined for term in ("进度", "查询", "联系方式", "地址")):
-        demand_category = "涉税查询类"
-    elif any(term in combined for term in ("报错", "异常", "无法登录", "页面空白")):
-        demand_category = "系统异常类"
-    elif any(term in combined for term in ("投诉", "举报")):
-        demand_category = "投诉举报类"
-    elif any(term in combined for term in ("如何", "操作", "办理", "材料", "申报")):
-        demand_category = "操作辅导类"
-    else:
-        demand_category = "其他类"
-    unresolved_reason = None
-    if call.resolved_status is False:
-        if call.work_order:
-            unresolved_reason = "已转工单或内部流转，需等待后续处理"
-        elif call.contacted_other_department:
-            unresolved_reason = "需联系相关人员或部门继续办理"
-        else:
-            unresolved_reason = "本通记录显示问题未直接解决，具体原因未明确"
-    return replace(
-        call,
-        demand_category=call.demand_category or demand_category,
-        unresolved_reason=unresolved_reason,
-        proficiency_score=proficiency.score,
-        proficiency_summary=proficiency.summary,
-        proficiency_level=proficiency_level,
-        proficiency_basis=proficiency_basis,
-        emotion_state=(
-            call.emotion_state
-            if call.emotion_state in {"平稳", "焦虑", "不满"}
-            else emotion_state
-        ),
-        emotion_basis=(
-            call.emotion_basis
-            if call.emotion_state in {"平稳", "焦虑", "不满"}
-            else emotion_basis
-        ),
-        service_rating=service.rating,
-        service_summary=service.summary,
-    )
-
-
-def _merge_extraction(
-    call: NormalizedCallInput,
-    extraction: CallExtractionResult,
-    mode: InputMode,
-) -> NormalizedCallInput:
-    trusted = mode == InputMode.TRUSTED_IMPORT
-    caller_type = (
-        call.caller_type
-        if trusted and call.caller_type is not None
-        else (None if extraction.caller_type == "无法判断" else extraction.caller_type)
-    )
-    identity = resolve_enterprise_identity(
-        caller_type=caller_type,
-        raw_identity=call.raw_identity_label,
-        explicit_identity=extraction.explicit_enterprise_identity,
-    )
-
-    def trusted_or_extracted(existing: object, extracted: object) -> object:
-        return existing if trusted and existing is not None else extracted
-
-    def trusted_new_label(existing: str, extracted: str) -> str:
-        if trusted and existing not in {"", "无法判断", "暂无法判断"}:
-            return existing
-        return extracted
-
-    resolved_status = trusted_or_extracted(
-        call.resolved_status, extraction.resolved_status
-    )
-    unresolved_reason = None
-    if resolved_status is False:
-        unresolved_reason = extraction.unresolved_reason
-        if not unresolved_reason:
-            if call.work_order:
-                unresolved_reason = "已转工单或内部流转，需等待后续处理"
-            elif extraction.contacted_other_department:
-                unresolved_reason = "需联系相关人员或部门继续办理"
-            else:
-                unresolved_reason = "本通未形成明确处理路径"
-
-    return replace(
-        call,
-        core_question=call.core_question or extraction.core_question,
-        agent_answer_summary=extraction.agent_answer_summary,
-        demand_category=(
-            call.demand_category
-            if trusted and call.demand_category
-            else ", ".join(extraction.demand_categories)
-        ),
-        father_question=trusted_or_extracted(  # type: ignore[arg-type]
-            call.father_question, extraction.father_question
-        ),
-        father_question_2=trusted_or_extracted(  # type: ignore[arg-type]
-            call.father_question_2, extraction.father_question_2
-        ),
-        caller_type=caller_type,
-        enterprise_identity=identity.identity,
-        resolved_status=resolved_status,  # type: ignore[arg-type]
-        unresolved_reason=unresolved_reason,
-        model_abnormal_end=trusted_or_extracted(  # type: ignore[arg-type]
-            call.model_abnormal_end, extraction.model_abnormal_end
-        ),
-        waiting_expression=trusted_or_extracted(  # type: ignore[arg-type]
-            call.waiting_expression, extraction.waiting_expression
-        ),
-        potential_pushback=trusted_or_extracted(  # type: ignore[arg-type]
-            call.potential_pushback, extraction.potential_pushback
-        ),
-        taxpayer_dissatisfied=trusted_or_extracted(  # type: ignore[arg-type]
-            call.taxpayer_dissatisfied, extraction.taxpayer_dissatisfied
-        ),
-        contacted_other_department=trusted_or_extracted(  # type: ignore[arg-type]
-            call.contacted_other_department,
-            extraction.contacted_other_department,
-        ),
-        active_contacted_other_department=trusted_or_extracted(  # type: ignore[arg-type]
-            call.active_contacted_other_department,
-            extraction.active_contacted_other_department,
-        ),
-        contact_target=trusted_or_extracted(  # type: ignore[arg-type]
-            call.contact_target, extraction.contact_target
-        ),
-        natural_qa_turns=trusted_or_extracted(  # type: ignore[arg-type]
-            call.natural_qa_turns, extraction.natural_qa_turns
-        ),
-        core_question_turns=trusted_or_extracted(  # type: ignore[arg-type]
-            call.core_question_turns, extraction.core_question_turns
-        ),
-        effective_qa_turns=trusted_or_extracted(  # type: ignore[arg-type]
-            call.effective_qa_turns, extraction.effective_qa_turns
-        ),
-        effective_qa_content=trusted_or_extracted(  # type: ignore[arg-type]
-            call.effective_qa_content, extraction.effective_qa_content
-        ),
-        proficiency_score=extraction.proficiency_score,
-        proficiency_summary=extraction.proficiency_summary,
-        proficiency_level=trusted_new_label(
-            call.proficiency_level, extraction.proficiency_level
-        ),
-        proficiency_basis=(
-            call.proficiency_basis
-            if trusted
-            and call.proficiency_level not in {"", "无法判断", "暂无法判断"}
-            else extraction.proficiency_basis
-        ),
-        emotion_state=trusted_new_label(call.emotion_state, extraction.emotion_state),
-        emotion_basis=(
-            call.emotion_basis
-            if trusted
-            and call.emotion_state not in {"", "无法判断", "暂无法判断"}
-            else extraction.emotion_basis
-        ),
-        service_rating=extraction.service_rating,
-        service_summary=extraction.service_summary,
-        enterprise_identity_source=identity.source,
-        enterprise_identity_conflict=identity.conflict,
-    )
-
-
-def _merge_history_enrichment(
-    call: NormalizedCallInput,
-    extraction: HistoryEnrichmentResult,
-) -> NormalizedCallInput:
-    caller_type = call.caller_type or (
-        None if extraction.caller_type == "无法判断" else extraction.caller_type
-    )
-    identity = resolve_enterprise_identity(
-        caller_type=caller_type,
-        raw_identity=call.raw_identity_label,
-        explicit_identity=extraction.explicit_enterprise_identity,
-    )
-
-    def existing_label_or(extracted: str, existing: str) -> str:
-        return (
-            existing
-            if existing not in {"", "无法判断", "暂无法判断"}
-            else extracted
-        )
-
-    proficiency_level = existing_label_or(
-        extraction.proficiency_level, call.proficiency_level
-    )
-    emotion_state = existing_label_or(extraction.emotion_state, call.emotion_state)
-    resolved_status = (
-        call.resolved_status
-        if call.resolved_status is not None
-        else extraction.resolved_status
-    )
-    return replace(
-        call,
-        core_question=call.core_question or extraction.core_question,
-        father_question=call.father_question or extraction.father_question,
-        father_question_2=call.father_question_2 or extraction.father_question_2,
-        agent_answer_summary=extraction.agent_answer_summary,
-        demand_category=(
-            call.demand_category or ", ".join(extraction.demand_categories)
-        ),
-        caller_type=caller_type,
-        enterprise_identity=identity.identity,
-        resolved_status=resolved_status,
-        unresolved_reason=(
-            (call.unresolved_reason or extraction.unresolved_reason)
-            if resolved_status is False
-            else None
-        ),
-        proficiency_score=extraction.proficiency_score,
-        proficiency_summary=extraction.proficiency_summary,
-        proficiency_level=proficiency_level,
-        proficiency_basis=(
-            call.proficiency_basis
-            if call.proficiency_level not in {"", "无法判断", "暂无法判断"}
-            else extraction.proficiency_basis
-        ),
-        emotion_state=emotion_state,
-        emotion_basis=(
-            call.emotion_basis
-            if call.emotion_state not in {"", "无法判断", "暂无法判断"}
-            else extraction.emotion_basis
-        ),
-        service_rating=extraction.service_rating,
-        service_summary=extraction.service_summary,
-        enterprise_identity_source=identity.source,
-        enterprise_identity_conflict=identity.conflict,
-    )
-
-
-def _enrich_call(
-    call: NormalizedCallInput,
-    mode: InputMode,
-    client: AnalysisClient | None,
-    extraction_override: ModelExtraction | None = None,
-) -> tuple[NormalizedCallInput, EnrichmentMetadata]:
-    has_text = bool(
-        call.transcript
-        or call.business_content
-        or call.answer_content
-        or call.core_question
-        or call.topic_category
-    )
-    if not has_text:
-        if mode == InputMode.TRUSTED_IMPORT:
-            enriched = _local_trusted_enrichment(call)
-        else:
-            enriched = replace(
-                call,
-                demand_category="其他类",
-                proficiency_level="暂无法判断",
-                proficiency_basis="可用文本不足，暂不预设业务熟悉程度。",
-                emotion_state="暂无法判断",
-                emotion_basis="可用文本不足，暂不预设情绪状态。",
-                service_rating="无法判断",
-                service_summary="无法判断：可用文本不足。",
-            )
-        return enriched, EnrichmentMetadata(
-            input_mode=mode,
-            analysis_source="trusted_fields+rules" if mode == InputMode.TRUSTED_IMPORT else "insufficient_text",
-            analysis_status="completed" if mode == InputMode.TRUSTED_IMPORT else "insufficient_text",
-            model_name=None,
-        )
-
-    if client is None:
-        if mode == InputMode.RAW_ANALYSIS:
-            raise RuntimeError("原始分析模式需要可用的大模型客户端")
-        return _local_trusted_enrichment(call), EnrichmentMetadata(
-            input_mode=mode,
-            analysis_source="trusted_fields+rules",
-            analysis_status="completed_rules_only",
-            model_name=None,
-        )
-
-    payload = build_call_payload(
-        transcript=call.transcript,
-        business_content=call.business_content,
-        answer_content=call.answer_content,
-        core_question=call.core_question,
-        topic_category=call.topic_category,
-    )
-    extraction = extraction_override
-    if extraction is None:
-        extraction = (
-            client.analyze_history(payload)
-            if mode == InputMode.TRUSTED_IMPORT
-            else client.analyze_call(payload)
-        )
-    if mode == InputMode.TRUSTED_IMPORT:
-        if not isinstance(extraction, HistoryEnrichmentResult):
-            raise TypeError("历史基底模型结果类型不正确")
-        enriched = _merge_history_enrichment(call, extraction)
-    else:
-        if not isinstance(extraction, CallExtractionResult):
-            raise TypeError("原始来电模型结果类型不正确")
-        enriched = _merge_extraction(call, extraction, mode)
-    return enriched, EnrichmentMetadata(
-        input_mode=mode,
-        analysis_source=(
-            "trusted_fields+model+rules"
-            if mode == InputMode.TRUSTED_IMPORT
-            else "model+rules"
-        ),
-        analysis_status="completed",
-        model_name=client.model,
-    )
 
 
 def _analyze_repeat_values(
@@ -1152,7 +518,7 @@ def _prepare_enrichments_and_repeat_payloads(
             prepared[business_id] = prefetched
             continue
         try:
-            enriched, metadata = _enrich_call(
+            enriched, metadata = enrich_call(
                 call,
                 mode,
                 client,
@@ -1551,7 +917,7 @@ def process_workbook(
                 prefetched = prefetched_extractions.get(call.business_id)
                 if isinstance(prefetched, Exception):
                     raise prefetched
-                enriched, metadata = _enrich_call(
+                enriched, metadata = enrich_call(
                     call,
                     row_mode,
                     llm_client,
@@ -1732,7 +1098,7 @@ def process_raw_directory(
             database_path=database_path,
             protector=protector,
             llm_client=llm_client,
-            input_mode=InputMode.RAW_ANALYSIS,
+            input_mode=InputMode.INCREMENTAL,
             progress_callback=progress_callback,
         )
         for _, _, workbook in ordered

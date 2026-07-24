@@ -11,6 +11,10 @@ from typing import Any
 import pandas as pd
 
 from taxpayer_profile.identity import infer_enterprise_identity, normalize_caller_type
+from taxpayer_profile.ingestion.policy import (
+    TRUSTED_HISTORY_REUSE_POLICY,
+    FieldReusePolicy,
+)
 from taxpayer_profile.security import normalize_phone
 
 TRUE_VALUES = {"true", "1", "是", "有", "存在", "已解决", "y", "yes"}
@@ -205,30 +209,30 @@ class NormalizedCallInput:
 
 
 def normalize_call_row(
-    row: dict[str, Any], *, trust_analyzed_fields: bool = True
+    row: dict[str, Any],
+    *,
+    reuse_policy: FieldReusePolicy = TRUSTED_HISTORY_REUSE_POLICY,
 ) -> NormalizedCallInput:
+    """Normalize one adapter row according to an explicit field-source policy.
+
+    Raw call facts are always imported. Previously derived values are visible
+    only through ``reuse_policy``, making the trust boundary reviewable and
+    independent from whichever columns happen to exist in a future workbook.
+    """
+
+    def reused(column: str) -> object | None:
+        return reuse_policy.value(row, column)
+
+    reuses_trusted_history = reuse_policy.reuses("咨询主体(大模型判断)")
     registration_time = parse_datetime(row.get("登记日期"))
     call_start = parse_datetime(row.get("通话开始时间"))
     transcript = text_or_none(row.get("转写结果"))
-    caller_type = (
-        normalize_caller_type(row.get("咨询主体(大模型判断)"))
-        if trust_analyzed_fields
-        else None
-    )
-    unresolved = (
-        normalize_boolean(row.get("是否未直接解决问题"))
-        if trust_analyzed_fields
-        else None
-    )
-    resolved = (
-        normalize_boolean(row.get("坐席是否解决纳税人问题"))
-        if trust_analyzed_fields
-        else None
-    )
-    enterprise_identity = (
-        infer_enterprise_identity(caller_type, row.get("申请人员身份"), transcript)
-        if trust_analyzed_fields
-        else "无法判断"
+    caller_type = normalize_caller_type(reused("咨询主体(大模型判断)"))
+    unresolved = normalize_boolean(reused("是否未直接解决问题"))
+    resolved = normalize_boolean(reused("坐席是否解决纳税人问题"))
+    raw_identity_label = text_or_none(reused("申请人员身份"))
+    enterprise_identity = infer_enterprise_identity(
+        caller_type, raw_identity_label, transcript
     )
     return NormalizedCallInput(
         business_id=clean_identifier(row.get("业务编号")),
@@ -254,111 +258,73 @@ def normalize_call_row(
         business_category=text_or_none(row.get("业务类别")),
         satisfaction=text_or_none(row.get("满意度")),
         call_serial_number=text_or_none(row.get("呼叫流水号")),
-        core_question=text_or_none(row.get("大模型核心问题")),
-        topic_category=text_or_none(row.get("一级专题类别")),
-        secondary_topic=text_or_none(row.get("二级标签")),
-        demand_category=(
-            text_or_none(row.get("需求类别")) if trust_analyzed_fields else None
-        ),
-        father_question=(
-            text_or_none(row.get("father_question")) if trust_analyzed_fields else None
-        ),
-        father_question_2=(
-            text_or_none(row.get("father_question_2"))
-            if trust_analyzed_fields
-            else None
-        ),
+        core_question=text_or_none(reused("大模型核心问题")),
+        topic_category=text_or_none(reused("一级专题类别")),
+        secondary_topic=text_or_none(reused("二级标签")),
+        demand_category=text_or_none(reused("需求类别")),
+        father_question=text_or_none(reused("father_question")),
+        father_question_2=text_or_none(reused("father_question_2")),
         caller_type=caller_type,
         enterprise_identity=enterprise_identity,
         resolved_status=(resolved if unresolved is None else not unresolved),
         unresolved_reason=None,
         work_order=determine_work_order(
-            row.get("是否工单") if trust_analyzed_fields else None,
+            reused("是否工单"),
             row.get("登记处理方式"),
         ),
         rule_abnormal_end=(
-            normalize_boolean(row.get("非正常中断"))
-            if trust_analyzed_fields
-            and normalize_boolean(row.get("非正常中断")) is not None
+            normalize_boolean(reused("非正常中断"))
+            if normalize_boolean(reused("非正常中断")) is not None
             else determine_rule_abnormal_end(
                 transcript, row.get("业务内容"), row.get("答复内容")
             )
         ),
-        model_abnormal_end=(
-            normalize_boolean(row.get("是否非正常中断（大模型判断）"))
-            if trust_analyzed_fields
-            else None
+        model_abnormal_end=normalize_boolean(
+            reused("是否非正常中断（大模型判断）")
         ),
-        waiting_expression=(
-            normalize_boolean(row.get("是否存在让纳税人等待表述"))
-            if trust_analyzed_fields
-            else None
+        waiting_expression=normalize_boolean(reused("是否存在让纳税人等待表述")),
+        potential_pushback=normalize_boolean(reused("坐席是否存在潜在推诿行为")),
+        taxpayer_dissatisfied=normalize_boolean(reused("纳税人是否对坐席存在不满")),
+        contacted_other_department=normalize_boolean(
+            reused("是否联系相关人员或部门")
         ),
-        potential_pushback=(
-            normalize_boolean(row.get("坐席是否存在潜在推诿行为"))
-            if trust_analyzed_fields
-            else None
+        active_contacted_other_department=normalize_boolean(
+            reused("是否主动联系相关人员或部门")
         ),
-        taxpayer_dissatisfied=(
-            normalize_boolean(row.get("纳税人是否对坐席存在不满"))
-            if trust_analyzed_fields
-            else None
-        ),
-        contacted_other_department=(
-            normalize_boolean(row.get("是否联系相关人员或部门"))
-            if trust_analyzed_fields
-            else None
-        ),
-        active_contacted_other_department=(
-            normalize_boolean(row.get("是否主动联系相关人员或部门"))
-            if trust_analyzed_fields
-            else None
-        ),
-        contact_target=(
-            text_or_none(row.get("联系对象")) if trust_analyzed_fields else None
-        ),
-        natural_qa_turns=(
-            int_or_none(row.get("自然问答轮次")) if trust_analyzed_fields else None
-        ),
-        core_question_turns=(
-            int_or_none(row.get("大模型核心问题轮次"))
-            if trust_analyzed_fields
-            else None
-        ),
-        effective_qa_turns=(
-            int_or_none(row.get("有效问答轮次")) if trust_analyzed_fields else None
-        ),
-        effective_qa_content=(
-            text_or_none(row.get("有效问答内容")) if trust_analyzed_fields else None
-        ),
-        raw_identity_label=text_or_none(row.get("申请人员身份")),
+        contact_target=text_or_none(reused("联系对象")),
+        natural_qa_turns=int_or_none(reused("自然问答轮次")),
+        core_question_turns=int_or_none(reused("大模型核心问题轮次")),
+        effective_qa_turns=int_or_none(reused("有效问答轮次")),
+        effective_qa_content=text_or_none(reused("有效问答内容")),
+        raw_identity_label=raw_identity_label,
         proficiency_score=None,
         proficiency_summary="无法判断",
         proficiency_level=(
-            text_or_none(row.get("业务熟悉度")) or "暂无法判断"
-            if trust_analyzed_fields
-            else "暂无法判断"
+            text_or_none(reused("业务熟悉度")) or "暂无法判断"
         ),
         proficiency_basis=(
-            text_or_none(row.get("业务熟悉度依据"))
-            or "现有字段未提供业务熟悉度依据。"
-            if trust_analyzed_fields
-            else "等待分析。"
+            text_or_none(reused("业务熟悉度依据"))
+            or (
+                "现有字段未提供业务熟悉度依据。"
+                if reuses_trusted_history
+                else "等待分析。"
+            )
         ),
         emotion_state=(
-            text_or_none(row.get("近期情绪状态")) or "暂无法判断"
-            if trust_analyzed_fields
-            else "暂无法判断"
+            text_or_none(reused("近期情绪状态")) or "暂无法判断"
         ),
         emotion_basis=(
-            text_or_none(row.get("情绪状态依据")) or "现有字段未提供情绪状态依据。"
-            if trust_analyzed_fields
-            else "等待分析。"
+            text_or_none(reused("情绪状态依据"))
+            or (
+                "现有字段未提供情绪状态依据。"
+                if reuses_trusted_history
+                else "等待分析。"
+            )
         ),
         service_rating=None,
         service_summary=None,
         enterprise_identity_source=(
-            "trusted_source_or_transcript" if trust_analyzed_fields else "unknown"
+            "trusted_source_or_transcript" if reuses_trusted_history else "unknown"
         ),
         enterprise_identity_conflict=False,
     )
