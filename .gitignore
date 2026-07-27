@@ -23,6 +23,7 @@ venv/
 .idea/
 .DS_Store
 .refactor-plan.md
+.project-improvement-notes.md
 
 # Sensitive source data and generated artifacts
 data/raw/*

@@ -335,6 +335,18 @@
     .stacked-segment.unknown, .legend-unknown { background: #a3aabc; }
     .stacked-meta { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 6px; }
     .stacked-meta span { display: inline-flex; align-items: center; gap: 5px; color: #7c8595; font-size: 9px; }
+    /* 类别占比和类别内解决构成是两种不同口径：前者以数字呈现，后者以满宽色带呈现，避免低占比类别留下无意义的空白。 */
+    .category-card-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .category-card-list .stacked-row { min-height: 119px; margin: 0; padding: 12px; background: #fafbfc; border: 1px solid #e5e8ef; border-radius: 9px; }
+    .category-card-list .stacked-row:hover { background: #f4f6fb; border-color: #d9deeb; }
+    .category-card-list .stacked-head { align-items: flex-start; margin-bottom: 9px; }
+    .category-card-list .stacked-head strong { padding-top: 2px; white-space: normal; line-height: 1.45; }
+    .category-share { flex: 0 0 auto; padding: 3px 7px; color: #5667a7; background: #edf0ff; border-radius: 999px; font-size: 10px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .category-call-count { display: block; margin: -3px 0 8px; color: #8a94a4; font-size: 9px; }
+    .category-card-list .stacked-track { height: 10px; }
+    .category-card-list .stacked-total { width: 100% !important; }
+    .category-card-list .stacked-meta { gap: 8px; margin-top: 7px; }
+    .category-card-list .stacked-meta span { font-size: 8px; }
     .topic-drill-toggle { margin-top: 8px; padding: 3px 0; color: #5268c7; background: transparent; border: 0; font-size: 10px; font-weight: 700; }
     .topic-drill-toggle::after { content: " ›"; }
     .topic-drill-toggle[aria-expanded="true"]::after { content: " ⌃"; }
@@ -419,11 +431,13 @@
     .knowledge-graph-stage.dragging { cursor: grabbing; }
     .knowledge-graph-canvas { width: 100%; height: 100%; display: block; outline: none; }
     .graph-gesture-hint { position: absolute; right: 12px; top: 11px; padding: 6px 9px; color: #b8c6dc; background: rgba(10,18,35,.66); border: 1px solid rgba(154,177,210,.18); border-radius: 7px; font-size: 8px; pointer-events: none; backdrop-filter: blur(5px); }
-    .graph-derivation-status { position: absolute; z-index: 2; left: 14px; top: 13px; width: min(390px, calc(100% - 190px)); padding: 11px 13px; color: #dce8f7; background: rgba(10,18,35,.78); border: 1px solid rgba(150,181,216,.24); border-left: 3px solid #74d9c7; border-radius: 0 9px 9px 0; box-shadow: 0 9px 24px rgba(3,9,22,.22); pointer-events: none; backdrop-filter: blur(7px); }
-    .graph-derivation-status strong { display: block; color: #f2f7ff; font-size: 12px; }
-    .graph-derivation-status span { display: block; overflow: hidden; margin-top: 4px; color: #b9c8dc; font-size: 9px; line-height: 1.55; text-overflow: ellipsis; white-space: nowrap; }
-    .derivation-progress { height: 3px; overflow: hidden; margin-top: 8px; background: rgba(255,255,255,.1); border-radius: 999px; }
+    .graph-derivation-status { position: absolute; z-index: 2; left: 18px; top: 17px; width: min(510px, calc(100% - 220px)); padding: 15px 17px; color: #dce8f7; background: rgba(8,16,33,.9); border: 1px solid rgba(161,202,231,.35); border-left: 5px solid #74d9c7; border-radius: 0 11px 11px 0; box-shadow: 0 12px 30px rgba(3,9,22,.35); pointer-events: none; backdrop-filter: blur(8px); }
+    .graph-derivation-status strong { display: block; color: #f7fbff; font-size: 15px; letter-spacing: .02em; }
+    .graph-derivation-status span { display: block; margin-top: 6px; color: #c8d7ea; font-size: 11px; font-weight: 600; line-height: 1.6; }
+    .derivation-progress { height: 4px; overflow: hidden; margin-top: 11px; background: rgba(255,255,255,.12); border-radius: 999px; }
     .derivation-progress i { width: 0; height: 100%; display: block; background: linear-gradient(90deg, #72d7c5, #7f9af1, #e4a5d0); border-radius: inherit; transition: width .12s linear; }
+    .graph-line-key { position: absolute; z-index: 2; right: 12px; top: 11px; padding: 6px 9px; color: #b8c6dc; background: rgba(10,18,35,.66); border: 1px solid rgba(154,177,210,.18); border-radius: 7px; font-size: 8px; pointer-events: none; backdrop-filter: blur(5px); }
+    .graph-line-key strong { color: #d9f8f1; }
     .graph-depth-legend { position: absolute; left: 12px; bottom: 11px; display: flex; flex-wrap: wrap; gap: 8px; padding: 7px 9px; color: #aab8cd; background: rgba(10,18,35,.64); border: 1px solid rgba(154,177,210,.16); border-radius: 7px; font-size: 7px; pointer-events: none; }
     .graph-depth-legend span { display: inline-flex; align-items: center; gap: 4px; }
     .graph-depth-legend i { width: 7px; height: 7px; border-radius: 50%; }
@@ -649,9 +663,11 @@
       .knowledge-graph-toolbar { align-items: flex-start; flex-direction: column; }
       .knowledge-selection { grid-template-columns: 1fr; }
       .knowledge-selection-tags { grid-column: auto; }
-      .graph-derivation-status { top: 48px; width: calc(100% - 28px); }
+      .graph-derivation-status { top: 48px; left: 14px; width: calc(100% - 28px); padding: 12px 14px; }
+      .graph-line-key { top: 11px; right: 12px; }
       .composite-catalog { grid-template-columns: 1fr; }
       .insight-panel-body .insight-list { grid-template-columns: 1fr; }
+      .category-card-list { grid-template-columns: 1fr; }
     }
     @media (max-width: 590px) {
       .page-header { align-items: flex-start; flex-direction: column; }
@@ -818,12 +834,12 @@
           <div class="panel-head"><div class="panel-title"><h2>历史服务事实</h2></div><span class="panel-head-note">占总来电比例</span></div>
           <div id="historical-facts" class="chart-body compact-facts"></div>
         </article>
-        <article class="panel span-12 accent-coral">
-          <div class="panel-head"><div class="panel-title"><h2>专题类别与解决情况</h2></div><span class="panel-head-note">占比按单通来电统计</span></div>
+        <article class="panel span-6 accent-coral">
+          <div class="panel-head"><div class="panel-title"><h2>专题类别与解决情况</h2></div><span class="panel-head-note">标签为占比 · 色带为类别内解决构成</span></div>
           <div id="category-chart" class="chart-body"></div>
         </article>
-        <article class="panel span-12 accent-amber">
-          <div class="panel-head"><div class="panel-title"><h2>需求类别与解决情况</h2></div><span class="panel-head-note">多标签分别计数 · 占比按标签总量</span></div>
+        <article class="panel span-6 accent-amber">
+          <div class="panel-head"><div class="panel-title"><h2>需求类别与解决情况</h2></div><span class="panel-head-note">标签为占比 · 色带为类别内解决构成</span></div>
           <div id="demand-chart" class="chart-body"></div>
         </article>
         <article class="panel span-12 accent-teal">
@@ -831,7 +847,7 @@
           <div id="unit-resolution-chart" class="chart-body"></div>
         </article>
         <article class="panel span-12 accent-cyan">
-          <div class="panel-head"><div class="panel-title"><h2>整体情况分析</h2></div><span class="panel-head-note">当前数据摘要</span></div>
+          <div class="panel-head"><div class="panel-title"><h2>问题解决导向摘要</h2></div><span class="panel-head-note">优先呈现待解决问题与可衔接线索</span></div>
           <div id="insight-list" class="chart-body insight-panel-body"></div>
         </article>
         <article class="panel span-12 accent-slate">
