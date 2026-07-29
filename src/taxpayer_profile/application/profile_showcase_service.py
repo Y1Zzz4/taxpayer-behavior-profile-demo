@@ -8,7 +8,12 @@ from functools import cached_property
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from taxpayer_profile.application.web_dto import mask_phone
+from taxpayer_profile.application.web_dto import (
+    abnormal_end,
+    contact_unresolved,
+    mask_phone,
+    wait_pushback,
+)
 from taxpayer_profile.application.web_profile_support import (
     HISTORICAL_FACT_DEFINITIONS,
     PROFILE_DIMENSION_TAXONOMY,
@@ -135,6 +140,7 @@ class ProfileShowcaseService:
         modes = [dict(mode) for mode in RECEPTION_MODE_CATALOG]
         relations = [
             {"category": "情绪响应", "source": "不满/对坐席不满", "target": "安抚修复"},
+            {"category": "情绪响应", "source": "等待推诿", "target": "安抚修复"},
             {"category": "情绪响应", "source": "焦虑", "target": "稳定预期"},
             {"category": "情绪响应", "source": "其余状态", "target": "平稳接待"},
             {"category": "业务应对", "source": "工单/异常中断/存在联系相关部门或人员且未解决", "target": "历史诉求跟进"},
@@ -207,9 +213,98 @@ class ProfileShowcaseService:
         return {
             "profile_key": key,
             "masked_phone": masked,
+            "derivation_evidence": self._derivation_evidence(
+                masked_phone=masked,
+                trajectories=trajectories,
+                before_state=before_state,
+            ),
             "before": {
                 "state": before_state,
                 "result": mode_payload(before_state),
                 "profile_model": profile_snapshot(before_state),
+            },
+        }
+
+    @staticmethod
+    def _derivation_evidence(
+        *,
+        masked_phone: str,
+        trajectories: list[CallTrajectory],
+        before_state: dict[str, object],
+    ) -> dict[str, object]:
+        """Return compact, masked evidence used by the explanatory graph.
+
+        The graph needs dates and the already extracted service facts, not raw
+        recordings or full transcripts.  Keeping this projection here makes the
+        display traceable without broadening the browser data contract.
+        """
+
+        def call_label(item: CallTrajectory) -> str:
+            question = (item.core_question or item.father_question_2 or "").strip()
+            if not question or question.lower() in {"nan", "null", "none"}:
+                question = "已登记来电"
+            return question[:32]
+
+        recent_items = recent_five_workday_items(trajectories)
+
+        def source_for(field: str) -> dict[str, object] | None:
+            for item in reversed(recent_items):
+                value = getattr(item, field, None)
+                if value:
+                    return {
+                        "business_id": item.business_id,
+                        "call_time": item.call_time.isoformat(),
+                        "question": call_label(item),
+                    }
+            if recent_items:
+                item = recent_items[-1]
+                return {
+                    "business_id": item.business_id,
+                    "call_time": item.call_time.isoformat(),
+                    "question": call_label(item),
+                }
+            return None
+
+        fact_events: list[dict[str, object]] = []
+        for item in recent_items:
+            labels: list[str] = []
+            if item.work_order is True:
+                labels.append("历史工单")
+            if contact_unresolved(item):
+                labels.append("存在联系相关部门或人员且未解决")
+            if abnormal_end(item):
+                labels.append("异常中断")
+            if wait_pushback(item):
+                labels.append("等待推诿")
+            if item.taxpayer_dissatisfied is True:
+                labels.append("对坐席不满")
+            for label in labels:
+                fact_events.append(
+                    {
+                        "label": label,
+                        "business_id": item.business_id,
+                        "call_time": item.call_time.isoformat(),
+                        "question": call_label(item),
+                    }
+                )
+        fact_events.sort(key=lambda item: str(item["call_time"]), reverse=True)
+        return {
+            "caller": {
+                "masked_phone": masked_phone,
+                "latest_call_time": (
+                    trajectories[-1].call_time.isoformat() if trajectories else None
+                ),
+            },
+            "proficiency": {
+                "basis": str(before_state.get("proficiency_basis") or "可用证据不足。"),
+                "source": source_for("proficiency_level"),
+            },
+            "emotion": {
+                "basis": str(before_state.get("emotion_basis") or "可用证据不足。"),
+                "source": source_for("emotion_state"),
+            },
+            "facts": {
+                "basis": "最近五个工作日内的明确服务事实。",
+                "events": fact_events[:4],
             },
         }

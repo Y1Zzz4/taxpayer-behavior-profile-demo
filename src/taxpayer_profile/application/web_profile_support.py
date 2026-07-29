@@ -41,6 +41,7 @@ PROFILE_DIMENSION_TAXONOMY = (
             "历史工单",
             "存在联系相关部门或人员且未解决",
             "异常中断",
+            "等待推诿",
             "对坐席不满",
         ),
         "unknown": "近五个工作日未命中",
@@ -60,15 +61,20 @@ HISTORICAL_FACT_DEFINITIONS = (
         "rule": "采用原始分析的最终非正常中断字段；新增数据按同口径分析",
     },
     {
+        "id": "wait_pushback",
+        "label": "等待推诿",
+        "rule": "存在让纳税人等待表述 = 是，且坐席存在潜在推诿行为 = 是",
+    },
+    {
         "id": "dissatisfaction",
         "label": "对坐席不满",
         "rule": "纳税人是否对当前坐席或本通热线存在不满 = 是",
     },
 )
 
-# Dashboard facts are an operational aggregate rather than a caller-facing
-# handoff label.  Keep the original wait/pushback signal there so management
-# can observe it without reintroducing it into the reception workbench.
+# Dashboard facts and the explainable profile graph retain all five historical
+# service facts.  The reception workbench deliberately uses the clearer
+# "存在联系相关部门或人员且未解决" handoff label instead of showing wait/pushback.
 DASHBOARD_HISTORICAL_FACT_DEFINITIONS = (
     {"id": "work_order", "label": "历史工单", "rule": "是否工单 = 是"},
     {
@@ -168,6 +174,7 @@ def profile_snapshot(state: dict[str, object]) -> dict[str, object]:
         ("work_order", "历史工单"),
         ("abnormal_end", "异常中断"),
         ("contact_unresolved", "存在联系相关部门或人员且未解决"),
+        ("wait_pushback", "等待推诿"),
         ("dissatisfaction", "对坐席不满"),
     )
     for key, label in fact_keys:

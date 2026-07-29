@@ -158,7 +158,7 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
         "号码画像实例",
         "knowledge-profile-select",
         "当前展示整体画像方法论，不关联具体号码",
-        "多维画像三维关系图",
+        "多维画像关系图",
         "拖拽旋转",
         "knowledge-graph-canvas",
         "完整分类与判定规则",
@@ -170,12 +170,23 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
         "mode_emotion_response",
         "mode_matter_continuity",
         "mode_information_delivery",
-        "groupSources",
-        "categoryEdgeKeys",
-        "分层推导舞台",
-        "纳税人信息",
-        "isModeGroup ? progress.category",
-        "isMode ? progress.mode",
+        "历史证据推导链",
+        "确认来电人",
+        "查看业务专业度依据",
+        "具体接待方式",
+        "directTargets",
+        "modeSpaces",
+        "derivation_evidence",
+        "openAdviceConfirmation",
+        "是否生成接待建议？",
+        "完整推导 ▶",
+        "playAll",
+        "applyDemoStep",
+        "生成接待建议",
+        "本次坐席接待建议",
+        "坐席接待重点",
+        "复查推导依据",
+        "derivation-result-card",
         "advice.service_modes",
             "业务专业度",
             "近期情绪",
@@ -191,14 +202,35 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
         "下一页",
         "用户与权限",
         "caller_resolution_rates",
+        "enterprise_identity_resolution_rates",
+        "企业二级身份",
         "unresolved_question_hotspots",
         "renderVerticalRateBars",
         "renderCallerResolutionComparison",
         "renderUnresolvedRateDistribution",
+        "syncOverviewButton",
+        "nodeCanReceivePointer",
+        "showGlobal=!data",
+        "knowledgeGraphRequest",
+        "knowledgeViewMode",
+        "继续形成历史服务事实标签",
+        "依据窗口已关闭",
+        "已暂停自动推导",
     ):
         assert required in page
     assert "画像数据概览" not in page
     assert "本次推导结果卡" not in page
+    assert "kind: 'guidance'" not in page
+    assert "guideEdgeKeys" not in page
+    assert "label: mode.focus" not in page
+    assert "kind: 'mode', group: zone.group" not in page
+    assert "edges.push([groupRoot, id])" not in page
+    assert "proficiency:{label:'业务专业度', y:-215,z:65}" in script
+    assert "information_delivery:{label:'表达方式',y:-210,z:65" in script
+    assert "emotion:{label:'近期情绪状态',y:0,z:85}" in script
+    assert "emotion_response:{label:'情绪响应',y:0,z:85" in script
+    assert "facts:{label:'历史服务事实',y:160,z:-105}" in script
+    assert "matter_continuity:{label:'业务应对',y:160,z:-105" in script
     assert '<span class="panel-icon">' not in page
     assert '<h2>服务画像分类方法</h2>' not in page
     assert "requestAnimationFrame" in page
@@ -207,6 +239,8 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
     assert "appendInfo(primary" not in page
     assert "item.label" in page
     assert "增量画像推演" not in page
+    assert "四项公开事实" not in page
+    assert "const show=showLabels&&" in script
 
 
 def test_history_issue_narrative_normalizes_source_sentence_marks() -> None:

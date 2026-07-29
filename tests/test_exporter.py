@@ -260,6 +260,7 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
         {"label": "已直接解决", "value": 1}
     ]
     assert dashboard["enterprise_resolution"] == []
+    assert dashboard["enterprise_identity_resolution_rates"] == []
     assert dashboard["registration_unit_resolution"][0]["label"] == "第一税务所"
     assert dashboard["registration_unit_resolution"][0]["resolved_rate"] == 100.0
     assert dashboard["caller_resolution_rates"] == [
@@ -316,7 +317,7 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert len(catalog["items"]) == 1
     assert catalog["items"][0]["masked_phone"] == "138****0001"
     assert catalog["summary"]["dimension_count"] == 3
-    assert catalog["summary"]["fact_count"] == 4
+    assert catalog["summary"]["fact_count"] == 5
     assert catalog["summary"]["mode_group_count"] == 3
     assert catalog["summary"]["mode_count"] == 8
     assert "13800000001" not in str(catalog)
@@ -324,6 +325,11 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert len(showcase["before"]["result"]["mode_components"]) == 3
     assert len(showcase["before"]["profile_model"]["items"]) == 3
     assert showcase["before"]["profile_model"]["active_category_count"] >= 3
+    assert showcase["derivation_evidence"]["caller"]["masked_phone"] == "138****0001"
+    assert "basis" in showcase["derivation_evidence"]["proficiency"]
+    assert "basis" in showcase["derivation_evidence"]["emotion"]
+    assert "events" in showcase["derivation_evidence"]["facts"]
+    assert showcase["derivation_evidence"]["proficiency"]["source"]["business_id"] == "BIZ-1"
     assert "after" not in showcase
     assert "scenario" not in showcase
     assert "13800000001" not in str(showcase)

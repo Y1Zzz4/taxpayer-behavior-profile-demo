@@ -63,6 +63,7 @@ class DashboardService:
         secondary_resolution: dict[str, dict[str, Counter[str]]] = {}
         demand_resolution: dict[str, Counter[str]] = {}
         registration_units: dict[str, Counter[str]] = {}
+        enterprise_identity_items: dict[str, list[CallTrajectory]] = {}
         unresolved_question_hotspots: dict[str, Counter[str]] = {
             "all": Counter(),
             "personal": Counter(),
@@ -88,6 +89,9 @@ class DashboardService:
             unit = district_unit_label(item.registration_unit)
             registration_units.setdefault(unit, Counter())["total"] += 1
             registration_units[unit][state] += 1
+            identity = (item.enterprise_identity or "").strip()
+            if item.caller_type == "企业" and identity not in {"", "无法判断", "不适用"}:
+                enterprise_identity_items.setdefault(identity, []).append(item)
             if item.resolved_status is False:
                 question = self._hotspot_question_label(item.father_question_2)
                 if question is not None:
@@ -118,6 +122,18 @@ class DashboardService:
             }
             for definition in DASHBOARD_HISTORICAL_FACT_DEFINITIONS
         ]
+        enterprise_identity_rates = [
+            self._resolution_rate_from_items(label, items)
+            for label, items in enterprise_identity_items.items()
+        ]
+        enterprise_identity_rates.sort(
+            key=lambda item: (
+                item["resolved_rate"] is None,
+                -float(item["resolved_rate"] or 0),
+                -int(item["eligible_total"]),
+                str(item["label"]),
+            )
+        )
         return {
             "overview": {
                 "total_profiles": len(profiles),
@@ -157,6 +173,7 @@ class DashboardService:
                 self._resolution_rate_row("个人", trajectories),
                 self._resolution_rate_row("企业", trajectories),
             ],
+            "enterprise_identity_resolution_rates": enterprise_identity_rates,
             "question_categories": [
                 {
                     **row,
@@ -297,7 +314,14 @@ class DashboardService:
     def _resolution_rate_row(
         label: str, trajectories: list[CallTrajectory]
     ) -> dict[str, object]:
-        items = [item for item in trajectories if item.caller_type == label]
+        return DashboardService._resolution_rate_from_items(
+            label, [item for item in trajectories if item.caller_type == label]
+        )
+
+    @staticmethod
+    def _resolution_rate_from_items(
+        label: str, items: list[CallTrajectory]
+    ) -> dict[str, object]:
         resolved = sum(item.resolved_status is True for item in items)
         unresolved = sum(item.resolved_status is False for item in items)
         unknown = len(items) - resolved - unresolved
