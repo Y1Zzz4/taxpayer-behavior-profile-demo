@@ -45,4 +45,4 @@ def test_mode_category_priority_does_not_cover_other_categories() -> None:
         "历史诉求跟进",
     ]
     assert "等待且潜在推诿1次" in result.matched_facts
-    assert "联系后未解决1次" in result.matched_facts
+    assert "存在联系相关部门或人员且未解决1次" in result.matched_facts

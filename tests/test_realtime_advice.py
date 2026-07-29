@@ -81,9 +81,7 @@ def test_realtime_model_advice_is_structured_and_context_is_redacted() -> None:
 
     assert result["generation_status"] == "model_generated"
     assert "未解决" in result["advice_summary"]
-    assert result["advice_summary"].startswith(
-        "推荐采用“重点解释 · 平稳接待 · 历史诉求跟进”"
-    )
+    assert not result["advice_summary"].startswith("推荐采用“")
     assert result["service_mode"] == "重点解释 · 平稳接待 · 历史诉求跟进"
     assert "情绪响应采用“平稳接待”" in result["mode_application"]
     assert [item["mode"] for item in result["service_modes"]] == [
@@ -124,7 +122,7 @@ def test_realtime_advice_timeout_allows_normal_model_latency_variation() -> None
     assert REALTIME_ADVICE_TIMEOUT_SECONDS == 25.0
 
 
-def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
+def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
     html = (PROJECT_ROOT / "web/index.html").read_text(encoding="utf-8")
     script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
     page = html + script
@@ -139,22 +137,23 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "12366",
         "纳税服务热线",
         "12366坐席接待助手",
-        "画像数据概览",
+        "热线数据概览",
         "来电量趋势",
-            "个人问题解决",
-            "企业问题解决",
-            "登记单位服务效果",
+        "咨询主体构成",
+        "不同咨询主体解决率",
+        "登记单位服务效果",
         "历史服务事实",
-        "专题类别与解决情况",
-        "需求类别与解决情况",
+        "未直接解决问题",
+        "专题类别与未直接解决率",
+        "需求类别与未直接解决率",
         "历史来电记录",
         "画像推演中心",
-            "问题衔接",
-            "重复诉求",
-        "等待推诿",
-            "最近坐席答复",
-                "知识库参考回答",
-            "多维画像图谱",
+        "未解决问题衔接",
+        "重复诉求",
+        "存在联系相关部门或人员且未解决",
+        "该号码全部历史来电",
+        "组合接待策略",
+        "总体接待建议",
         "整体画像逻辑",
         "号码画像实例",
         "knowledge-profile-select",
@@ -163,17 +162,18 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "拖拽旋转",
         "knowledge-graph-canvas",
         "完整分类与判定规则",
-            "纳税人画像字段",
-            "坐席接待方式",
+        "纳税人画像字段",
+        "坐席接待方式",
         "情绪响应",
-            "业务应对",
+        "业务应对",
         "表达方式",
         "mode_emotion_response",
         "mode_matter_continuity",
         "mode_information_delivery",
         "groupSources",
         "categoryEdgeKeys",
-        "进入三个服务类别",
+        "分层推导舞台",
+        "纳税人信息",
         "isModeGroup ? progress.category",
         "isMode ? progress.mode",
         "advice.service_modes",
@@ -185,16 +185,20 @@ def test_web_ui_prioritizes_12366_summary_and_collapsible_details() -> None:
         "人工登记与原始信息",
         "重点分析信息",
         "advice.advice_summary",
-        "接待重点",
-        "查看全部来电",
+        "查看全部来电信息",
+        "caller-history-overlay",
         "上一页",
         "下一页",
         "用户与权限",
-            "renderStacked",
-            "renderUnitResolution",
-            "查看二级专题",
+        "caller_resolution_rates",
+        "unresolved_question_hotspots",
+        "renderVerticalRateBars",
+        "renderCallerResolutionComparison",
+        "renderUnresolvedRateDistribution",
     ):
         assert required in page
+    assert "画像数据概览" not in page
+    assert "本次推导结果卡" not in page
     assert '<span class="panel-icon">' not in page
     assert '<h2>服务画像分类方法</h2>' not in page
     assert "requestAnimationFrame" in page

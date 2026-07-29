@@ -34,7 +34,7 @@
     return normalized.length ? `${normalized.join('；')}。` : '暂无可展示的历史跟进信息。';
   }
   const pages = new Set(['workbench', 'dashboard', 'history', 'showcase', 'users']);
-  const titles = {workbench: '12366坐席接待助手', dashboard: '画像数据概览', history: '历史来电记录', showcase: '画像推演中心', users: '用户与权限'};
+  const titles = {workbench: '12366坐席接待助手', dashboard: '热线数据概览', history: '历史来电记录', showcase: '画像推演中心', users: '用户与权限'};
   const state = {
     user: null,
     phone: '',
@@ -84,9 +84,11 @@
   function enterApp(user) {
     state.user = user;
     document.querySelector('#login-screen').classList.add('hidden');
-    document.querySelector('#user-name').textContent = user.display_name;
-    document.querySelector('#user-role').textContent = user.role_label;
-    document.querySelector('#user-avatar').textContent = user.role === 'admin' ? '管' : '坐';
+    document.querySelector('#account-name').textContent = user.display_name;
+    document.querySelector('#account-display-name').textContent = user.display_name;
+    document.querySelector('#account-role').textContent = user.role_label;
+    document.querySelector('#account-avatar').textContent = user.role === 'admin' ? '管' : '坐';
+    document.querySelector('#account-users').classList.toggle('hidden', user.role !== 'admin');
     document.querySelectorAll('[data-admin-only]').forEach(node => node.classList.toggle('hidden', user.role !== 'admin'));
     const requested = location.hash.slice(1) || 'workbench';
     showPage(user.role !== 'admin' && ['showcase', 'users'].includes(requested) ? 'workbench' : requested, false);
@@ -122,10 +124,17 @@
     try { await api('/api/auth/logout', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}); } catch (_) { /* cookie still expires server-side when possible */ }
     showLogin('已安全退出系统。');
   });
+  document.querySelector('#account-toggle').addEventListener('click', () => {
+    const popover = document.querySelector('#account-popover'); const open = popover.classList.toggle('hidden');
+    document.querySelector('#account-toggle').setAttribute('aria-expanded', String(!open));
+  });
+  document.querySelector('#account-users').addEventListener('click', () => { document.querySelector('#account-popover').classList.add('hidden'); showPage('users'); });
+  document.addEventListener('click', event => { if (!event.target.closest('.account-menu')) { document.querySelector('#account-popover').classList.add('hidden'); document.querySelector('#account-toggle').setAttribute('aria-expanded', 'false'); } });
 
   function showPage(name, updateHash = true) {
     let page = pages.has(name) ? name : 'workbench';
     if (state.user?.role !== 'admin' && ['showcase', 'users'].includes(page)) page = 'workbench';
+    if (page !== 'workbench') document.querySelector('#caller-history-overlay').classList.add('hidden');
     document.querySelectorAll('.page-view').forEach(node => node.classList.toggle('hidden', node.id !== `page-${page}`));
     document.querySelectorAll('.nav-link').forEach(node => {
       const active = node.dataset.page === page;
@@ -183,7 +192,7 @@
     metric(metrics, '历史来电', recent.call_count);
     metric(metrics, '重复诉求', recent.repeated_issue_count);
     metric(metrics, '历史工单', recent.work_order_count);
-    metric(metrics, '等待推诿', recent.wait_pushback_count);
+    metric(metrics, '存在联系相关部门或人员且未解决', recent.contact_unresolved_count);
     metric(metrics, '服务不满', recent.dissatisfaction_count);
     metric(metrics, '未直接解决', recent.unresolved_count);
     box.append(identity, metrics);
@@ -210,7 +219,7 @@
       }
     }
     if (item.work_order) facts.push('该通形成工单');
-    if (item.wait_pushback) facts.push('同时出现等待表述和潜在推诿');
+    if (item.contact_unresolved) facts.push('存在联系相关部门或人员且未解决');
     if (item.taxpayer_dissatisfied) facts.push('来电人对当前坐席或本通服务表达不满');
     if (item.resolved === false) facts.push(`未直接解决：${text(item.unresolved_reason, '原因未形成明确记录')}`);
     facts.push(`当前记录：${resolvedText(item.resolved)}`);
@@ -235,7 +244,7 @@
     const groups = profile.history_focus || {};
     issueSection(box, '重复诉求', groups.repeated_issues || [], '当前没有已确认的重复诉求。');
     issueSection(box, '历史工单', groups.work_orders || [], '当前没有历史工单记录。');
-    issueSection(box, '等待推诿', groups.wait_pushback || [], '当前没有同时命中等待和潜在推诿的记录。');
+    issueSection(box, '存在联系相关部门或人员且未解决', groups.contact_unresolved || [], '当前没有联系相关部门或人员且未解决的记录。');
     issueSection(box, '服务不满', groups.dissatisfaction || [], '当前没有对坐席或本通服务不满的记录。');
     issueSection(box, '未直接解决', groups.unresolved || [], '当前没有未直接解决记录。');
     document.querySelector('#view-current-history').classList.remove('hidden');
@@ -249,20 +258,12 @@
 
   function renderAdvice(advice) {
     const box = document.querySelector('#advice'); box.className = 'panel-body'; box.replaceChildren();
-    const mode = el('div', 'advice-mode'); mode.append(el('span', '', '组合接待策略')); const modeTags = el('div', 'mode-tags'); appendModeTags(modeTags, advice.service_modes, text(advice.service_mode, '通俗引导 · 平稳接待 · 当前诉求确认')); mode.append(modeTags); box.append(mode);
+    const mode = el('section', 'advice-strategy'); mode.append(el('h3', '', '组合接待策略')); const cards = el('div', 'strategy-grid');
+    (advice.service_modes || []).forEach(component => { const card = el('article', `strategy-card ${modeClass(component)}`.trim()); card.append(el('span', '', text(component.category, '策略分项')), el('strong', '', text(component.mode)), el('p', '', text(component.basis, '依据当前历史信息确定。'))); cards.append(card); });
+    if (!cards.children.length) cards.append(el('div', 'strategy-card', text(advice.service_mode, '当前诉求确认')));
+    mode.append(cards); box.append(mode);
+    box.append(el('h3', '', '总体接待建议'));
     box.append(el('div', 'advice-summary', text(advice.advice_summary)));
-    bulletSection(box, '接待重点', advice.service_focus);
-    const details = el('details', 'advice-details');
-    details.append(el('summary', '', '查看建议详情'));
-    const detailBody = el('div', 'advice-details-body');
-    bulletSection(detailBody, '历史事项提醒', advice.history_followups);
-    bulletSection(detailBody, '服务关注事项', advice.risk_reminders);
-    [['模式落实', advice.mode_application], ['开场衔接', advice.opening_strategy], ['沟通方式', advice.communication_style]].forEach(([label, value]) => {
-      const item = el('div', 'advice-detail'); item.append(el('span', '', label), el('p', '', text(value))); detailBody.append(item);
-    });
-    bulletSection(detailBody, '需要避免', advice.avoid_actions);
-    bulletSection(detailBody, '参考依据', advice.evidence);
-    details.append(detailBody); box.append(details);
     const badge = document.querySelector('#advice-badge'); badge.classList.remove('hidden');
     badge.textContent = advice.generation_status === 'model_generated' ? '智能实时建议' : '系统辅助建议';
     badge.className = `badge${advice.generation_status === 'model_generated' ? '' : ' fallback'}`;
@@ -277,9 +278,10 @@
     try {
       const result = await api('/api/profile', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone})});
       state.phone = phone;
-      if (result.found) { renderOverview(result.profile); renderHistoryFocus(result.profile); }
+      if (result.found) { renderOverview(result.profile); renderHistoryFocus(result.profile); renderCallerHistory(result.profile); }
       else {
         document.querySelector('#overview-panel').classList.add('hidden');
+        document.querySelector('#caller-history-overlay').classList.add('hidden');
         const profileBox = document.querySelector('#profile'); profileBox.className = 'panel-body placeholder'; profileBox.textContent = '该号码暂无历史来电记录，本次按首次接待方式服务。';
       }
       const advice = await api('/api/advice', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone})});
@@ -288,9 +290,32 @@
     finally { button.disabled = false; }
   });
 
+  function renderCallerHistory(profile) {
+    const trajectories = Array.isArray(profile.trajectories) ? profile.trajectories : [];
+    const counts = {resolved: trajectories.filter(item => item.resolved === true).length, unresolved: trajectories.filter(item => item.resolved === false).length, unknown: trajectories.filter(item => item.resolved !== true && item.resolved !== false).length};
+    document.querySelector('#caller-history-summary').textContent = `历史来电 ${trajectories.length} 次 · 已直接解决 ${counts.resolved} · 未直接解决 ${counts.unresolved} · 待判断 ${counts.unknown}`;
+    const box = document.querySelector('#caller-history'); box.replaceChildren();
+    if (!trajectories.length) { box.append(el('div', 'placeholder', '暂无可展示的历史来电。')); }
+    else {
+      const list = el('div', 'caller-history-list');
+      const header = el('div', 'caller-history-header'); header.append(el('span', '', '来电时间 / 结果'), el('span', '', '咨询事项与处理摘要'), el('span', '', '服务线索'), el('span', '', ''));
+      list.append(header);
+      trajectories.forEach(item => {
+        const row = el('article', `caller-history-row ${item.resolved === false ? 'unresolved' : ''}`);
+        const meta = el('div', 'caller-history-meta'); meta.append(el('time', '', dateText(item.call_time)), el('span', `history-status ${item.resolved === false ? 'unresolved' : item.resolved === true ? 'resolved' : 'unknown'}`, resolvedText(item.resolved)));
+        const content = el('div', 'caller-history-content'); content.append(el('strong', '', text(item.core_question || item.question_category, '问题待归类'))); const summary = item.resolved === false ? text(item.unresolved_reason, '未解决原因暂未记录') : text(item.agent_answer_summary, item.resolved === true ? '已直接解决，未形成答复提炼。' : '处理结果待进一步判断。'); content.append(el('p', '', summary));
+        const facts = el('div', 'caller-history-facts'); if (item.work_order) facts.append(el('span', '', '历史工单')); if (item.contact_unresolved) facts.append(el('span', '', '存在联系相关部门或人员且未解决')); if (item.is_repeated_issue) facts.append(el('span', '', '重复诉求')); if (item.abnormal_end) facts.append(el('span', '', '异常中断'));
+        const action = el('button', 'button secondary compact', '详情'); action.type = 'button'; action.addEventListener('click', () => openDetail(item.business_id)); row.append(meta, content, facts, action); list.append(row);
+      }); box.append(list);
+    }
+  }
+
   document.querySelector('#view-current-history').addEventListener('click', () => {
-    document.querySelector('#history-phone').value = state.phone; state.history.phone = state.phone; state.history.loaded = false; showPage('history');
+    document.querySelector('#caller-history-overlay').classList.remove('hidden');
   });
+  function closeCallerHistory() { document.querySelector('#caller-history-overlay').classList.add('hidden'); }
+  document.querySelector('#caller-history-close').addEventListener('click', closeCallerHistory);
+  document.querySelector('#caller-history-overlay').addEventListener('click', event => event.target.id === 'caller-history-overlay' && closeCallerHistory());
 
   const colors = ['#596fd8', '#28a394', '#dc6b76', '#dda13d', '#7b61c4', '#4f91c7', '#df8454'];
   function renderDonut(target, rows, palette = colors, centerLabel = '来电记录') {
@@ -369,6 +394,37 @@
   function renderFacts(target, rows) {
     target.replaceChildren(); const grid = el('div', 'fact-grid'); (rows || []).forEach(row => { const share = Number(row.share || 0); const card = el('div', `fact-card${share > 0 ? ' active' : ''}`); card.append(el('strong', '', `${share}%`), el('span', '', row.label)); grid.append(card); }); target.append(grid);
   }
+  function renderRateBars(target, rows, rateKey, empty = '暂无可展示数据') {
+    target.replaceChildren(); const values = (rows || []).filter(item => item[rateKey] !== null && item[rateKey] !== undefined);
+    if (!values.length) { target.append(el('div', 'empty-chart', empty)); return; }
+    const list = el('div', 'rate-bar-list'); values.forEach(item => { const rate = Math.max(0, Math.min(100, Number(item[rateKey] || 0))); const row = el('div', 'rate-bar-row'); const fill = el('i', 'rate-bar-fill'); fill.style.width = `${rate}%`; const track = el('div', 'rate-bar-track'); track.append(fill); row.append(el('strong', '', text(item.label)), track, el('span', '', `${rate}%`)); list.append(row); }); target.append(list);
+  }
+  function renderCallerResolutionComparison(target, rows, empty = '暂无已判定咨询主体记录') {
+    target.replaceChildren(); const values = rows || [];
+    if (!values.length || !values.some(item => item.resolved_rate !== null && item.resolved_rate !== undefined)) { target.append(el('div', 'empty-chart', empty)); return; }
+    const comparison = el('div', 'caller-resolution-comparison'); values.forEach(item => { const hasRate = item.resolved_rate !== null && item.resolved_rate !== undefined; const rate = hasRate ? Math.max(0, Math.min(100, Number(item.resolved_rate))) : 0; const card = el('article', `caller-resolution-card${hasRate ? '' : ' unknown'}`); const head = el('div', 'caller-resolution-head'); head.append(el('span', '', text(item.label)), el('strong', '', hasRate ? `${rate}%` : '—')); const column = el('div', 'caller-resolution-column'); const fill = el('i'); fill.style.height = `${rate}%`; column.append(fill); const note = el('small', '', hasRate ? '已直接解决率' : '暂无已判定记录'); card.append(head, column, note); comparison.append(card); }); target.append(comparison);
+  }
+  function renderVerticalRateBars(target, rows, rateKey, empty = '暂无可展示数据', large = false) {
+    target.replaceChildren(); const values = rows || [];
+    if (!values.length) { target.append(el('div', 'empty-chart', empty)); return; }
+    const ns = 'http://www.w3.org/2000/svg'; const svgNode = (tag, attrs = {}) => { const node = document.createElementNS(ns, tag); Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value)); return node; };
+    const width = large ? 1200 : 900, height = large ? 390 : 300, left = 52, right = 22, top = 28, bottom = large ? 76 : 62, plotWidth = width - left - right, plotHeight = height - top - bottom, step = plotWidth / Math.max(values.length, 1), barWidth = Math.max(14, Math.min(large ? 62 : 46, step * .64));
+    const shell = el('div', `vertical-rate-shell${large ? ' large' : ''}`); const svg = svgNode('svg', {class: `vertical-rate-chart${large ? ' large' : ''}`, viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': '解决率竖向柱状图'});
+    for (let index = 0; index <= 4; index += 1) { const y = top + plotHeight - plotHeight * index / 4; svg.append(svgNode('line', {class: 'vertical-rate-grid', x1: left, x2: width - right, y1: y, y2: y})); const axis = svgNode('text', {class: 'vertical-rate-axis', x: left - 8, y: y + 3, 'text-anchor': 'end'}); axis.textContent = `${index * 25}%`; svg.append(axis); }
+    values.forEach((item, index) => { const rate = item[rateKey]; const hasRate = rate !== null && rate !== undefined; const value = hasRate ? Math.max(0, Math.min(100, Number(rate))) : 0; const x = left + step * (index + .5), barHeight = value / 100 * plotHeight, y = top + plotHeight - barHeight; const bar = svgNode('rect', {class: 'vertical-rate-bar', x: x - barWidth / 2, y: hasRate ? y : top + plotHeight - 3, width: barWidth, height: hasRate ? Math.max(barHeight, 2) : 3, rx: 4}); if (!hasRate) bar.setAttribute('fill', '#d0d5dd'); const title = svgNode('title'); title.textContent = hasRate ? `${item.label}：解决率 ${value}%` : `${item.label}：暂无已判定记录`; bar.append(title); svg.append(bar); const valueLabel = svgNode('text', {class: 'vertical-rate-value', x, y: Math.max(top + 11, y - 8), 'text-anchor': 'middle'}); valueLabel.textContent = hasRate ? `${value}%` : '—'; const label = svgNode('text', {class: 'vertical-rate-label', x, y: height - (large ? 31 : 25), 'text-anchor': 'middle'}); const labelText = String(item.label || '未分类'); label.textContent = labelText.length > (large ? 9 : 7) ? `${labelText.slice(0, large ? 9 : 7)}…` : labelText; svg.append(valueLabel, label); });
+    shell.append(svg); target.append(shell);
+  }
+  function rateDistributionRow(item) {
+    const rate = item.unresolved_rate; const hasRate = rate !== null && rate !== undefined; const value = hasRate ? Math.max(0, Math.min(100, Number(rate))) : 0; const labelText = text(item.label, '未形成明确分类'); const row = el('div', 'rate-bar-row distribution-rate-row'); const label = el('strong', '', labelText); label.title = labelText; label.setAttribute('aria-label', labelText); const fill = el('i', 'rate-bar-fill'); fill.style.width = `${value}%`; const track = el('div', 'rate-bar-track'); track.append(fill); row.append(label, track, el('span', '', hasRate ? `${value}%` : '—')); return row;
+  }
+  function renderUnresolvedRateDistribution(target, rows, drilldown = false) {
+    target.replaceChildren(); const hasPositiveRate = item => Number(item?.unresolved_rate) > 0; const values = (rows || []).filter(hasPositiveRate); if (!values.length) { target.append(el('div', 'empty-chart', '暂无未直接解决分类')); return; }
+    const list = el('div', 'rate-distribution-list'); values.forEach(item => { const itemWrap = el('section', 'rate-distribution-item'); itemWrap.append(rateDistributionRow(item)); const childrenRows = (item.children || []).filter(hasPositiveRate); if (drilldown && childrenRows.length) { const toggle = el('button', 'topic-drill-toggle', '展开二级专题'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', 'false'); const children = el('div', 'rate-child-list hidden'); childrenRows.forEach(child => children.append(rateDistributionRow(child))); toggle.addEventListener('click', () => { const expanded = toggle.getAttribute('aria-expanded') === 'true'; toggle.setAttribute('aria-expanded', String(!expanded)); toggle.textContent = expanded ? '展开二级专题' : '收起二级专题'; children.classList.toggle('hidden', expanded); }); itemWrap.append(toggle, children); } list.append(itemWrap); }); target.append(list);
+  }
+  function renderHotspots(target, groups) {
+    target.replaceChildren(); const labels = [['all', '全量未解决热点问题 Top5'], ['personal', '个人咨询未解决热点问题 Top5'], ['enterprise', '企业咨询未解决热点问题 Top5']];
+    labels.forEach(([key, title]) => { const section = el('section', 'hotspot-section'); section.append(el('h3', '', title)); const list = el('ol', 'hotspot-list'); const rows = (groups?.[key] || []).filter(item => String(item.label || '').trim()); rows.length ? rows.forEach(item => list.append(el('li', '', String(item.label).trim()))) : list.append(el('li', 'empty', '暂无可展示的未直接解决问题')); section.append(list); target.append(section); });
+  }
   function dashboardIcon(name) {
     const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
     const paths = {
@@ -401,12 +457,11 @@
       metrics.replaceChildren(); statCard(metrics, '累计来电', overview.total_calls, '当前收录的来电记录', colors[0], 'phone'); statCard(metrics, '直接解决率', overview.resolved_rate == null ? '—' : `${overview.resolved_rate}%`, '按已判断记录计算', colors[1], 'check');
       renderTrend(document.querySelector('#daily-chart'), data.daily_calls);
       renderDonut(document.querySelector('#caller-chart'), data.caller_types, ['#536bd3', '#f0a04b', '#8a64c7'], '来电记录');
-      renderDonut(document.querySelector('#personal-resolution-chart'), data.personal_resolution, ['#2da58f', '#e77878', '#a8b1c4'], '个人来电');
-      renderDonut(document.querySelector('#enterprise-resolution-chart'), data.enterprise_resolution, ['#7968d7', '#e99a52', '#8eb0c7'], '企业来电');
-      renderInsights(document.querySelector('#insight-list'), data); renderFacts(document.querySelector('#historical-facts'), data.historical_facts); renderStacked(document.querySelector('#category-chart'), data.question_categories, true); renderStacked(document.querySelector('#demand-chart'), data.demand_categories); renderUnitResolution(document.querySelector('#unit-resolution-chart'), data.registration_unit_resolution);
-      const grid = document.querySelector('#update-grid'); grid.replaceChildren(); const update = data.latest_update; const badge = document.querySelector('#update-status');
-      if (update) { [['数据日期', update.data_date], ['来源文件', update.input_filename], ['新增来电', update.new_call_count], ['新增号码', update.new_phone_count], ['完成时间', dateText(update.finished_at)]].forEach(([label, value]) => { const item = el('div', 'update-item'); item.append(el('span', '', label), el('strong', '', text(value))); grid.append(item); }); badge.textContent = update.status === 'completed' ? '更新完成' : text(update.status); }
-      else { grid.append(el('div', 'empty-chart', '暂无更新批次')); badge.textContent = '暂无批次'; }
+      renderFacts(document.querySelector('#historical-facts'), data.historical_facts);
+      renderCallerResolutionComparison(document.querySelector('#caller-resolution-chart'), data.caller_resolution_rates);
+      renderVerticalRateBars(document.querySelector('#unit-resolution-chart'), data.registration_unit_resolution, 'resolved_rate', '暂无已判定登记单位记录', true);
+      renderHotspots(document.querySelector('#unresolved-hotspots'), data.unresolved_question_hotspots);
+      const distributions = data.unresolved_distributions || {}; renderUnresolvedRateDistribution(document.querySelector('#category-chart'), distributions.topics || data.question_categories, true); renderUnresolvedRateDistribution(document.querySelector('#demand-chart'), distributions.demands || data.demand_categories);
       state.dashboardLoaded = true;
     } catch (error) { metrics.replaceChildren(el('div', 'stat-card', `读取失败：${error.message}`)); }
   }
@@ -472,7 +527,7 @@
     try {
       const result = await api('/api/history/detail', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({business_id: businessId})}); if (!result.found) throw new Error('记录不存在'); const detail = result.detail;
       document.querySelector('#detail-title').textContent = `来电详情 · ${text(detail.original.business_id)}`; content.replaceChildren(
-        detailSection('重点分析信息', detail.extracted, [['核心问题', 'core_question', true], ['坐席答复提炼', 'agent_answer_summary', true], ['一级专题', 'topic_category'], ['二级专题', 'secondary_topic'], ['需求类别', 'demand_category'], ['解决情况', 'resolved', false, resolvedText], ['未解决原因', 'unresolved_reason', true], ['业务专业度', 'proficiency_level'], ['业务专业度依据', 'proficiency_basis', true], ['近期情绪状态', 'emotion_state'], ['近期情绪状态依据', 'emotion_basis', true], ['等待推诿', 'wait_pushback', false, value => value ? '是' : '否'], ['联系后未解决', 'contact_unresolved', false, value => value ? '是' : '否'], ['服务不满', 'taxpayer_dissatisfied', false, value => value ? '是' : '否']]),
+        detailSection('重点分析信息', detail.extracted, [['核心问题', 'core_question', true], ['坐席答复提炼', 'agent_answer_summary', true], ['一级专题', 'topic_category'], ['二级专题', 'secondary_topic'], ['需求类别', 'demand_category'], ['解决情况', 'resolved', false, resolvedText], ['未解决原因', 'unresolved_reason', true], ['业务专业度', 'proficiency_level'], ['业务专业度依据', 'proficiency_basis', true], ['近期情绪状态', 'emotion_state'], ['近期情绪状态依据', 'emotion_basis', true], ['存在联系相关部门或人员且未解决', 'contact_unresolved', false, value => value ? '是' : '否'], ['服务不满', 'taxpayer_dissatisfied', false, value => value ? '是' : '否']]),
         detailSection('人工登记与原始信息', detail.original, [['业务内容', 'business_content', true], ['答复内容', 'answer_content', true], ['登记日期', 'registration_time'], ['通话开始', 'call_start_time'], ['通话结束', 'call_end_time'], ['坐席工号', 'agent_id'], ['坐席姓名', 'agent_name'], ['登记单位', 'registration_unit'], ['登记处理方式', 'handling_method'], ['业务类别', 'business_category'], ['满意度', 'satisfaction'], ['呼叫流水号', 'call_serial_number'], ['转写结果', 'transcript', true]])
       );
     } catch (error) { content.textContent = `详情读取失败：${error.message}`; }
@@ -484,15 +539,15 @@
 
   function renderGraph(data) {
     if (state.graphCleanup) state.graphCleanup();
-    const root = document.querySelector('#profile-knowledge-content'); root.replaceChildren(); const catalog = state.showcaseCatalog; const taxonomy = catalog.taxonomy || {}; const panel = showcasePanel('多维画像三维关系图', data ? `${data.masked_phone} · 当前实例高亮` : '整体逻辑 · 可旋转探索');
-    const toolbar = el('div', 'knowledge-graph-toolbar'); const toolbarNote = el('p', '', '三个画像维度分别推导表达方式、情绪响应和业务应对，三类结果同时组成接待策略。'); const toolbarActions = el('div', 'graph-toolbar-actions');
+    const root = document.querySelector('#profile-knowledge-content'); root.replaceChildren(); const catalog = state.showcaseCatalog; const taxonomy = catalog.taxonomy || {}; const panel = showcasePanel(data ? '分层推导舞台' : '多维画像三维关系图', data ? `${data.masked_phone} · 当前实例高亮` : '整体逻辑 · 可旋转探索');
+    const toolbar = el('div', 'knowledge-graph-toolbar'); const toolbarNote = el('p', '', '分层路径：纳税人信息 → 三类画像判断 → 三类接待方式 → 组合接待策略。'); const toolbarActions = el('div', 'graph-toolbar-actions');
     const resetButton = el('button', 'graph-tool', '复位视角'); const rotationButton = el('button', 'graph-tool active', '暂停旋转'); const labelsButton = el('button', 'graph-tool active', '隐藏标签'); const overviewButton = el('button', 'graph-tool active', '显示全局'); const nextButton = el('button', 'graph-tool', '逐类聚焦 →'); const replayButton = data ? el('button', 'graph-tool replay', '开始分步推导 →') : null;
     [resetButton, rotationButton, labelsButton, overviewButton, nextButton, replayButton].filter(Boolean).forEach(button => button.type = 'button'); toolbarActions.append(...[resetButton, rotationButton, labelsButton, overviewButton, nextButton, replayButton].filter(Boolean)); toolbar.append(toolbarNote, toolbarActions);
     const stage = el('div', 'knowledge-graph-stage'); const canvas = el('canvas', 'knowledge-graph-canvas'); canvas.tabIndex = 0; canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', '三维画像推导图：亮线表示当前号码命中的规则路径，青色流光表示正在执行的推导步骤。');
     const hint = el('div', 'graph-gesture-hint', '拖拽旋转 · 滚轮缩放 · 点击小球聚焦'); const legend = el('div', 'graph-depth-legend'); [['proficiency', '业务专业度'], ['emotion', '近期情绪状态'], ['facts', '历史服务事实'], ['mode-expression', '表达方式'], ['mode-emotion', '情绪响应'], ['mode-continuity', '业务应对'], ['guidance', '服务建议']].forEach(([className, label]) => { const item = el('span'); item.append(el('i', className), document.createTextNode(label)); legend.append(item); });
-    let derivationTitle = null, derivationCopy = null, derivationBar = null; const derivationStatus = data ? el('div', 'graph-derivation-status') : null; if (derivationStatus) { derivationStatus.setAttribute('aria-live', 'polite'); derivationTitle = el('strong', '', '按步骤查看画像推导'); derivationCopy = el('span', '', '点击“开始分步推导”，每次只展示一个判断环节。'); const track = el('div', 'derivation-progress'); derivationBar = el('i'); track.append(derivationBar); derivationStatus.append(derivationTitle, derivationCopy, track); }
+    let derivationTitle = null, derivationCopy = null, derivationBar = null; const derivationStatus = data ? el('div', 'graph-derivation-status external') : null; if (derivationStatus) { derivationStatus.setAttribute('aria-live', 'polite'); derivationTitle = el('strong', '', '分层推导说明'); derivationCopy = el('span', '', '点击“开始分步推导”，每次只推进一个可解释的判断层。'); const track = el('div', 'derivation-progress'); derivationBar = el('i'); track.append(derivationBar); derivationStatus.append(derivationTitle, derivationCopy, track); }
     const lineKey = data ? el('div', 'graph-line-key') : null; if (lineKey) { lineKey.append(el('strong', '', '线条说明：'), document.createTextNode('亮线＝当前号码的推导路径；流光＝当前正在推导。')); }
-    stage.append(...[canvas, hint, derivationStatus, lineKey, legend].filter(Boolean)); panel.body.append(toolbar, stage); root.append(panel.panel, renderClassificationCatalog(data));
+    stage.append(...[canvas, hint, lineKey, legend].filter(Boolean)); panel.body.append(toolbar, derivationStatus, stage); root.append(panel.panel, renderClassificationCatalog(data));
     const dimensions = taxonomy.dimensions || []; const modeGroups = taxonomy.service_mode_groups || []; const instance = data?.before?.profile_model; const active = new Set(); (instance?.items || []).forEach(item => (item.values || []).forEach(value => active.add(`${item.id}:${value}`))); (data?.before?.result?.mode_components || []).forEach(component => active.add(`mode:${component.mode_id}`));
     const zoneConfig = {
       proficiency: {label: '业务专业度', y: -185, z: -75},
@@ -513,8 +568,8 @@
       information_delivery: {label: '表达方式', y: 185, z: 65, group: 'mode_information_delivery'}
     };
     const groupSources = {
-      emotion_response: ['emotion:不满', 'emotion:焦虑', 'emotion:平稳', 'emotion:暂无法判断', 'facts:等待推诿', 'facts:对坐席不满'],
-      matter_continuity: ['facts:历史工单', 'facts:异常中断', 'facts:联系后未解决', 'facts:近五个工作日未命中'],
+      emotion_response: ['emotion:不满', 'emotion:焦虑', 'emotion:平稳', 'emotion:暂无法判断', 'facts:对坐席不满'],
+      matter_continuity: ['facts:历史工单', 'facts:异常中断', 'facts:存在联系相关部门或人员且未解决', 'facts:近五个工作日未命中'],
       information_delivery: ['proficiency:专业', 'proficiency:了解', 'proficiency:小白', 'proficiency:暂无法判断']
     };
     modeGroups.forEach((modeGroup, groupIndex) => {
@@ -537,11 +592,11 @@
     const clamp = value => Math.max(0, Math.min(1, value));
     function demoProgress(elapsed) { const reveal = clamp(elapsed / 700); return {input: demoStep > 1 ? 1 : demoStep === 1 ? reveal : 0, category: demoStep > 2 ? 1 : demoStep === 2 ? reveal : 0, mode: demoStep > 3 ? 1 : demoStep === 3 ? reveal : 0, guide: demoStep === 4 ? reveal : 0, total: Math.min(1, (Math.max(demoStep - 1, 0) + reveal) / 4)}; }
     function updateDerivationStatus(elapsed = 0) {
-      if (!derivationStatus || !derivationTitle || !derivationCopy || !derivationBar) return; const mode = text(data?.before?.result?.service_mode); const signature = ((instance?.items || []).map(item => `${item.name}：${item.value}`)).join(' · '); const choices = (data?.before?.result?.mode_components || []).map(item => `${item.category}：${item.mode}`).join(' · '); const phase = demoStep; let title = '按步骤查看画像推导', copy = '点击“开始分步推导”，每次只展示一个判断环节。';
-      if (phase === 1) { title = '第 1 步：读取当前画像依据'; copy = signature || '正在确认当前画像标签。'; }
-      if (phase === 2) { title = '第 2 步：进入三个服务类别'; copy = '流光沿“画像标签 → 表达方式／情绪响应／业务应对”移动，表示正在匹配服务类别。'; }
-      if (phase === 3) { title = '第 2 步：在每类中选择接待方式'; copy = choices || '从每个服务类别中各选择一项，三项结果互不覆盖。'; }
-      if (phase === 4) { title = '第 3 步：组合为本次接待建议'; copy = `${mode} · ${text(data?.before?.result?.service_suggestion)}`; }
+      if (!derivationStatus || !derivationTitle || !derivationCopy || !derivationBar) return; const mode = text(data?.before?.result?.service_mode); const signature = ((instance?.items || []).map(item => `${item.name}：${item.value}`)).join(' · '); const choices = (data?.before?.result?.mode_components || []).map(item => `${item.category}：${item.mode}`).join(' · '); const phase = demoStep; let title = '分层推导舞台', copy = '点击“开始分步推导”，每次只推进一个可解释的判断层。';
+      if (phase === 1) { title = '第 1 层：纳税人信息'; copy = signature || '正在确认当前画像标签。'; }
+      if (phase === 2) { title = '第 2 层：三类画像判断'; copy = '流光沿“画像标签 → 表达方式／情绪响应／业务应对”移动，表示各信息会进入对应的接待类别。'; }
+      if (phase === 3) { title = '第 3 层：选择三类接待方式'; copy = choices || '从每个服务类别中各选择一项，三项结果互不覆盖。'; }
+      if (phase === 4) { title = '第 4 层：形成组合接待策略'; copy = `已形成“${mode}”的组合接待策略，坐席仍应以本次来电确认的事实为准。`; }
       if (phase !== demoPhase) { demoPhase = phase; derivationTitle.textContent = title; derivationCopy.textContent = copy; }
       derivationBar.style.width = `${demoProgress(elapsed).total * 100}%`;
     }
@@ -588,7 +643,7 @@
   }
 
   function renderClassificationCatalog(data) {
-    const taxonomy = state.showcaseCatalog.taxonomy || {}; const panel = showcasePanel('完整分类与判定规则', data ? '当前画像与三个分项模式已同步突出' : '三维特征、五项事实、三类八项接待方式');
+    const taxonomy = state.showcaseCatalog.taxonomy || {}; const panel = showcasePanel('完整分类与判定规则', data ? '当前画像与三个分项模式已同步突出' : '三维特征、四项公开事实、三类八项接待方式');
     const activeLabels = new Set(); ((data?.before?.profile_model || {}).items || []).forEach(item => (item.values || []).forEach(value => activeLabels.add(`${item.id}:${value}`))); const activeModeIds = new Set((data?.before?.result?.mode_components || []).map(item => item.mode_id));
     const dimensions = el('section', 'taxonomy-section'); const dHead = el('div', 'taxonomy-section-head'); dHead.append(el('strong', 'taxonomy-major-heading', '纳税人画像字段'), el('span', '', data ? '蓝色标签为当前画像' : '用于识别当前服务需求')); const dGrid = el('div', 'dimension-catalog'); (taxonomy.dimensions || []).forEach(dimension => { const hasCurrent = data && ((data.before.profile_model?.items || []).some(item => item.id === dimension.id)); const card = el('article', `dimension-card${hasCurrent ? ' active' : ''}`); const head = el('div', 'dimension-card-head'); head.append(el('strong', '', dimension.name), el('span', '', `${dimension.categories.length} 类`)); const tags = el('div', 'taxonomy-tags'); [...dimension.categories, dimension.unknown].forEach(category => tags.append(el('span', activeLabels.has(`${dimension.id}:${category}`) ? 'active' : '', category))); card.append(head, el('p', '', dimension.description), tags); dGrid.append(card); }); dimensions.append(dHead, dGrid);
     const modes = el('section', 'taxonomy-section'); const mHead = el('div', 'taxonomy-section-head'); mHead.append(el('strong', 'taxonomy-major-heading', '坐席接待方式'), el('span', '', data ? '每类彩色边框项为当前结果' : '每个类别选择一项，三个结果同时生效')); const groupGrid = el('div', 'service-mode-groups'); (taxonomy.service_mode_groups || []).forEach(group => { const groupCard = el('section', `service-mode-group ${modeClass({category_id: group.id})}`); const head = el('div', 'service-mode-group-head'); head.append(el('strong', '', group.label), el('span', '', `${(group.modes || []).length} 种接待方式`)); const grid = el('div', 'service-mode-catalog'); (group.modes || []).forEach(mode => { const card = el('article', `service-mode-card${activeModeIds.has(mode.id) ? ' active' : ''}`); card.append(el('strong', '', mode.label), el('p', '', mode.focus), el('div', 'composite-meta', `判定规则：${mode.rule}`), el('div', 'composite-meta', `沟通建议：${mode.communication}`)); grid.append(card); }); groupCard.append(head, el('p', 'service-mode-group-description', group.description), grid); groupGrid.append(groupCard); }); modes.append(mHead, groupGrid); panel.body.append(dimensions, modes); return panel.panel;

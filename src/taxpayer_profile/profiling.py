@@ -16,12 +16,12 @@ RECEPTION_MODE_GROUPS = (
         "color": "#8B5FC0",
         "modes": (
             {
-                "id": "repair",
-                "label": "安抚修复",
-                "rule": "近期情绪为不满，或近五个工作日出现等待推诿、对坐席不满",
-                "focus": "先承接情绪和历史服务体验，再说明本通可处理范围、责任节点与反馈方式。",
-                "communication": "语气稳定克制，先复述确认，不争辩；涉及等待或转交时主动说明原因和节点。",
-                "avoid": "避免机械重复历史口径、直接转接或在未说明原因时让来电人继续等待。",
+                "id": "steady",
+                "label": "平稳接待",
+                "rule": "未命中安抚修复或稳定预期",
+                "focus": "保持清晰、自然的沟通节奏，根据本次诉求正常组织服务。",
+                "communication": "语气客观友好，确认关键信息后进入事项处理，并根据反馈调整节奏。",
+                "avoid": "避免无依据放大历史风险或预设来电人存在负面情绪。",
             },
             {
                 "id": "stabilize",
@@ -32,12 +32,12 @@ RECEPTION_MODE_GROUPS = (
                 "avoid": "避免使用模糊承诺、忽略时限焦虑，或一次补充过多非关键背景。",
             },
             {
-                "id": "steady",
-                "label": "平稳接待",
-                "rule": "未命中安抚修复或稳定预期",
-                "focus": "保持清晰、自然的沟通节奏，根据本次诉求正常组织服务。",
-                "communication": "语气客观友好，确认关键信息后进入事项处理，并根据反馈调整节奏。",
-                "avoid": "避免无依据放大历史风险或预设来电人存在负面情绪。",
+                "id": "repair",
+                "label": "安抚修复",
+                "rule": "近期情绪为不满，或近期出现需要优先修复的服务体验信号",
+                "focus": "先承接情绪和历史服务体验，再说明本通可处理范围、责任节点与反馈方式。",
+                "communication": "语气稳定克制，先复述确认，不争辩；涉及等待或转交时主动说明原因和节点。",
+                "avoid": "避免机械重复历史口径、直接转接或在未说明原因时让来电人继续等待。",
             },
         ),
     },
@@ -50,7 +50,7 @@ RECEPTION_MODE_GROUPS = (
             {
                 "id": "followup",
                 "label": "历史诉求跟进",
-                "rule": "近五个工作日存在历史工单、异常中断或联系后未解决",
+                "rule": "近五个工作日存在历史工单、异常中断或存在联系相关部门或人员且未解决",
                 "focus": "先确认本次是否延续历史事项；确认后核验当前状态、承办节点和待补信息。",
                 "communication": "从已确认的历史节点继续，减少重复复述，并明确本通能够推进的范围。",
                 "avoid": "避免重复登记、重复提供已被证明无效的口径，或把历史问题直接认定为本次诉求。",
@@ -237,21 +237,21 @@ def classify_reception_mode(
     if abnormal_end_count:
         facts.append(f"异常中断{abnormal_end_count}次")
     if contact_unresolved_count:
-        facts.append(f"联系后未解决{contact_unresolved_count}次")
+        facts.append(f"存在联系相关部门或人员且未解决{contact_unresolved_count}次")
     if dissatisfaction_count:
         facts.append(f"对坐席不满{dissatisfaction_count}次")
 
     catalog = {str(item["id"]): item for item in RECEPTION_MODE_CATALOG}
     if emotion == "不满" or wait_pushback_count or dissatisfaction_count:
         emotion_mode = catalog["repair"]
-        emotion_basis = (
-            f"近期情绪为{emotion}；"
-            + "、".join(
-                fact
-                for fact in facts
-                if fact.startswith(("等待且潜在推诿", "对坐席不满"))
-            )
-        ).rstrip("；")
+        visible_emotion_facts = [
+            fact for fact in facts if fact.startswith("对坐席不满")
+        ]
+        emotion_basis = f"近期情绪为{emotion}"
+        if visible_emotion_facts:
+            emotion_basis += "；" + "、".join(visible_emotion_facts)
+        elif wait_pushback_count:
+            emotion_basis += "；近期出现需要优先修复的服务体验信号"
     elif emotion == "焦虑":
         emotion_mode = catalog["stabilize"]
         emotion_basis = "近期情绪为焦虑，需要同步稳定时限、结果和影响预期。"
@@ -262,7 +262,7 @@ def classify_reception_mode(
     continuity_facts = [
         fact
         for fact in facts
-        if fact.startswith(("历史工单", "异常中断", "联系后未解决"))
+        if fact.startswith(("历史工单", "异常中断", "存在联系相关部门或人员且未解决"))
     ]
     if continuity_facts:
         continuity_mode = catalog["followup"]

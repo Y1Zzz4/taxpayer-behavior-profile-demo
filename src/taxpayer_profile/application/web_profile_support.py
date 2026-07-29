@@ -39,9 +39,8 @@ PROFILE_DIMENSION_TAXONOMY = (
         "description": "按该号码最近五个工作日的明确字段组合形成，可同时命中多项。",
         "categories": (
             "历史工单",
-            "联系后未解决",
+            "存在联系相关部门或人员且未解决",
             "异常中断",
-            "等待推诿",
             "对坐席不满",
         ),
         "unknown": "近五个工作日未命中",
@@ -52,7 +51,29 @@ HISTORICAL_FACT_DEFINITIONS = (
     {"id": "work_order", "label": "历史工单", "rule": "是否工单 = 是"},
     {
         "id": "contact_unresolved",
-        "label": "联系相关人员后仍未解决",
+        "label": "存在联系相关部门或人员且未解决",
+        "rule": "联系相关人员或部门 = 是，且坐席是否解决纳税人问题 = 否",
+    },
+    {
+        "id": "abnormal_end",
+        "label": "异常中断",
+        "rule": "采用原始分析的最终非正常中断字段；新增数据按同口径分析",
+    },
+    {
+        "id": "dissatisfaction",
+        "label": "对坐席不满",
+        "rule": "纳税人是否对当前坐席或本通热线存在不满 = 是",
+    },
+)
+
+# Dashboard facts are an operational aggregate rather than a caller-facing
+# handoff label.  Keep the original wait/pushback signal there so management
+# can observe it without reintroducing it into the reception workbench.
+DASHBOARD_HISTORICAL_FACT_DEFINITIONS = (
+    {"id": "work_order", "label": "历史工单", "rule": "是否工单 = 是"},
+    {
+        "id": "contact_unresolved",
+        "label": "存在联系相关部门或人员且未解决",
         "rule": "联系相关人员或部门 = 是，且坐席是否解决纳税人问题 = 否",
     },
     {
@@ -80,7 +101,7 @@ def showcase_key(phone_hash: str) -> str:
 
 
 def fact_counts(items: list[CallTrajectory]) -> dict[str, int]:
-    """Count the five historical facts under their published definitions."""
+    """Count four public facts plus the retained internal wait/pushback signal."""
 
     return {
         "wait_pushback": sum(wait_pushback(item) for item in items),
@@ -144,10 +165,9 @@ def profile_snapshot(state: dict[str, object]) -> dict[str, object]:
 
     facts = []
     fact_keys = (
-        ("wait_pushback", "等待推诿"),
         ("work_order", "历史工单"),
         ("abnormal_end", "异常中断"),
-        ("contact_unresolved", "联系后未解决"),
+        ("contact_unresolved", "存在联系相关部门或人员且未解决"),
         ("dissatisfaction", "对坐席不满"),
     )
     for key, label in fact_keys:

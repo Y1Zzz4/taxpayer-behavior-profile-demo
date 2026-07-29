@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from taxpayer_profile.application.dashboard_service import DashboardService
 from taxpayer_profile.application.history_service import HistoryService
 from taxpayer_profile.application.profile_showcase_service import ProfileShowcaseService
+from taxpayer_profile.application.web_dto import unresolved_rate_rows
 from taxpayer_profile.config import Settings
 from taxpayer_profile.database import (
     create_schema,
@@ -254,19 +255,43 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert dashboard["resolution_status"] == [
         {"label": "已直接解决", "value": 1}
     ]
-    category = dashboard["question_categories"][0]
-    assert category["label"] == "暂未分类"
-    assert category["share"] == 100.0
-    assert category["resolved_share"] == 100.0
-    assert category["unresolved_share"] == 0.0
-    assert category["children"][0]["label"] == "二级专题待识别"
-    assert category["children"][0]["resolved_share"] == 100.0
+    assert dashboard["question_categories"] == []
     assert dashboard["personal_resolution"] == [
         {"label": "已直接解决", "value": 1}
     ]
     assert dashboard["enterprise_resolution"] == []
     assert dashboard["registration_unit_resolution"][0]["label"] == "第一税务所"
     assert dashboard["registration_unit_resolution"][0]["resolved_rate"] == 100.0
+    assert dashboard["caller_resolution_rates"] == [
+        {
+            "label": "个人",
+            "resolved": 1,
+            "unresolved": 0,
+            "unknown": 0,
+            "eligible_total": 1,
+            "resolved_rate": 100.0,
+        },
+        {
+            "label": "企业",
+            "resolved": 0,
+            "unresolved": 0,
+            "unknown": 0,
+            "eligible_total": 0,
+            "resolved_rate": None,
+        },
+    ]
+    assert dashboard["historical_facts"][1]["label"] == "存在联系相关部门或人员且未解决"
+    assert [item["label"] for item in dashboard["historical_facts"]] == [
+        "历史工单",
+        "存在联系相关部门或人员且未解决",
+        "异常中断",
+        "等待推诿",
+        "对坐席不满",
+    ]
+    assert dashboard["unresolved_question_hotspots"] == {
+        "all": [], "personal": [], "enterprise": []
+    }
+    assert dashboard["unresolved_distributions"]["topics"] == []
     assert "data_quality" not in dashboard
     assert dashboard["service_signals"][0]["value"] == 0
     assert dashboard["latest_update"]["input_filename"] == "synthetic.xlsx"
@@ -291,7 +316,7 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert len(catalog["items"]) == 1
     assert catalog["items"][0]["masked_phone"] == "138****0001"
     assert catalog["summary"]["dimension_count"] == 3
-    assert catalog["summary"]["fact_count"] == 5
+    assert catalog["summary"]["fact_count"] == 4
     assert catalog["summary"]["mode_group_count"] == 3
     assert catalog["summary"]["mode_count"] == 8
     assert "13800000001" not in str(catalog)
@@ -302,6 +327,33 @@ def test_web_dashboard_and_history_are_read_only_and_mask_phone(
     assert "after" not in showcase
     assert "scenario" not in showcase
     assert "13800000001" not in str(showcase)
+
+
+def test_dashboard_hotspot_replaces_extraction_missing_value_boilerplate() -> None:
+    assert DashboardService._hotspot_question_label("nan") is None
+    assert DashboardService._hotspot_question_label("['问题待归类']") is None
+    assert DashboardService._hotspot_question_label(
+        "提供的问题组中均为“nan”，无法提炼出具体的核心问题。"
+    ) is None
+    assert DashboardService._hotspot_question_label(
+        "这些内容都是“我无法给到相关内容”的重复，无法提炼出核心问题。"
+    ) is None
+
+
+def test_topic_rate_rows_exclude_placeholder_categories() -> None:
+    rows = unresolved_rate_rows(
+        Counter({"暂未分类": 3, "其他": 2, "['其他']": 2, "未提取出标签": 2, "申报缴税": 1}),
+        {
+            "暂未分类": Counter({"unresolved": 3}),
+            "其他": Counter({"unresolved": 2}),
+            "['其他']": Counter({"unresolved": 2}),
+            "未提取出标签": Counter({"unresolved": 2}),
+            "申报缴税": Counter({"unresolved": 1}),
+        },
+        exclude_other=True,
+        exclude_unclassified=True,
+    )
+    assert [row["label"] for row in rows] == ["申报缴税"]
 
 
 def test_web_facade_composes_independent_read_use_cases(tmp_path: Path) -> None:

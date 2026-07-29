@@ -329,8 +329,10 @@ def query_profile(
                 if item["business_id"] in active_repeat_ids
             ],
             "work_orders": [item for item in recent_serialized if item["work_order"] is True],
-            "wait_pushback": [
-                item for item in recent_serialized if item["wait_pushback"] is True
+            "contact_unresolved": [
+                item
+                for item in recent_serialized
+                if item["contact_unresolved"] is True
             ],
             "dissatisfaction": [
                 item

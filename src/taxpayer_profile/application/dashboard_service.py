@@ -14,11 +14,11 @@ from taxpayer_profile.application.web_dto import (
     resolution_rows,
     resolution_state,
     secondary_labels_for_topic,
-    segmented_rows,
     split_labels,
+    unresolved_rate_rows,
 )
 from taxpayer_profile.application.web_profile_support import (
-    HISTORICAL_FACT_DEFINITIONS,
+    DASHBOARD_HISTORICAL_FACT_DEFINITIONS,
     fact_counts,
 )
 from taxpayer_profile.models import CallerProfile, CallTrajectory, UpdateLog
@@ -63,6 +63,11 @@ class DashboardService:
         secondary_resolution: dict[str, dict[str, Counter[str]]] = {}
         demand_resolution: dict[str, Counter[str]] = {}
         registration_units: dict[str, Counter[str]] = {}
+        unresolved_question_hotspots: dict[str, Counter[str]] = {
+            "all": Counter(),
+            "personal": Counter(),
+            "enterprise": Counter(),
+        }
         for item in trajectories:
             state = resolution_state(item)
             primary_labels = split_labels(item.topic_category, fallback="暂未分类")
@@ -83,6 +88,14 @@ class DashboardService:
             unit = district_unit_label(item.registration_unit)
             registration_units.setdefault(unit, Counter())["total"] += 1
             registration_units[unit][state] += 1
+            if item.resolved_status is False:
+                question = self._hotspot_question_label(item.father_question_2)
+                if question is not None:
+                    unresolved_question_hotspots["all"][question] += 1
+                    if item.caller_type == "个人":
+                        unresolved_question_hotspots["personal"][question] += 1
+                    elif item.caller_type == "企业":
+                        unresolved_question_hotspots["enterprise"][question] += 1
 
         sorted_dates = sorted(daily_calls)
         trend_dates = (
@@ -103,7 +116,7 @@ class DashboardService:
                 if trajectories
                 else 0,
             }
-            for definition in HISTORICAL_FACT_DEFINITIONS
+            for definition in DASHBOARD_HISTORICAL_FACT_DEFINITIONS
         ]
         return {
             "overview": {
@@ -140,20 +153,30 @@ class DashboardService:
             "enterprise_resolution": resolution_rows(
                 [item for item in trajectories if item.caller_type == "企业"]
             ),
+            "caller_resolution_rates": [
+                self._resolution_rate_row("个人", trajectories),
+                self._resolution_rate_row("企业", trajectories),
+            ],
             "question_categories": [
                 {
                     **row,
-                    "children": segmented_rows(
+                    "children": unresolved_rate_rows(
                         secondary_topics.get(str(row["label"]), Counter()),
                         secondary_resolution.get(str(row["label"]), {}),
                         limit=5,
+                        exclude_other=True,
+                        exclude_unclassified=True,
                     ),
                 }
-                for row in segmented_rows(
-                    topics, topic_resolution, limit=5, exclude_other=True
+                for row in unresolved_rate_rows(
+                    topics,
+                    topic_resolution,
+                    limit=5,
+                    exclude_other=True,
+                    exclude_unclassified=True,
                 )
             ],
-            "demand_categories": segmented_rows(
+            "demand_categories": unresolved_rate_rows(
                 demands, demand_resolution, limit=5, exclude_other=True
             ),
             "registration_unit_resolution": [
@@ -163,6 +186,7 @@ class DashboardService:
                     "resolved": counts["resolved"],
                     "unresolved": counts["unresolved"],
                     "unknown": counts["unknown"],
+                    "eligible_total": counts["resolved"] + counts["unresolved"],
                     "resolved_rate": (
                         round(
                             counts["resolved"]
@@ -175,10 +199,48 @@ class DashboardService:
                     ),
                 }
                 for label, counts in sorted(
-                    registration_units.items(), key=lambda item: (-item[1]["total"], item[0])
+                    registration_units.items(),
+                    key=lambda item: (
+                        -(
+                            item[1]["resolved"] * 100
+                            / (item[1]["resolved"] + item[1]["unresolved"])
+                            if item[1]["resolved"] + item[1]["unresolved"]
+                            else -1
+                        ),
+                        -(item[1]["resolved"] + item[1]["unresolved"]),
+                        item[0],
+                    ),
                 )
             ],
             "historical_facts": fact_rows,
+            "unresolved_question_hotspots": {
+                group: counter_rows(counter, limit=5)
+                for group, counter in unresolved_question_hotspots.items()
+            },
+            "unresolved_distributions": {
+                "topics": [
+                    {
+                        **row,
+                        "children": unresolved_rate_rows(
+                        secondary_topics.get(str(row["label"]), Counter()),
+                        secondary_resolution.get(str(row["label"]), {}),
+                        limit=5,
+                        exclude_other=True,
+                        exclude_unclassified=True,
+                        ),
+                    }
+                    for row in unresolved_rate_rows(
+                        topics,
+                        topic_resolution,
+                        limit=5,
+                        exclude_other=True,
+                        exclude_unclassified=True,
+                    )
+                ],
+                "demands": unresolved_rate_rows(
+                    demands, demand_resolution, limit=5, exclude_other=True
+                ),
+            },
             # Kept while the browser consumes the established dashboard contract.
             "service_signals": [
                 {"label": row["label"], "value": row["value"]} for row in fact_rows
@@ -196,5 +258,57 @@ class DashboardService:
                 }
                 if latest_update is not None
                 else None
+            ),
+        }
+
+    @staticmethod
+    def _hotspot_question_label(value: str | None) -> str | None:
+        """Return only a usable parent question for the hotspot Top5."""
+
+        label = (value or "").strip()
+        normalized = label.strip("[](){}'\" ").lower()
+        missing_values = {
+            "",
+            "nan",
+            "none",
+            "null",
+            "n/a",
+            "na",
+            "未知",
+            "未提取",
+            "问题待归类",
+            "未提取出标签",
+        }
+        if normalized in missing_values:
+            return None
+        lowered = label.lower()
+        if (
+            "均为“nan”" in label
+            or "均为\"nan\"" in label
+            or ("nan" in lowered and ("问题组" in label or "无法提炼" in label))
+            or "无法提炼出核心问题" in label
+            or "我无法给到相关内容" in label
+            or "未提取出标签" in label
+        ):
+            return None
+        return label
+
+    @staticmethod
+    def _resolution_rate_row(
+        label: str, trajectories: list[CallTrajectory]
+    ) -> dict[str, object]:
+        items = [item for item in trajectories if item.caller_type == label]
+        resolved = sum(item.resolved_status is True for item in items)
+        unresolved = sum(item.resolved_status is False for item in items)
+        unknown = len(items) - resolved - unresolved
+        eligible_total = resolved + unresolved
+        return {
+            "label": label,
+            "resolved": resolved,
+            "unresolved": unresolved,
+            "unknown": unknown,
+            "eligible_total": eligible_total,
+            "resolved_rate": (
+                round(resolved * 100 / eligible_total, 1) if eligible_total else None
             ),
         }

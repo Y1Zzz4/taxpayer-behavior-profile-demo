@@ -134,10 +134,10 @@ class ProfileShowcaseService:
             )
         modes = [dict(mode) for mode in RECEPTION_MODE_CATALOG]
         relations = [
-            {"category": "情绪响应", "source": "不满/等待推诿/对坐席不满", "target": "安抚修复"},
+            {"category": "情绪响应", "source": "不满/对坐席不满", "target": "安抚修复"},
             {"category": "情绪响应", "source": "焦虑", "target": "稳定预期"},
             {"category": "情绪响应", "source": "其余状态", "target": "平稳接待"},
-            {"category": "业务应对", "source": "工单/异常中断/联系后未解决", "target": "历史诉求跟进"},
+            {"category": "业务应对", "source": "工单/异常中断/存在联系相关部门或人员且未解决", "target": "历史诉求跟进"},
             {"category": "业务应对", "source": "无待衔接事实", "target": "当前诉求确认"},
             {"category": "表达方式", "source": "专业", "target": "结论直述"},
             {"category": "表达方式", "source": "了解", "target": "重点解释"},
@@ -154,7 +154,7 @@ class ProfileShowcaseService:
             },
             "summary": {
                 "dimension_count": 3,
-                "fact_count": 5,
+                "fact_count": len(HISTORICAL_FACT_DEFINITIONS),
                 "mode_group_count": 3,
                 "mode_count": len(RECEPTION_MODE_CATALOG),
                 "profile_count": len(self._search_index),
@@ -167,7 +167,7 @@ class ProfileShowcaseService:
                 },
                 {
                     "title": "五日聚合",
-                    "description": "按号码汇总最近五个工作日的五项历史服务事实。",
+                    "description": "按号码汇总最近五个工作日的四项公开历史服务事实。",
                 },
                 {
                     "title": "接待方式匹配",

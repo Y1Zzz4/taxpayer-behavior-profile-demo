@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any, Protocol
 
 from taxpayer_profile.llm_client import (
@@ -117,8 +118,14 @@ def _anchor_model_result(
     mode = str(contract["service_mode"])
     components = contract["components"]
     summary = str(payload.get("advice_summary") or "").strip()
-    if mode not in summary:
-        summary = f"推荐采用“{mode}”：{summary}"
+    # The composite strategy is rendered in its own three-card area.  Do not
+    # repeat its full name at the front of the general advice, even when a
+    # model follows the older prompt wording.
+    summary = re.sub(
+        rf"^(?:推荐|建议)?(?:采用|使用)?[“\"]?{re.escape(mode)}[”\"]?[：:，,\s]*",
+        "",
+        summary,
+    ).strip()
     payload["advice_summary"] = summary[:200]
     payload["service_mode"] = mode
     payload["service_modes"] = components
@@ -168,10 +175,6 @@ def build_fallback_advice(
     history_facts = [f"历史来电{int(stats.get('total_calls') or 0)}次"]
     if int(five_days.get("work_order_count") or 0):
         history_facts.append(f"近五个工作日有{int(five_days['work_order_count'])}次工单")
-    if int(five_days.get("wait_pushback_count") or 0):
-        history_facts.append(
-            f"近五个工作日有{int(five_days['wait_pushback_count'])}次等待推诿信号"
-        )
     if int(five_days.get("dissatisfaction_count") or 0):
         history_facts.append(
             f"近五个工作日有{int(five_days['dissatisfaction_count'])}次服务不满"
@@ -192,7 +195,7 @@ def build_fallback_advice(
     communication = "；".join(communications)
     advice_summary = (
         "，".join(history_facts)
-        + f"；建议采用“{mode}”，接通后先确认本次诉求，并同时落实三个分项方式。"
+        + "；接通后先确认本次诉求，再结合已核实的历史节点推进处理。"
     )[:200]
 
     selected_modes = {str(item["category_id"]): str(item["mode"]) for item in components}

@@ -70,6 +70,72 @@ def segmented_rows(
     ]
 
 
+def unresolved_rate_rows(
+    counter: Counter[str],
+    resolution: dict[str, Counter[str]],
+    *,
+    limit: int = 5,
+    exclude_other: bool = False,
+    exclude_unclassified: bool = False,
+) -> list[dict[str, object]]:
+    """Rank categories by unresolved rate, retaining counts only for computation."""
+
+    rows: list[dict[str, object]] = []
+    total = sum(counter.values())
+    for label, value in counter.items():
+        normalized_label = label.strip().strip("[](){}'\" ").lower()
+        if exclude_other and normalized_label in {"其他", "其它", "其他类", "其它类"}:
+            continue
+        if exclude_unclassified and normalized_label in {
+            "暂未分类",
+            "未分类",
+            "二级专题待识别",
+            "待识别",
+            "未提取出标签",
+            "标签未提取",
+            "未提取标签",
+            "问题待归类",
+        }:
+            continue
+        counts = resolution[label]
+        eligible_total = counts["resolved"] + counts["unresolved"]
+        rows.append(
+            {
+                "label": label,
+                "value": value,
+                "share": round(value * 100 / total, 1) if total else 0,
+                "resolved": counts["resolved"],
+                "unresolved": counts["unresolved"],
+                "unknown": counts["unknown"],
+                "eligible_total": eligible_total,
+                "resolved_share": (
+                    round(counts["resolved"] * 100 / value, 1) if value else 0
+                ),
+                "unresolved_share": (
+                    round(counts["unresolved"] * 100 / value, 1) if value else 0
+                ),
+                "unknown_share": (
+                    round(counts["unknown"] * 100 / value, 1) if value else 0
+                ),
+                "unresolved_rate": (
+                    round(counts["unresolved"] * 100 / eligible_total, 1)
+                    if eligible_total
+                    else None
+                ),
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda item: (
+            item["unresolved_rate"] is None,
+            -float(item["unresolved_rate"] or 0),
+            -int(item["eligible_total"]),
+            -int(item["unresolved"]),
+            str(item["label"]),
+        ),
+    )[:limit]
+
+
 def split_labels(value: str | None, *, fallback: str) -> list[str]:
     labels = [
         part.strip()
