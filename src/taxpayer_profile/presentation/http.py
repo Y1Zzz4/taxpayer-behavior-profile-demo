@@ -146,6 +146,9 @@ def handler_factory(
             if path == "/app.js":
                 self._static("app.js", "text/javascript; charset=utf-8")
                 return
+            if path == "/workbench.css":
+                self._static("workbench.css", "text/css; charset=utf-8")
+                return
             if path == "/api/auth/me":
                 user = self._require_user()
                 if user is not None:

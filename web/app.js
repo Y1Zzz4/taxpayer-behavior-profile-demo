@@ -34,10 +34,15 @@
     return normalized.length ? `${normalized.join('；')}。` : '暂无可展示的历史跟进信息。';
   }
   const pages = new Set(['workbench', 'dashboard', 'history', 'showcase', 'users']);
-  const titles = {workbench: '12366坐席接待助手', dashboard: '热线数据概览', history: '历史来电记录', showcase: '画像推演中心', users: '用户与权限'};
+  const titles = {workbench: '坐席辅助工作台', dashboard: '热线数据概览', history: '历史来电记录', showcase: '画像推演中心', users: '用户与权限'};
   const state = {
     user: null,
     phone: '',
+    sessions: [],
+    activeSessionId: null,
+    sessionFilter: 'all',
+    trajectoryFilter: 'all',
+    callClockTimer: null,
     dashboardLoaded: false,
     history: {page: 1, totalPages: 0, phone: '', loaded: false},
     showcaseCatalog: null,
@@ -140,7 +145,9 @@
   function showPage(name, updateHash = true) {
     let page = pages.has(name) ? name : 'workbench';
     if (state.user?.role !== 'admin' && ['showcase', 'users'].includes(page)) page = 'workbench';
+    document.body.classList.toggle('workbench-active', page === 'workbench');
     if (page !== 'workbench') document.querySelector('#caller-history-overlay').classList.add('hidden');
+    else if (state.activeSessionId) setHistoryTab('trajectory');
     document.querySelectorAll('.page-view').forEach(node => node.classList.toggle('hidden', node.id !== `page-${page}`));
     document.querySelectorAll('.nav-link').forEach(node => {
       const active = node.dataset.page === page;
@@ -172,40 +179,110 @@
     parent.append(item);
   }
 
-  function renderOverview(profile) {
+  function maskLocalPhone(phone) {
+    const value = String(phone || '').replace(/\D/g, '');
+    if (value.length >= 8) return `${value.slice(0, 3)}${'*'.repeat(value.length - 7)}${value.slice(-4)}`;
+    return value ? `${value.slice(0, 1)}***${value.slice(-1)}` : '号码待确认';
+  }
+
+  function categoryValues(value, fallback = '待识别') {
+    const values = String(value || '')
+      .split(/[、，,；;|/]+/)
+      .map(item => item.trim())
+      .filter(Boolean);
+    return values.length ? values : [fallback];
+  }
+
+  function renderOverview(profile = null, phone = state.phone) {
     const box = document.querySelector('#overview');
     box.replaceChildren();
-    const identity = el('div', 'caller-identity');
-    const heading = el('div', 'identity-head');
-    const subject = profile.caller_type === '企业'
-      ? (profile.enterprise_identity && profile.enterprise_identity !== '无法判断' ? `企业 · ${profile.enterprise_identity}` : '企业（细化主体暂无法判断）')
-      : text(profile.caller_type, '咨询主体暂无法判断');
-    heading.append(el('strong', '', subject));
-    const tags = el('div', 'category-pills');
-    tags.append(el('span', 'category-pill', `业务专业度 · ${text(profile.proficiency_level, '暂无法判断')}`));
-    tags.append(el('span', 'category-pill', `近期情绪状态 · ${text(profile.emotion_state, '暂无法判断')}`));
-    heading.append(tags);
-    const details = el('div', 'identity-details');
-    identityDetail(details, '最近咨询', profile.latest_question, true);
-    identityDetail(details, '最近坐席答复', profile.latest_agent_answer, true);
-    identityDetail(details, '知识库参考回答', profile.standard_answer, true);
-    identityDetail(details, '最近来电时间', profile.latest_call_time);
-    identityDetail(details, '登记单位', profile.latest_registration_unit);
-    identityDetail(details, '专题类别', profile.latest_topic_category);
-    identityDetail(details, '需求类别', profile.latest_demand_category);
-    identity.append(heading, details);
-    const recent = profile.recent_workday_statistics || {};
-    const metrics = el('div', 'metrics');
-    metric(metrics, '历史来电', recent.call_count);
-    metric(metrics, '重复诉求', recent.repeated_issue_count);
-    metric(metrics, '历史工单', recent.work_order_count);
-    metric(metrics, '存在联系相关部门或人员且未解决', recent.contact_unresolved_count);
-    metric(metrics, '服务不满', recent.dissatisfaction_count);
-    metric(metrics, '未直接解决', recent.unresolved_count);
-    box.append(identity, metrics);
+    const subject = profile?.caller_type === '企业'
+      ? (profile.enterprise_identity && profile.enterprise_identity !== '无法判断' ? `企业 · ${profile.enterprise_identity}` : '企业来电人')
+      : text(profile?.caller_type, '新来电人');
+    const heading = el('div', 'caller-summary-head');
+    heading.append(el('div', 'caller-avatar', profile?.caller_type === '企业' ? '企' : '个'));
+    const copy = el('div');
+    copy.append(el('strong', '', subject), el('span', '', `${maskLocalPhone(phone)} · ${profile ? '已匹配历史画像' : '暂无历史画像'}`));
+    const profileTags = el('div', 'caller-profile-tags');
+    [
+      ['业务专业度', profile?.proficiency_level || '暂无法判断'],
+      ['近期情绪', profile?.emotion_state || '暂无法判断'],
+    ].forEach(([label, value]) => {
+      const tag = el('div');
+      tag.append(el('small', '', label), el('strong', '', value));
+      profileTags.append(tag);
+    });
+    heading.append(copy, profileTags);
+    const recent = profile?.recent_workday_statistics || {};
+    const latest = profile?.trajectories?.[0] || null;
+    const latestUnresolved = profile?.latest_resolved === false;
+    const focus = el('section', `precall-focus${latestUnresolved ? ' attention' : ''}`);
+    focus.append(el('span', 'precall-focus-kicker', '上次来电信息'));
+    const focusStatus = el('div', 'precall-focus-status');
+    focusStatus.append(
+      el('span', '', '状态：'),
+      el('strong', '', !profile ? '无历史记录' : latestUnresolved ? '未直接解决' : profile.latest_resolved === true ? '已直接解决' : '待判断'),
+    );
+    [
+      [latest?.taxpayer_dissatisfied, '对坐席不满'],
+      [latest?.work_order, '历史工单'],
+      [latest?.contact_unresolved, '联系部门未解决'],
+      [latest?.abnormal_end, '异常中断'],
+      [latest?.is_repeated_issue, '重复咨询'],
+      [latest?.wait_pushback, '存在等待或推诿'],
+    ].forEach(([active, label]) => {
+      if (active) focusStatus.append(el('span', 'precall-focus-tag', label));
+    });
+    const focusQuestion = el(
+      'div',
+      'precall-focus-question',
+      profile?.latest_question || '暂无历史咨询，本次先确认来电诉求',
+    );
+    const focusAnswer = el('div', 'precall-focus-answer');
+    focusAnswer.append(
+      el('span', '', '上次坐席答复'),
+      el('p', '', profile?.latest_agent_answer || '暂无明确记录'),
+    );
+    focus.append(focusStatus, focusQuestion, focusAnswer);
+    const metadata = el('div', 'precall-metadata');
+    [
+      ['最近来电', profile?.latest_call_time || '首次接入', false],
+      ['登记单位', profile?.latest_registration_unit || '暂无', false],
+      ['专题类别', profile?.latest_topic_category || '待识别', true],
+      ['需求类别', profile?.latest_demand_category || '待识别', true],
+    ].forEach(([label, value, category]) => {
+      const item = el('div', `precall-metadata-item${category ? ' category' : ''}`);
+      item.append(el('small', '', label));
+      if (category) {
+        const values = el('div', 'precall-metadata-values');
+        categoryValues(value).forEach(entry => values.append(el('span', '', entry)));
+        item.append(values);
+      } else {
+        item.append(el('span', '', value));
+      }
+      metadata.append(item);
+    });
+    heading.append(metadata);
+    const stats = el('div', 'overview-signal-table');
+    [
+      ['历史来电', '历史来电', recent.call_count ?? profile?.total_call_count ?? 0],
+      ['重复诉求', '重复诉求', recent.repeated_issue_count ?? 0],
+      ['历史工单', '历史工单', recent.work_order_count ?? 0],
+      ['存在联系相关部门或人员且未解决', '联系未解决', recent.contact_unresolved_count ?? 0],
+      ['服务不满', '服务不满', recent.dissatisfaction_count ?? 0],
+      ['未直接解决', '未直接解决', recent.unresolved_count ?? 0],
+    ].forEach(([fullLabel, label, value]) => {
+      const item = el('div', 'overview-signal');
+      item.title = fullLabel;
+      item.append(el('span', '', label), el('strong', '', String(value)));
+      stats.append(item);
+    });
+    box.append(heading, focus, stats);
+    document.querySelector('#question-topic').textContent = profile?.latest_topic_category || '专题待识别';
+    document.querySelector('#question-demand').textContent = profile?.latest_demand_category || '需求待识别';
     document.querySelector('#overview-range').textContent = recent.start_date && recent.end_date
-      ? `${recent.start_date} 至 ${recent.end_date} · 最近5个工作日 · 仅供参考`
-      : '最近5个工作日 · 仅供参考';
+      ? `${recent.start_date} 至 ${recent.end_date}`
+      : '近5个工作日 · 仅供参考';
     document.querySelector('#overview-panel').classList.remove('hidden');
   }
 
@@ -245,15 +322,105 @@
     section.append(head, list); parent.append(section);
   }
 
+  const trajectoryFilterLabels = {
+    all: '全部诉求',
+    repeated: '重复咨询',
+    unresolved: '未直接解决',
+    order: '历史工单',
+    followup: '后续追问',
+    contact: '存在联系相关部门或人员且未解决',
+    dissatisfaction: '服务不满',
+  };
+
+  function trajectoryGroups(profile) {
+    const groups = new Map();
+    (profile?.trajectories || []).forEach(item => {
+      const question = text(
+        item.is_repeated_issue && item.matched_previous_question
+          ? item.matched_previous_question
+          : item.core_question || item.question_category,
+        '问题待进一步确认',
+      );
+      const key = question.replace(/[\s，。；、？！,.!?;]+/g, '').toLowerCase();
+      const group = groups.get(key) || {
+        question, items: [], repeated: false, unresolved: false,
+        order: false, followup: false, contact: false, dissatisfaction: false,
+      };
+      group.items.push(item);
+      group.repeated ||= item.is_repeated_issue === true;
+      group.unresolved ||= item.resolved === false;
+      group.order ||= item.work_order === true;
+      group.followup ||= group.items.length > 1 || Boolean(item.matched_previous_call_time);
+      group.contact ||= item.contact_unresolved === true;
+      group.dissatisfaction ||= item.taxpayer_dissatisfied === true;
+      groups.set(key, group);
+    });
+    return [...groups.values()].sort((a, b) => {
+      const aTime = a.items[0]?.call_time || '';
+      const bTime = b.items[0]?.call_time || '';
+      return String(bTime).localeCompare(String(aTime));
+    });
+  }
+
   function renderHistoryFocus(profile) {
     const box = document.querySelector('#profile');
-    box.className = 'panel-body'; box.replaceChildren();
-    const groups = profile.history_focus || {};
-    issueSection(box, '重复诉求', groups.repeated_issues || [], '当前没有已确认的重复诉求。');
-    issueSection(box, '历史工单', groups.work_orders || [], '当前没有历史工单记录。');
-    issueSection(box, '存在联系相关部门或人员且未解决', groups.contact_unresolved || [], '当前没有联系相关部门或人员且未解决的记录。');
-    issueSection(box, '服务不满', groups.dissatisfaction || [], '当前没有对坐席或本通服务不满的记录。');
-    issueSection(box, '未直接解决', groups.unresolved || [], '当前没有未直接解决记录。');
+    const filters = document.querySelector('#trajectory-filters');
+    box.className = 'trajectory-content';
+    box.replaceChildren();
+    filters.replaceChildren();
+    const groups = trajectoryGroups(profile);
+    Object.entries(trajectoryFilterLabels).forEach(([key, label]) => {
+      const count = key === 'all' ? groups.length : groups.filter(group => group[key]).length;
+      const button = el('button', `trajectory-filter${state.trajectoryFilter === key ? ' active' : ''}`, `${label} ${count}`);
+      button.type = 'button';
+      button.dataset.trajectoryFilter = key;
+      button.addEventListener('click', () => {
+        state.trajectoryFilter = key;
+        renderHistoryFocus(profile);
+      });
+      filters.append(button);
+    });
+    const visible = state.trajectoryFilter === 'all' ? groups : groups.filter(group => group[state.trajectoryFilter]);
+    if (!visible.length) {
+      box.className = 'trajectory-content placeholder';
+      box.textContent = groups.length ? '当前筛选条件下没有匹配的问题轨迹。' : '该号码暂无历史问题轨迹。';
+      return;
+    }
+    const list = el('div', 'trajectory-list');
+    visible.forEach((group, index) => {
+      const latest = group.items[0];
+      const earliest = group.items[group.items.length - 1];
+      const card = el('article', 'trajectory-card');
+      card.append(el('div', 'trajectory-marker', String(index + 1).padStart(2, '0')));
+      const main = el('div', 'trajectory-main');
+      main.append(el('strong', '', group.question));
+      const answer = latest.resolved === false
+        ? `最近一次未直接解决：${text(latest.unresolved_reason, '原因待补充')}`
+        : `最近处理：${text(latest.agent_answer_summary, resolvedText(latest.resolved))}`;
+      main.append(el('p', '', answer));
+      const tags = el('div', 'trajectory-tags');
+      if (group.repeated) tags.append(el('span', 'trajectory-tag repeated', '重复咨询'));
+      if (group.unresolved) tags.append(el('span', 'trajectory-tag unresolved', '未直接解决'));
+      if (group.order) tags.append(el('span', 'trajectory-tag order', '历史工单'));
+      if (group.followup) tags.append(el('span', 'trajectory-tag followup', `后续追问 · ${group.items.length}次`));
+      if (group.contact) tags.append(el('span', 'trajectory-tag unresolved', '存在联系相关部门或人员且未解决'));
+      if (group.dissatisfaction) tags.append(el('span', 'trajectory-tag unresolved', '服务不满'));
+      if (!tags.children.length) tags.append(el('span', 'trajectory-tag', '已直接答复'));
+      main.append(tags);
+      const meta = el('div', 'trajectory-meta');
+      meta.append(el('time', '', dateText(latest.call_time)));
+      if (group.followup) meta.append(el('div', '', `始于 ${dateText(earliest.call_time).slice(0, 10)}`));
+      const followupAction = el('button', 'trajectory-action primary', '跟进此问题');
+      followupAction.type = 'button';
+      followupAction.addEventListener('click', () => startHistoryFollowup(group));
+      const detailAction = el('button', 'trajectory-action', '查看最近一通 →');
+      detailAction.type = 'button';
+      detailAction.addEventListener('click', () => openDetail(latest.business_id));
+      meta.append(followupAction, detailAction);
+      card.append(main, meta);
+      list.append(card);
+    });
+    box.append(list);
     document.querySelector('#view-current-history').classList.remove('hidden');
   }
 
@@ -264,16 +431,319 @@
   }
 
   function renderAdvice(advice) {
-    const box = document.querySelector('#advice'); box.className = 'panel-body'; box.replaceChildren();
-    const mode = el('section', 'advice-strategy'); mode.append(el('h3', '', '组合接待策略')); const cards = el('div', 'strategy-grid');
-    (advice.service_modes || []).forEach(component => { const card = el('article', `strategy-card ${modeClass(component)}`.trim()); card.append(el('span', '', text(component.category, '策略分项')), el('strong', '', text(component.mode)), el('p', '', text(component.basis, '依据当前历史信息确定。'))); cards.append(card); });
-    if (!cards.children.length) cards.append(el('div', 'strategy-card', text(advice.service_mode, '当前诉求确认')));
-    mode.append(cards); box.append(mode);
-    box.append(el('h3', '', '总体接待建议'));
-    box.append(el('div', 'advice-summary', text(advice.advice_summary)));
+    const box = document.querySelector('#advice');
+    box.className = 'precall-advice-body';
+    box.replaceChildren();
+    const summary = el('div', 'advice-summary', text(advice.advice_summary));
+    summary.setAttribute('aria-label', '总体接待建议');
+    const modes = el('div', 'precall-mode-list');
+    modes.setAttribute('aria-label', '组合接待策略');
+    (advice.service_modes || []).forEach(component => {
+      const item = el('div', `precall-mode ${modeClass(component)}`.trim());
+      item.title = text(component.basis, '依据当前历史信息确定。');
+      item.append(el('strong', '', text(component.mode)));
+      modes.append(item);
+    });
+    if (!modes.children.length) {
+      const item = el('div', 'precall-mode');
+      item.append(el('strong', '', text(advice.service_mode, '先确认本次诉求')));
+      modes.append(item);
+    }
+    box.append(modes, summary);
     const badge = document.querySelector('#advice-badge'); badge.classList.remove('hidden');
     badge.textContent = advice.generation_status === 'model_generated' ? '智能实时建议' : '系统辅助建议';
     badge.className = `badge${advice.generation_status === 'model_generated' ? '' : ' fallback'}`;
+  }
+
+  function currentSession() {
+    return state.sessions.find(session => session.id === state.activeSessionId) || null;
+  }
+
+  function persistCurrentSessionFields() {
+    const session = currentSession();
+    if (!session) return;
+    if (session.processingMode === 'followup') {
+      session.question = session.followupQuestion || '';
+      return;
+    }
+    session.newQuestion = document.querySelector('#current-question').value.trim();
+    session.question = session.newQuestion;
+  }
+
+  function sessionTime(session) {
+    return new Date(session.completedAt || session.startedAt || session.createdAt).toLocaleTimeString(
+      'zh-CN', {hour: '2-digit', minute: '2-digit', hour12: false},
+    );
+  }
+
+  function renderSessionList() {
+    const list = document.querySelector('#session-list');
+    list.replaceChildren();
+    const matchesFilter = session => state.sessionFilter === 'all'
+      || (state.sessionFilter === 'completed' ? session.status === 'completed' : session.status !== 'completed');
+    const sessions = state.sessions.filter(matchesFilter);
+    document.querySelector('#inbox-count').textContent = String(state.sessions.filter(session => session.status !== 'completed').length);
+    if (!sessions.length) {
+      list.append(el('div', 'session-empty', state.sessions.length ? '当前筛选条件下暂无会话' : '暂无来电会话\n输入号码模拟第一通来电'));
+      return;
+    }
+    [
+      ['来电呼入', sessions.filter(session => session.status === 'ringing')],
+      ['当前来电', sessions.filter(session => session.status === 'active')],
+      ['待跟进', sessions.filter(session => session.status === 'pending')],
+      ['已完成', sessions.filter(session => session.status === 'completed')],
+    ].forEach(([label, items]) => {
+      if (!items.length) return;
+      const groupLabel = el('div', 'session-group-label');
+      groupLabel.append(el('span', '', label), el('span', '', String(items.length)));
+      list.append(groupLabel);
+      items.forEach(session => {
+        const button = el('button', `session-item ${session.status === 'completed' ? 'completed' : ''} ${session.status === 'ringing' ? 'ringing' : ''}${session.id === state.activeSessionId ? ' selected' : ''}`.trim());
+        button.type = 'button';
+        button.append(el('span', 'session-signal'));
+        const copy = el('span', 'session-copy');
+        copy.append(
+          el('strong', '', maskLocalPhone(session.phone)),
+          el('span', '', session.status === 'ringing' && session.profileLoading
+            ? '呼入中 · 正在调取历史'
+            : session.question || session.profile?.latest_question || '本次诉求待确认'),
+        );
+        button.append(copy, el('time', 'session-time', sessionTime(session)));
+        const tags = el('span', 'session-tags');
+        if (session.profile?.caller_type) tags.append(el('span', 'session-tag', session.profile.caller_type));
+        if (session.status === 'ringing') tags.append(el('span', 'session-tag', '等待接听'));
+        if (session.declined) tags.append(el('span', 'session-tag alert', '未接听'));
+        if (session.resolved === true) tags.append(el('span', 'session-tag', '已解决'));
+        if (session.resolved === false) tags.append(el('span', 'session-tag alert', '未直接解决'));
+        if (session.workOrder) tags.append(el('span', 'session-tag alert', '已建工单'));
+        if (session.profile?.recent_workday_statistics?.unresolved_count) tags.append(el('span', 'session-tag alert', '历史未解决'));
+        if (tags.children.length) button.append(tags);
+        button.addEventListener('click', () => selectSession(session.id));
+        list.append(button);
+      });
+    });
+  }
+
+  function updateCallClock(session) {
+    window.clearInterval(state.callClockTimer);
+    state.callClockTimer = null;
+    const clock = document.querySelector('#call-clock');
+    if (!session || session.status !== 'active') {
+      clock.classList.add('hidden');
+      return;
+    }
+    clock.classList.remove('hidden');
+    const update = () => {
+      const seconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
+      clock.querySelector('strong').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    };
+    update();
+    state.callClockTimer = window.setInterval(update, 1000);
+  }
+
+  function renderInteractionState(session) {
+    document.querySelector('#interaction-state').textContent = session.status === 'completed'
+      ? '已完成 · 可继续修改'
+      : session.status === 'pending' ? '待跟进' : '处理中';
+    const choices = [
+      ['#mark-resolved', session.resolved === true],
+      ['#mark-unresolved', session.resolved === false],
+      ['#no-order', session.workOrder !== true],
+      ['#create-order', session.workOrder === true],
+    ];
+    choices.forEach(([selector, active]) => {
+      const button = document.querySelector(selector);
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    const resultText = session.resolved === true
+      ? '直接解决'
+      : session.resolved === false ? '未直接解决' : '处理结果待确认';
+    document.querySelector('#interaction-summary').textContent = `${resultText} · ${session.workOrder ? '创建工单' : '无需工单'}`;
+    const completeButton = document.querySelector('#complete-session');
+    completeButton.textContent = session.status === 'completed' ? '重新打开' : '完成本通';
+    completeButton.disabled = session.status !== 'completed' && session.resolved === null;
+    completeButton.title = completeButton.disabled ? '请先确认本通处理结果' : '';
+  }
+
+  function setHistoryTab(name) {
+    const trajectoryActive = name === 'trajectory';
+    document.querySelector('#trajectory-tab').classList.toggle('active', trajectoryActive);
+    document.querySelector('#trajectory-tab').setAttribute('aria-selected', String(trajectoryActive));
+    document.querySelector('#all-calls-tab').classList.toggle('active', !trajectoryActive);
+    document.querySelector('#all-calls-tab').setAttribute('aria-selected', String(!trajectoryActive));
+    document.querySelector('#trajectory-pane').classList.toggle('hidden', !trajectoryActive);
+    document.querySelector('#caller-history-overlay').classList.toggle('hidden', trajectoryActive);
+  }
+
+  function renderHistoryVisibility(session = currentSession(), workspaceView = session?.workspaceView) {
+    const collapsed = Boolean(session && workspaceView === 'processing' && session.historyCollapsed);
+    document.querySelector('#workspace-content').classList.toggle('history-collapsed', collapsed);
+    document.querySelector('.workspace-history').classList.toggle('collapsed', collapsed);
+    const toggle = document.querySelector('#history-collapse-toggle');
+    toggle.classList.toggle('hidden', workspaceView !== 'processing');
+    toggle.textContent = collapsed ? '展开记录' : '收起记录';
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+  }
+
+  function setHistoryCollapsed(collapsed) {
+    const session = currentSession();
+    if (!session) return;
+    session.historyCollapsed = Boolean(collapsed);
+    renderHistoryVisibility(session);
+  }
+
+  function setWorkspaceView(name, remember = true) {
+    const activeSession = currentSession();
+    if (name === 'processing' && activeSession?.status === 'ringing') return;
+    const assistActive = name !== 'processing';
+    document.querySelector('#assist-view-tab').classList.toggle('active', assistActive);
+    document.querySelector('#assist-view-tab').setAttribute('aria-selected', String(assistActive));
+    document.querySelector('#processing-view-tab').classList.toggle('active', !assistActive);
+    document.querySelector('#processing-view-tab').setAttribute('aria-selected', String(!assistActive));
+    document.querySelector('#assist-view').classList.toggle('hidden', !assistActive);
+    document.querySelector('#processing-view').classList.toggle('hidden', assistActive);
+    if (remember) {
+      const session = currentSession();
+      if (session) session.workspaceView = assistActive ? 'assist' : 'processing';
+    }
+    renderHistoryVisibility(activeSession, assistActive ? 'assist' : 'processing');
+  }
+
+  function renderKnowledgeAnswer(session) {
+    const question = session.processingMode === 'followup'
+      ? session.followupIssue?.question || session.followupQuestion || ''
+      : session.newQuestion || '';
+    const standardAnswer = String(session.profile?.standard_answer || '').trim();
+    const answerAvailable = standardAnswer && !standardAnswer.includes('暂未接入');
+    const status = document.querySelector('#knowledge-answer-status');
+    const box = document.querySelector('#knowledge-answer');
+    if (answerAvailable && question) {
+      status.textContent = '已匹配';
+      status.className = 'available';
+      box.textContent = standardAnswer;
+      return;
+    }
+    status.textContent = '知识库待接入';
+    status.className = '';
+    box.textContent = question
+      ? `已确认问题：“${question}”。知识库接入后，将根据该问题自动检索并展示标准答案。`
+      : '确认本次问题或选择历史跟进问题后，将在此自动检索并展示标准答案。';
+  }
+
+  function renderProcessingMode(session) {
+    const followup = session.processingMode === 'followup';
+    document.querySelector('#new-issue-mode').classList.toggle('active', !followup);
+    document.querySelector('#followup-mode').classList.toggle('active', followup);
+    document.querySelector('#processing-mode-note').textContent = followup
+      ? '从问题轨迹选择诉求并继续处理'
+      : '系统识别本次诉求，坐席可校正后处置';
+    document.querySelector('#current-question-label').textContent = followup ? '本次跟进问题' : '系统识别问题 · 可修改';
+    const field = document.querySelector('#current-question');
+    field.value = followup
+      ? session.followupQuestion || '请从下方问题轨迹选择一项进行跟进'
+      : session.newQuestion || '';
+    field.readOnly = followup;
+    field.placeholder = followup
+      ? '请从下方问题轨迹选择一项进行跟进'
+      : '等待通话内容识别，也可由坐席直接补充或校正';
+    field.classList.toggle('readonly', followup);
+    const context = document.querySelector('#followup-context');
+    context.classList.toggle('hidden', !followup);
+    document.querySelector('.issue-editor-card').classList.toggle('followup-active', followup);
+    if (followup) {
+      document.querySelector('#followup-context-title').textContent = session.followupIssue?.question || '尚未选择历史问题';
+      document.querySelector('#followup-context-meta').textContent = session.followupIssue
+        ? `${session.followupIssue.items.length} 条相关记录 · 可从下方问题轨迹重新选择`
+        : '请从下方问题轨迹选择一项进行跟进';
+    }
+    renderKnowledgeAnswer(session);
+  }
+
+  function setProcessingMode(name) {
+    const session = currentSession();
+    if (!session) return;
+    persistCurrentSessionFields();
+    session.processingMode = name === 'followup' ? 'followup' : 'new';
+    session.historyCollapsed = session.processingMode === 'new';
+    session.question = session.processingMode === 'followup'
+      ? session.followupQuestion || ''
+      : session.newQuestion || '';
+    if (session.processingMode === 'followup') setHistoryTab('trajectory');
+    renderProcessingMode(session);
+    renderHistoryVisibility(session, 'processing');
+    renderSessionList();
+  }
+
+  function startHistoryFollowup(group) {
+    const session = currentSession();
+    if (!session) return;
+    persistCurrentSessionFields();
+    session.processingMode = 'followup';
+    session.followupIssue = group;
+    session.followupQuestion = group.question;
+    session.question = group.question;
+    session.historyCollapsed = true;
+    renderProcessingMode(session);
+    renderSessionList();
+    if (session.status !== 'ringing') setWorkspaceView('processing');
+  }
+
+  function renderSelectedSession(session) {
+    document.querySelector('#workspace-empty').classList.add('hidden');
+    document.querySelector('#workspace-content').classList.remove('hidden');
+    document.querySelector('.call-workspace').classList.toggle('completed-session', session.status === 'completed');
+    const stateLabel = document.querySelector('#call-state-label');
+    stateLabel.textContent = session.status === 'ringing'
+      ? '来电呼入'
+      : session.status === 'completed' ? (session.declined ? '未接来电' : '会话已完成') : session.status === 'pending' ? '等待跟进' : '正在通话';
+    stateLabel.className = `call-state-label${session.status === 'ringing' ? ' incoming' : session.status === 'completed' ? ' completed' : session.status === 'pending' ? ' idle' : ''}`;
+    document.querySelector('#workspace-title').textContent = maskLocalPhone(session.phone);
+    const incomingActions = document.querySelector('#incoming-call-actions');
+    incomingActions.classList.toggle('hidden', session.status !== 'ringing');
+    const acceptButton = document.querySelector('#accept-call');
+    acceptButton.disabled = session.profileLoading === true;
+    acceptButton.textContent = session.profileLoading ? '正在调取历史…' : '接听并处理';
+    const processingTab = document.querySelector('#processing-view-tab');
+    processingTab.disabled = session.status === 'ringing';
+    processingTab.title = session.status === 'ringing' ? '接听后进入本通处理' : '';
+    renderOverview(session.profile, session.phone);
+    renderInteractionState(session);
+    renderProcessingMode(session);
+    updateCallClock(session);
+    if (session.profile) {
+      renderHistoryFocus(session.profile);
+      renderCallerHistory(session.profile);
+    } else {
+      document.querySelector('#trajectory-filters').replaceChildren();
+      const profileBox = document.querySelector('#profile');
+      profileBox.className = 'trajectory-content placeholder';
+      profileBox.textContent = session.profileLoading ? '正在读取该号码的问题轨迹…' : '该号码暂无历史问题轨迹，本次按首次咨询接待。';
+      document.querySelector('#caller-history-summary').textContent = '暂无历史来电';
+      document.querySelector('#caller-history').replaceChildren(el('div', 'placeholder', '该号码暂无可展示的历史来电。'));
+    }
+    if (session.advice) renderAdvice(session.advice);
+    else {
+      const adviceBox = document.querySelector('#advice');
+      adviceBox.className = 'placeholder';
+      adviceBox.textContent = session.loading ? '正在调取历史信息并生成辅助建议…' : '本次暂未生成辅助建议。';
+      document.querySelector('#advice-badge').classList.add('hidden');
+    }
+    const initialView = session.status === 'ringing' || session.status === 'completed'
+      ? 'assist'
+      : session.workspaceView || 'assist';
+    setWorkspaceView(initialView, false);
+  }
+
+  function selectSession(id) {
+    persistCurrentSessionFields();
+    const session = state.sessions.find(item => item.id === id);
+    if (!session) return;
+    state.activeSessionId = id;
+    state.phone = session.phone;
+    state.trajectoryFilter = 'all';
+    renderSessionList();
+    renderSelectedSession(session);
   }
 
   document.querySelector('#lookup-form').addEventListener('submit', async event => {
@@ -281,20 +751,78 @@
     const phone = document.querySelector('#phone').value.trim();
     const notice = document.querySelector('#notice');
     if (!phone) { notice.textContent = '请输入来电号码。'; notice.className = 'notice error'; return; }
-    const button = document.querySelector('#submit'); button.disabled = true; notice.textContent = '正在调取历史画像并生成接待建议…'; notice.className = 'notice';
+    const normalizedPhone = phone.normalize('NFKC').replace(/[\s\-－—()（）]/g, '');
+    if (!/^\d+$/.test(normalizedPhone)) {
+      notice.textContent = '来电号码必须为数字，可包含常见空格、横线或括号。';
+      notice.className = 'notice error';
+      return;
+    }
+    persistCurrentSessionFields();
+    const engaged = state.sessions.find(session => session.status === 'active' || session.status === 'ringing');
+    if (engaged) {
+      notice.textContent = engaged.status === 'ringing' ? '已有一通来电等待接听。' : '请先完成当前通话，再模拟新的来电。';
+      notice.className = 'notice error';
+      return;
+    }
+    const session = {
+      id: `call-${Date.now()}`,
+      phone: normalizedPhone,
+      status: 'ringing',
+      createdAt: Date.now(),
+      startedAt: null,
+      completedAt: null,
+      profile: null,
+      advice: null,
+      question: '',
+      newQuestion: '',
+      followupQuestion: '',
+      followupIssue: null,
+      resolved: null,
+      workOrder: false,
+      workspaceView: 'assist',
+      processingMode: 'new',
+      historyCollapsed: false,
+      profileLoading: true,
+      loading: true,
+    };
+    state.sessions.unshift(session);
+    state.activeSessionId = session.id;
+    state.phone = normalizedPhone;
+    renderSessionList();
+    renderSelectedSession(session);
+    const button = document.querySelector('#submit');
+    button.disabled = true;
+    notice.textContent = '模拟来电呼入，正在调取历史信息…';
+    notice.className = 'notice';
+    const profilePromise = api('/api/profile', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({phone: normalizedPhone}),
+    });
+    const advicePromise = api('/api/advice', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({phone: normalizedPhone}),
+    }).then(value => ({value})).catch(error => ({error}));
     try {
-      const result = await api('/api/profile', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone})});
-      state.phone = phone;
-      if (result.found) { renderOverview(result.profile); renderHistoryFocus(result.profile); renderCallerHistory(result.profile); }
-      else {
-        document.querySelector('#overview-panel').classList.add('hidden');
-        document.querySelector('#caller-history-overlay').classList.add('hidden');
-        const profileBox = document.querySelector('#profile'); profileBox.className = 'panel-body placeholder'; profileBox.textContent = '该号码暂无历史来电记录，本次按首次接待方式服务。';
-      }
-      const advice = await api('/api/advice', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone})});
-      renderAdvice(advice.advice); notice.textContent = result.found ? '历史信息已调取，接待建议已实时生成。' : '未匹配到历史信息，已生成保守接待建议。';
-    } catch (error) { notice.textContent = `读取失败：${error.message}`; notice.className = 'notice error'; }
-    finally { button.disabled = false; }
+      const profileResult = await profilePromise;
+      session.profile = profileResult.found ? profileResult.profile : null;
+      session.profileLoading = false;
+      if (state.activeSessionId === session.id) renderSelectedSession(session);
+      renderSessionList();
+      notice.textContent = profileResult.found ? '历史信息已展示，可以接听。' : '当前号码无历史记录，可以接听。';
+    } catch (error) {
+      session.profileLoading = false;
+      if (state.activeSessionId === session.id) renderSelectedSession(session);
+      renderSessionList();
+      notice.textContent = `历史读取失败，仍可接听：${error.message}`;
+      notice.className = 'notice error';
+    }
+    const adviceResult = await advicePromise;
+    session.advice = adviceResult.value?.advice || null;
+    session.loading = false;
+    if (state.activeSessionId === session.id) renderSelectedSession(session);
+    renderSessionList();
+    document.querySelector('#phone').value = '';
+    button.disabled = false;
   });
 
   function renderCallerHistory(profile) {
@@ -312,17 +840,128 @@
         const meta = el('div', 'caller-history-meta'); meta.append(el('time', '', dateText(item.call_time)), el('span', `history-status ${item.resolved === false ? 'unresolved' : item.resolved === true ? 'resolved' : 'unknown'}`, resolvedText(item.resolved)));
         const content = el('div', 'caller-history-content'); content.append(el('strong', '', text(item.core_question || item.question_category, '问题待归类'))); const summary = item.resolved === false ? text(item.unresolved_reason, '未解决原因暂未记录') : text(item.agent_answer_summary, item.resolved === true ? '已直接解决，未形成答复提炼。' : '处理结果待进一步判断。'); content.append(el('p', '', summary));
         const facts = el('div', 'caller-history-facts'); if (item.work_order) facts.append(el('span', '', '历史工单')); if (item.contact_unresolved) facts.append(el('span', '', '存在联系相关部门或人员且未解决')); if (item.is_repeated_issue) facts.append(el('span', '', '重复诉求')); if (item.abnormal_end) facts.append(el('span', '', '异常中断'));
-        const action = el('button', 'button secondary compact', '详情'); action.type = 'button'; action.addEventListener('click', () => openDetail(item.business_id)); row.append(meta, content, facts, action); list.append(row);
+        const actions = el('div', 'caller-history-actions');
+        const followup = el('button', 'button compact', '跟进');
+        followup.type = 'button';
+        followup.addEventListener('click', () => startHistoryFollowup({
+          question: text(item.core_question || item.question_category, '问题待进一步确认'),
+          items: [item],
+        }));
+        const detail = el('button', 'button secondary compact', '详情');
+        detail.type = 'button';
+        detail.addEventListener('click', () => openDetail(item.business_id));
+        actions.append(followup, detail);
+        row.append(meta, content, facts, actions);
+        list.append(row);
       }); box.append(list);
     }
   }
 
   document.querySelector('#view-current-history').addEventListener('click', () => {
-    document.querySelector('#caller-history-overlay').classList.remove('hidden');
+    setHistoryTab('calls');
   });
-  function closeCallerHistory() { document.querySelector('#caller-history-overlay').classList.add('hidden'); }
+  function closeCallerHistory() { setHistoryTab('trajectory'); }
   document.querySelector('#caller-history-close').addEventListener('click', closeCallerHistory);
-  document.querySelector('#caller-history-overlay').addEventListener('click', event => event.target.id === 'caller-history-overlay' && closeCallerHistory());
+  document.querySelector('#trajectory-tab').addEventListener('click', () => {
+    setHistoryCollapsed(false);
+    setHistoryTab('trajectory');
+  });
+  document.querySelector('#all-calls-tab').addEventListener('click', () => {
+    setHistoryCollapsed(false);
+    setHistoryTab('calls');
+  });
+  document.querySelector('#history-collapse-toggle').addEventListener('click', () => {
+    const session = currentSession();
+    if (!session) return;
+    setHistoryCollapsed(!session.historyCollapsed);
+  });
+  document.querySelector('#assist-view-tab').addEventListener('click', () => setWorkspaceView('assist'));
+  document.querySelector('#processing-view-tab').addEventListener('click', () => setWorkspaceView('processing'));
+  document.querySelector('#advice-glance').addEventListener('click', () => setWorkspaceView('assist'));
+  document.querySelector('#new-issue-mode').addEventListener('click', () => setProcessingMode('new'));
+  document.querySelector('#followup-mode').addEventListener('click', () => setProcessingMode('followup'));
+  document.querySelector('#accept-call').addEventListener('click', () => {
+    const session = currentSession();
+    if (!session || session.status !== 'ringing' || session.profileLoading) return;
+    session.status = 'active';
+    session.startedAt = Date.now();
+    session.workspaceView = 'processing';
+    session.historyCollapsed = true;
+    renderSessionList();
+    renderSelectedSession(session);
+    setWorkspaceView('processing');
+    document.querySelector('#processing-view-tab').focus({preventScroll: true});
+  });
+  document.querySelector('#decline-call').addEventListener('click', () => {
+    const session = currentSession();
+    if (!session || session.status !== 'ringing') return;
+    session.status = 'completed';
+    session.declined = true;
+    session.completedAt = Date.now();
+    session.workspaceView = 'assist';
+    renderSessionList();
+    renderSelectedSession(session);
+  });
+
+  document.querySelectorAll('.inbox-filter').forEach(button => button.addEventListener('click', () => {
+    state.sessionFilter = button.dataset.sessionFilter;
+    document.querySelectorAll('.inbox-filter').forEach(item => item.classList.toggle('active', item === button));
+    renderSessionList();
+  }));
+  document.querySelector('#current-question').addEventListener('input', () => {
+    const session = currentSession();
+    if (!session || session.processingMode === 'followup') return;
+    persistCurrentSessionFields();
+    renderKnowledgeAnswer(session);
+    renderSessionList();
+  });
+  document.querySelector('#mark-resolved').addEventListener('click', () => {
+    const session = currentSession();
+    if (!session) return;
+    session.resolved = true;
+    renderInteractionState(session);
+    renderSessionList();
+  });
+  document.querySelector('#mark-unresolved').addEventListener('click', () => {
+    const session = currentSession();
+    if (!session) return;
+    session.resolved = false;
+    renderInteractionState(session);
+    renderSessionList();
+  });
+  document.querySelector('#no-order').addEventListener('click', () => {
+    const session = currentSession();
+    if (!session) return;
+    session.workOrder = false;
+    renderInteractionState(session);
+    renderSessionList();
+  });
+  document.querySelector('#create-order').addEventListener('click', () => {
+    const session = currentSession();
+    if (!session) return;
+    session.workOrder = true;
+    renderInteractionState(session);
+    renderSessionList();
+  });
+  document.querySelector('#complete-session').addEventListener('click', () => {
+    const session = currentSession();
+    if (!session) return;
+    persistCurrentSessionFields();
+    if (session.status === 'completed') {
+      state.sessions.filter(item => item.status === 'active').forEach(item => item.status = 'pending');
+      session.status = 'active';
+      session.declined = false;
+      session.startedAt = Date.now();
+      session.completedAt = null;
+      session.workspaceView = 'assist';
+    } else {
+      session.status = 'completed';
+      session.completedAt = Date.now();
+      session.workspaceView = 'assist';
+    }
+    renderSessionList();
+    renderSelectedSession(session);
+  });
 
   const colors = ['#596fd8', '#28a394', '#dc6b76', '#dda13d', '#7b61c4', '#4f91c7', '#df8454'];
   function renderDonut(target, rows, palette = colors, centerLabel = '来电记录') {

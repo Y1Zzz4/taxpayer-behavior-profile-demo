@@ -113,6 +113,7 @@ def request(
 def test_static_assets_are_served_from_the_canonical_files() -> None:
     html_status, html_headers, html = request("GET", "/")
     script_status, script_headers, script = request("GET", "/app.js")
+    style_status, style_headers, style = request("GET", "/workbench.css")
 
     assert html_status == 200
     assert html_headers["Content-Type"] == "text/html; charset=utf-8"
@@ -120,6 +121,9 @@ def test_static_assets_are_served_from_the_canonical_files() -> None:
     assert script_status == 200
     assert script_headers["Content-Type"] == "text/javascript; charset=utf-8"
     assert b"restoreSession();" in script
+    assert style_status == 200
+    assert style_headers["Content-Type"] == "text/css; charset=utf-8"
+    assert b".agent-shell" in style
 
 
 def test_frontend_treats_api_business_values_as_text() -> None:

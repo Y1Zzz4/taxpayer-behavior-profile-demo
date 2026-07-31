@@ -982,6 +982,7 @@
       .resolution-identity-section { border-top: 1px solid #e4e9f0; border-left: 0; }
     }
   </style>
+  <link rel="stylesheet" href="/workbench.css">
 </head>
 <body>
   <section id="login-screen" class="login-screen">
@@ -1007,7 +1008,7 @@
     <nav class="side-nav" aria-label="系统页面">
       <button class="nav-link active" type="button" data-page="workbench" aria-current="page">
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.69 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.56 2.81.69A2 2 0 0 1 22 16.92z"/></svg></span>
-        <span class="nav-copy"><span class="nav-title">坐席接待助手</span><span class="nav-desc">来电查询与接待建议</span></span>
+        <span class="nav-copy"><span class="nav-title">坐席辅助工作台</span><span class="nav-desc">会话收件箱与当前来电</span></span>
       </button>
       <button class="nav-link" type="button" data-page="dashboard">
         <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg></span>
@@ -1033,7 +1034,7 @@
       <nav class="global-tools-title" aria-label="当前位置">
         <span class="global-location-label">当前位置</span>
         <span class="global-location-separator" aria-hidden="true">/</span>
-        <strong id="global-location-current" class="global-location-current">12366坐席接待助手</strong>
+        <strong id="global-location-current" class="global-location-current">坐席辅助工作台</strong>
       </nav>
       <div class="account-menu">
         <button id="account-toggle" class="account-toggle" type="button" aria-expanded="false" aria-controls="account-popover"><span id="account-avatar" class="account-avatar">坐</span><span id="account-name">未登录</span><span aria-hidden="true">⌄</span></button>
@@ -1044,47 +1045,175 @@
         </div>
       </div>
     </header>
-    <section id="page-workbench" class="page-view">
-      <header class="page-header">
-        <div>
-          <h1>12366坐席接待助手</h1>
-          <p class="page-subtitle">快速确认历史服务情况，获取个性化接待建议</p>
-        </div>
-        <div class="page-context">当前页面 · 坐席接听辅助</div>
-      </header>
-
-      <form id="lookup-form" class="lookup">
-        <label class="field-label" for="phone">来电号码</label>
-        <input id="phone" name="phone" autocomplete="tel" inputmode="tel" placeholder="请输入完整来电号码">
-        <button id="submit" class="button" type="submit">调取历史信息</button>
-        <div id="notice" class="notice">号码仅用于本地安全匹配；提交模型前会对历史文本中的敏感信息进行脱敏。</div>
-      </form>
-
-      <section id="overview-panel" class="panel overview-panel hidden">
-        <div class="panel-head">
-          <div class="panel-title"><h2>信息速览</h2></div>
-          <span id="overview-range" class="badge">近5个工作日 · 仅供参考</span>
-        </div>
-        <div id="overview" class="panel-body overview-body"></div>
-      </section>
-
-      <section class="work-layout">
-        <article class="panel advice-panel">
-          <div class="panel-head"><div class="panel-title"><h2>本次接待建议</h2></div><span id="advice-badge" class="badge hidden"></span></div>
-          <div id="advice" class="panel-body placeholder">调取历史信息后，系统将实时生成个性化接待建议。</div>
-        </article>
-        <article class="panel profile-panel">
-          <div class="panel-head">
-            <div class="panel-title"><h2>未解决问题衔接（近五个工作日）</h2></div>
-            <button id="view-current-history" class="button secondary compact hidden" type="button">查看全部来电信息</button>
+    <section id="page-workbench" class="page-view workbench-page" aria-label="12366坐席接待助手重构版">
+      <div class="agent-shell">
+        <aside class="session-inbox" aria-label="来电会话收件箱">
+          <div class="inbox-head">
+            <div>
+              <span class="workbench-kicker">坐席工作台</span>
+              <h1>来电会话</h1>
+            </div>
+            <span id="inbox-count" class="inbox-count">0</span>
           </div>
-          <div id="profile" class="panel-body placeholder">请输入来电号码查询需要衔接的历史问题。</div>
-        </article>
-      </section>
-      <div id="caller-history-overlay" class="caller-history-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="caller-history-title">
-        <section id="caller-history-panel" class="panel caller-history-panel">
-          <div class="panel-head"><div class="panel-title"><h2 id="caller-history-title">该号码全部历史来电</h2></div><span id="caller-history-summary" class="panel-head-note">—</span><button id="caller-history-close" class="detail-close caller-history-close" type="button" aria-label="关闭全部来电信息">×</button></div>
-          <div id="caller-history" class="panel-body"></div>
+          <form id="lookup-form" class="call-simulator">
+            <label for="phone">模拟新来电</label>
+            <div class="simulator-row">
+              <input id="phone" name="phone" autocomplete="tel" inputmode="tel" placeholder="输入电话号码">
+              <button id="submit" class="button" type="submit" aria-label="模拟来电接入">接入</button>
+            </div>
+            <div id="notice" class="notice">输入完整号码，模拟呼叫平台推送。</div>
+          </form>
+          <div class="inbox-toolbar">
+            <div class="inbox-filters" role="group" aria-label="会话筛选">
+              <button class="inbox-filter active" type="button" data-session-filter="all">全部</button>
+              <button class="inbox-filter" type="button" data-session-filter="active">处理中</button>
+              <button class="inbox-filter" type="button" data-session-filter="completed">已完成</button>
+            </div>
+          </div>
+          <div id="session-list" class="session-list">
+            <div class="session-empty">暂无来电会话<br>输入号码模拟第一通来电</div>
+          </div>
+          <div class="inbox-foot"><span class="status-dot"></span>坐席在线 · 等待来电</div>
+        </aside>
+
+        <section class="call-workspace">
+          <header class="workspace-head">
+            <div class="workspace-contact">
+              <span id="call-state-label" class="call-state-label idle">等待接入</span>
+              <strong id="workspace-title">当前无来电</strong>
+            </div>
+            <div class="workspace-call-tools">
+              <div id="incoming-call-actions" class="incoming-call-actions hidden">
+                <button id="decline-call" class="button secondary compact" type="button">拒绝</button>
+                <button id="accept-call" class="button compact" type="button" disabled>接听并处理</button>
+              </div>
+              <div id="call-clock" class="call-clock hidden"><span></span><strong>00:00</strong></div>
+            </div>
+          </header>
+
+          <div id="workspace-empty" class="workspace-empty">
+            <div class="workspace-empty-icon" aria-hidden="true">☎</div>
+            <strong>等待下一通来电</strong>
+            <p>坐席在线，当前暂无待处理联系。</p>
+          </div>
+
+          <div id="workspace-content" class="workspace-content hidden">
+            <nav class="workspace-view-tabs" role="tablist" aria-label="当前来电工作视图">
+              <button id="assist-view-tab" class="workspace-view-tab active" type="button" role="tab" aria-selected="true" aria-controls="assist-view">
+                <span>接待辅助</span>
+                <small>画像与建议</small>
+              </button>
+              <button id="processing-view-tab" class="workspace-view-tab" type="button" role="tab" aria-selected="false" aria-controls="processing-view">
+                <span>本通处理</span>
+                <small>记录与处置</small>
+              </button>
+            </nav>
+
+            <section id="assist-view" class="workspace-top precall-view workspace-view-pane" role="tabpanel" aria-labelledby="assist-view-tab">
+              <article id="overview-panel" class="precall-overview hidden" aria-label="信息速览">
+                <div id="overview" class="overview-body"></div>
+              </article>
+
+              <article class="advice-panel precall-advice">
+                <div id="advice" class="placeholder">历史信息调取后，系统将生成本次接待建议。</div>
+                <span id="advice-badge" class="badge hidden"></span>
+              </article>
+              <span id="overview-range" class="precall-range">近5个工作日</span>
+            </section>
+
+            <section id="processing-view" class="processing-view workspace-view-pane hidden" role="tabpanel" aria-labelledby="processing-view-tab" aria-label="坐席交互处理工作台">
+              <div class="processing-mode-bar" role="group" aria-label="处理模式">
+                <span>处理模式</span>
+                <button id="new-issue-mode" class="processing-mode active" type="button">新问题</button>
+                <button id="followup-mode" class="processing-mode" type="button">历史跟进</button>
+                <small id="processing-mode-note">记录本次新诉求并完成处置</small>
+              </div>
+
+              <article class="workspace-card issue-editor-card">
+                <div class="workspace-card-head">
+                  <div><h3>当前问题</h3></div>
+                  <span class="save-state">由通话内容自动识别</span>
+                </div>
+                <div id="followup-context" class="followup-context hidden">
+                  <span>正在跟进历史问题</span>
+                  <strong id="followup-context-title">尚未选择问题</strong>
+                  <small id="followup-context-meta">请从下方问题轨迹选择一项</small>
+                </div>
+                <div class="current-question-field">
+                  <span id="current-question-label">本次新诉求</span>
+                  <textarea id="current-question" class="current-question-value" rows="3" placeholder="等待通话内容识别本次问题"></textarea>
+                </div>
+                <div class="question-meta">
+                  <span id="question-topic">专题待识别</span>
+                  <span id="question-demand">需求待识别</span>
+                </div>
+              </article>
+
+              <section class="knowledge-answer-panel" aria-labelledby="knowledge-answer-title">
+                <div class="knowledge-answer-head">
+                  <div>
+                    <span>坐席重点参考</span>
+                    <h3 id="knowledge-answer-title">知识库标准答案</h3>
+                  </div>
+                  <span id="knowledge-answer-status">知识库待接入</span>
+                </div>
+                <div id="knowledge-answer" class="knowledge-answer">
+                  确认本次问题后，将在此自动检索并展示标准答案。
+                </div>
+                <button id="advice-glance" class="knowledge-advice-link" type="button">返回查看接听建议 →</button>
+              </section>
+
+              <article class="workspace-card interaction-card">
+                <div class="workspace-card-head">
+                  <div><h3>处理确认</h3></div>
+                  <span id="interaction-state" class="save-state">处理中</span>
+                </div>
+                <div class="processing-choices">
+                  <div class="processing-choice-row">
+                    <span>处理结果</span>
+                    <div>
+                      <button id="mark-resolved" class="processing-choice" type="button">直接解决</button>
+                      <button id="mark-unresolved" class="processing-choice" type="button">未直接解决</button>
+                    </div>
+                  </div>
+                  <div class="processing-choice-row">
+                    <span>后续流转</span>
+                    <div>
+                      <button id="no-order" class="processing-choice active" type="button">无需工单</button>
+                      <button id="create-order" class="processing-choice" type="button">创建工单</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="interaction-actions">
+                  <span id="interaction-summary">处理结果待确认 · 无需工单</span>
+                  <button id="complete-session" class="button compact" type="button">完成本通</button>
+                </div>
+              </article>
+            </section>
+
+            <section class="workspace-history" aria-label="未解决问题衔接与全部历史">
+              <div class="history-tab-head">
+                <div class="history-tabs" role="tablist" aria-label="历史记录视图">
+                  <button id="trajectory-tab" class="history-tab active" type="button" role="tab" aria-selected="true" aria-controls="trajectory-pane">问题轨迹</button>
+                  <button id="all-calls-tab" class="history-tab" type="button" role="tab" aria-selected="false" aria-controls="caller-history-overlay">全部来电</button>
+                </div>
+                <span id="caller-history-summary" class="panel-head-note">—</span>
+                <button id="history-collapse-toggle" class="history-collapse-toggle" type="button" aria-expanded="true">收起记录</button>
+                <button id="view-current-history" class="button secondary compact hidden" type="button">查看全部来电信息</button>
+              </div>
+              <div id="trajectory-pane" class="history-tab-pane" role="tabpanel" aria-labelledby="trajectory-tab">
+                <div id="trajectory-filters" class="trajectory-filters" aria-label="问题轨迹筛选"></div>
+                <div id="profile" class="trajectory-content placeholder">接入来电后查看该号码的问题轨迹。</div>
+              </div>
+              <div id="caller-history-overlay" class="history-tab-pane hidden" role="tabpanel" aria-labelledby="all-calls-tab">
+                <div class="caller-history-inline-head">
+                  <h3 id="caller-history-title">该号码全部历史来电</h3>
+                  <button id="caller-history-close" class="caller-history-close hidden" type="button" aria-label="关闭全部来电信息">×</button>
+                </div>
+                <div id="caller-history"></div>
+              </div>
+            </section>
+          </div>
         </section>
       </div>
     </section>

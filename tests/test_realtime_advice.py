@@ -258,3 +258,57 @@ def test_history_issue_narrative_normalizes_source_sentence_marks() -> None:
     assert "function formatIssueNarrative(fragments)" in script
     assert "replace(/[；;。！？!?]+([”’）】\\]]*)$/u, '$1')" in script
     assert "formatIssueNarrative(facts)" in script
+
+
+def test_workbench_uses_session_inbox_and_issue_centered_history_views() -> None:
+    html = (PROJECT_ROOT / "web/index.html").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
+
+    for required in (
+        "session-inbox",
+        "模拟新来电",
+        "当前无来电",
+        "accept-call",
+        "接听并处理",
+        "assist-view-tab",
+        "processing-view-tab",
+        "接待辅助",
+        "本通处理",
+        "advice-glance",
+        "knowledge-answer",
+        "知识库标准答案",
+        "当前问题",
+        "mark-resolved",
+        "mark-unresolved",
+        "no-order",
+        "create-order",
+        "interaction-summary",
+        "history-collapse-toggle",
+        "坐席交互",
+        "trajectory-tab",
+        "all-calls-tab",
+        "问题轨迹",
+        "全部来电",
+    ):
+        assert required in html
+    assert 'id="agent-note"' not in html
+    assert '<textarea id="current-question"' in html
+    for required in (
+        "trajectoryGroups",
+        "上次来电信息",
+        "重复咨询",
+        "未直接解决",
+        "工单",
+        "后续追问",
+        "renderSessionList",
+        "setWorkspaceView",
+        "setProcessingMode",
+        "startHistoryFollowup",
+        "renderKnowledgeAnswer",
+        "renderHistoryVisibility",
+        "historyCollapsed",
+        "status: 'ringing'",
+        "workspaceView",
+        "completedAt",
+    ):
+        assert required in script
