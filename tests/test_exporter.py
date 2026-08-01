@@ -384,6 +384,7 @@ def test_web_facade_composes_independent_read_use_cases(tmp_path: Path) -> None:
     assert isinstance(service.dashboard, DashboardService)
     assert isinstance(service.history, HistoryService)
     assert isinstance(service.showcase, ProfileShowcaseService)
+    assert service.profile_advice.sessions is service._sessions
     assert service.dashboard_summary() == service.dashboard.summary()
     assert service.history_page(phone="13800000001") == service.history.page(
         phone="13800000001"
@@ -490,6 +491,43 @@ def test_showcase_catalog_returns_five_defaults_and_searches_all_profiles(
     assert len(searched_catalog["items"]) == 1
     assert searched_catalog["items"][0]["masked_phone"] == "138****0001"
     assert "13800000001" not in str(searched_catalog)
+
+
+def test_showcase_catalog_reflects_profiles_added_after_first_read(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "profiles.sqlite3"
+    protector = PhoneProtector("test-hash-key", Fernet.generate_key().decode())
+    engine = make_engine(database)
+    create_schema(engine)
+    sessions = make_session_factory(engine)
+
+    def add_profile(phone: str, when: datetime) -> None:
+        with transactional_session(sessions) as session:
+            session.add(
+                CallerProfile(
+                    phone_hash=protector.hash_phone(phone),
+                    phone_encrypted=protector.encrypt_phone(phone),
+                    first_call_time=when,
+                    latest_call_time=when,
+                    total_call_count=1,
+                    proficiency_level="了解",
+                    emotion_state="平稳",
+                )
+            )
+
+    add_profile("13800000001", datetime(2026, 6, 1, 9))
+    service = ProfileShowcaseService(sessions, protector)
+    assert service.catalog()["summary"]["profile_count"] == 1
+
+    add_profile("13800000002", datetime(2026, 6, 2, 9))
+    refreshed = service.catalog()
+
+    assert refreshed["summary"]["profile_count"] == 2
+    assert [item["masked_phone"] for item in refreshed["items"]] == [
+        "138****0002",
+        "138****0001",
+    ]
 
 
 def test_information_overview_uses_five_statutory_service_days() -> None:

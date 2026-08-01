@@ -243,4 +243,5 @@ pytest -q
 ```bash
 python -m compileall -q src scripts
 node --check web/app.js
+node --check web/ui.js
 ```

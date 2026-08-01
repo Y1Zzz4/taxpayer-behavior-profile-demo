@@ -112,17 +112,28 @@ def request(
 
 def test_static_assets_are_served_from_the_canonical_files() -> None:
     html_status, html_headers, html = request("GET", "/")
+    ui_status, ui_headers, ui_script = request("GET", "/ui.js")
     script_status, script_headers, script = request("GET", "/app.js")
 
     assert html_status == 200
     assert html_headers["Content-Type"] == "text/html; charset=utf-8"
+    assert html.count(b'<script src="/ui.js"></script>') == 1
     assert b'<script src="/app.js"></script>' in html
+    assert html.index(b'<script src="/ui.js"></script>') < html.index(
+        b'<script src="/app.js"></script>'
+    )
+    assert ui_status == 200
+    assert ui_headers["Content-Type"] == "text/javascript; charset=utf-8"
+    assert b"window.TaxpayerUI" in ui_script
     assert script_status == 200
     assert script_headers["Content-Type"] == "text/javascript; charset=utf-8"
+    assert b"window.TaxpayerUI" in script
+    assert b"const text =" not in script
     assert b"restoreSession();" in script
 
 
 def test_frontend_treats_api_business_values_as_text() -> None:
+    ui_status, _, ui_script = request("GET", "/ui.js")
     script_status, _, script = request("GET", "/app.js")
     history_status, _, history = request(
         "POST",
@@ -134,9 +145,9 @@ def test_frontend_treats_api_business_values_as_text() -> None:
         },
     )
 
-    assert script_status == 200
-    assert b"innerHTML" not in script
-    assert b"textContent" in script
+    assert ui_status == script_status == 200
+    assert b"innerHTML" not in ui_script + script
+    assert b"textContent" in ui_script + script
     assert history_status == 200
     assert json.loads(history)["items"][0]["core_question"] == (
         '<img src=x onerror="alert(1)">'

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from taxpayer_profile.database import make_engine, make_session_factory
 from taxpayer_profile.models import CallerProfile, CallTrajectory
@@ -263,12 +265,28 @@ def _full_trajectory(item: CallTrajectory) -> dict[str, Any]:
 def query_profile(
     *, phone: object, database_path: Path | str, protector: PhoneProtector
 ) -> dict[str, Any] | None:
+    """Compatibility entry point for scripts that only have a database path."""
+
+    engine = make_engine(database_path)
+    return query_profile_from_sessions(
+        phone=phone,
+        sessions=make_session_factory(engine),
+        protector=protector,
+    )
+
+
+def query_profile_from_sessions(
+    *,
+    phone: object,
+    sessions: Callable[[], Session],
+    protector: PhoneProtector,
+) -> dict[str, Any] | None:
+    """Query one profile through an injected application session boundary."""
+
     normalized = normalize_phone(phone)
     if normalized is None:
         raise ValueError("来电号码必须为数字，可包含常见空格、横线或括号")
     phone_hash = protector.hash_phone(normalized)
-    engine = make_engine(database_path)
-    sessions = make_session_factory(engine)
     with sessions() as session:
         profile = session.get(CallerProfile, phone_hash)
         if profile is None:

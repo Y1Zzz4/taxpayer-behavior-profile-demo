@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
+from sqlalchemy.orm import Session, sessionmaker
+
 from taxpayer_profile.application.dashboard_service import DashboardService
 from taxpayer_profile.application.history_service import HistoryService
 from taxpayer_profile.application.profile_showcase_service import ProfileShowcaseService
@@ -23,7 +25,7 @@ from taxpayer_profile.auth import AuthService
 from taxpayer_profile.config import Settings
 from taxpayer_profile.database import create_schema, make_engine, make_session_factory
 from taxpayer_profile.llm_client import OpenAICompatibleClient
-from taxpayer_profile.query import query_profile
+from taxpayer_profile.query import query_profile_from_sessions
 from taxpayer_profile.realtime_advice import (
     AdviceClient,
     build_fallback_advice,
@@ -38,15 +40,15 @@ REALTIME_ADVICE_TIMEOUT_SECONDS = 25.0
 class ProfileAdviceService:
     """Phone-level profile lookup and real-time reception advice."""
 
-    database_path: Path
+    sessions: Callable[[], Session]
     protector: PhoneProtector
     settings: Settings
     advice_client_factory: Callable[[], AdviceClient | None] | None = None
 
     def lookup_profile(self, phone: object) -> dict[str, object] | None:
-        return query_profile(
+        return query_profile_from_sessions(
             phone=phone,
-            database_path=self.database_path,
+            sessions=self.sessions,
             protector=self.protector,
         )
 
@@ -111,7 +113,7 @@ class DemoService:
     advice_client_factory: Callable[[], AdviceClient | None] | None = None
 
     @cached_property
-    def _sessions(self):  # type: ignore[no-untyped-def]
+    def _sessions(self) -> sessionmaker[Session]:
         engine = make_engine(self.database_path)
         create_schema(engine)
         return make_session_factory(engine)
@@ -123,7 +125,7 @@ class DemoService:
     @cached_property
     def profile_advice(self) -> ProfileAdviceService:
         return ProfileAdviceService(
-            database_path=self.database_path,
+            sessions=self._sessions,
             protector=self.protector,
             settings=self.settings,
             advice_client_factory=self.advice_client_factory,

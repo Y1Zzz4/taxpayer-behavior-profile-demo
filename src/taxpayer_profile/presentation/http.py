@@ -18,6 +18,11 @@ WEB_ROOT = PROJECT_ROOT / "web"
 MAX_REQUEST_BYTES = 16_384
 SESSION_COOKIE = "tp_session"
 LOGGER = logging.getLogger(__name__)
+STATIC_ASSETS = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/ui.js": ("ui.js", "text/javascript; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+}
 
 
 class HttpApplication(Protocol):
@@ -140,11 +145,9 @@ def handler_factory(
         def _dispatch_get(self) -> None:
             parsed_url = urlparse(self.path)
             path = parsed_url.path
-            if path == "/":
-                self._static("index.html", "text/html; charset=utf-8")
-                return
-            if path == "/app.js":
-                self._static("app.js", "text/javascript; charset=utf-8")
+            static_asset = STATIC_ASSETS.get(path)
+            if static_asset is not None:
+                self._static(*static_asset)
                 return
             if path == "/api/auth/me":
                 user = self._require_user()

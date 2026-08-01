@@ -1,29 +1,8 @@
 (() => {
   'use strict';
 
-  const text = (value, fallback = '暂无记录') => value === null || value === undefined || value === '' ? fallback : String(value);
-  const dateText = value => value ? String(value).replace('T', ' ').slice(0, 16) : '时间未记录';
+  const {dateText, el, selectOption, tableMessageRow, text} = window.TaxpayerUI;
   const resolvedText = value => value === true ? '已直接解决' : value === false ? '未直接解决' : '状态待判断';
-  const el = (tag, className = '', content) => {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (content !== undefined) node.textContent = content;
-    return node;
-  };
-  // Table messages may contain API errors, so they must always enter the DOM
-  // as text rather than through an HTML parsing sink.
-  function tableMessageRow(message, columnCount) {
-    const row = el('tr');
-    const cell = el('td', 'table-empty', message);
-    cell.colSpan = columnCount;
-    row.append(cell);
-    return row;
-  }
-  function selectOption(value, label) {
-    const option = el('option', '', label);
-    option.value = value;
-    return option;
-  }
   function formatIssueNarrative(fragments) {
     // Model and manually entered reasons may already end in a sentence mark.
     // Normalize each independent clause before the UI adds its own separators,

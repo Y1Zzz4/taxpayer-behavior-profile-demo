@@ -22,8 +22,8 @@ venv/
 .vscode/
 .idea/
 .DS_Store
-.refactor-plan.md
-.project-improvement-notes.md
+.refactor-plan-branch-developtoolstyle.md
+.project-improvement-branch-main.md
 
 # Sensitive source data and generated artifacts
 data/raw/*

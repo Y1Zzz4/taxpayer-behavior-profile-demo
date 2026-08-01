@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from functools import cached_property
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,9 +38,8 @@ class ProfileShowcaseService:
         self._sessions = sessions
         self._protector = protector
 
-    @cached_property
     def _search_index(self) -> list[dict[str, object]]:
-        """Build a lightweight search index without loading every call trajectory."""
+        """Build a current search index without loading every call trajectory."""
 
         with self._sessions() as session:
             profiles = session.scalars(
@@ -78,11 +76,13 @@ class ProfileShowcaseService:
             )
         return entries
 
-    @cached_property
     def _key_map(self) -> dict[str, dict[str, object]]:
-        return {str(entry["profile_key"]): entry for entry in self._search_index}
+        return {
+            str(entry["profile_key"]): entry for entry in self._search_index()
+        }
 
     def catalog(self, *, query: object = "", limit: object = 5) -> dict[str, object]:
+        search_index = self._search_index()
         normalized_query = str(query or "").strip().lower()
         try:
             result_limit = max(1, min(int(limit), 5))
@@ -90,7 +90,7 @@ class ProfileShowcaseService:
             raise ValueError("画像检索数量必须是整数") from exc
         candidates = [
             entry
-            for entry in self._search_index
+            for entry in search_index
             if not normalized_query or normalized_query in str(entry["search_text"])
         ][:result_limit]
         candidate_hashes = [str(entry["phone_hash"]) for entry in candidates]
@@ -163,7 +163,7 @@ class ProfileShowcaseService:
                 "fact_count": len(HISTORICAL_FACT_DEFINITIONS),
                 "mode_group_count": 3,
                 "mode_count": len(RECEPTION_MODE_CATALOG),
-                "profile_count": len(self._search_index),
+                "profile_count": len(search_index),
                 "returned_count": len(items),
             },
             "methodology": [
@@ -184,8 +184,8 @@ class ProfileShowcaseService:
 
     def profile(self, *, profile_key: object) -> dict[str, object]:
         key = str(profile_key or "").strip()
+        matched = self._key_map().get(key)
         with self._sessions() as session:
-            matched = self._key_map.get(key)
             profile = (
                 session.get(CallerProfile, str(matched["phone_hash"]))
                 if matched is not None
