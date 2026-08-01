@@ -57,6 +57,8 @@ def log_event(
     logger: logging.Logger,
     level: int,
     event: str,
+    *,
+    exc_info: bool = False,
     **fields: object,
 ) -> None:
     """Emit a structured event while remaining compatible with normal logging."""
@@ -64,5 +66,6 @@ def log_event(
     logger.log(
         level,
         event,
+        exc_info=exc_info,
         extra={"event_name": event, "event_fields": fields},
     )

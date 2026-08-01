@@ -242,6 +242,23 @@ pytest -q
 
 ```bash
 python -m compileall -q src scripts
-node --check web/app.js
 node --check web/ui.js
+node --check web/api-client.js
+node --check web/dashboard-ui.js
+node --check web/history-ui.js
+node --check web/workbench-ui.js
+node --check web/user-management-ui.js
+node --check web/showcase-ui.js
+node --check web/showcase-graph-ui.js
+node --check web/app.js
 ```
+
+运行浏览器回归测试（仅开发期）：
+
+```bash
+npm install
+npm exec playwright -- install chromium
+npm run test:browser
+```
+
+Playwright 仅用于本地浏览器回归，不参与 Demo 的 Python 运行时依赖或部署。

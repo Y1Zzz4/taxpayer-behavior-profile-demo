@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from taxpayer_profile.auth import AuthService, user_payload
 from taxpayer_profile.config import PROJECT_ROOT
 from taxpayer_profile.models import SystemUser
+from taxpayer_profile.observability import log_event
 
 WEB_ROOT = PROJECT_ROOT / "web"
 MAX_REQUEST_BYTES = 16_384
@@ -20,9 +21,46 @@ SESSION_COOKIE = "tp_session"
 LOGGER = logging.getLogger(__name__)
 STATIC_ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/ui.js": ("ui.js", "text/javascript; charset=utf-8"),
+    "/api-client.js": ("api-client.js", "text/javascript; charset=utf-8"),
+    "/dashboard-ui.js": ("dashboard-ui.js", "text/javascript; charset=utf-8"),
+    "/history-ui.js": ("history-ui.js", "text/javascript; charset=utf-8"),
+    "/workbench-ui.js": ("workbench-ui.js", "text/javascript; charset=utf-8"),
+    "/user-management-ui.js": ("user-management-ui.js", "text/javascript; charset=utf-8"),
+    "/showcase-ui.js": ("showcase-ui.js", "text/javascript; charset=utf-8"),
+    "/showcase-graph-ui.js": ("showcase-graph-ui.js", "text/javascript; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
+AUTHENTICATED_GET_PATHS = frozenset({"/api/auth/me", "/api/dashboard"})
+ADMIN_GET_PATHS = frozenset({"/api/showcase/catalog", "/api/users"})
+AUTHENTICATED_POST_PATHS = frozenset(
+    {"/api/profile", "/api/advice", "/api/history", "/api/history/detail"}
+)
+ADMIN_POST_PATHS = frozenset(
+    {"/api/showcase", "/api/users/create", "/api/users/update"}
+)
+PUBLIC_POST_PATHS = frozenset({"/api/auth/login", "/api/auth/logout"})
+
+
+def route_access_policy(method: str, path: str) -> str | None:
+    """Classify one supported route without exposing request data to policy code."""
+
+    if method == "GET":
+        if path in STATIC_ASSETS:
+            return "public"
+        if path in AUTHENTICATED_GET_PATHS:
+            return "authenticated"
+        if path in ADMIN_GET_PATHS:
+            return "admin"
+    if method == "POST":
+        if path in PUBLIC_POST_PATHS:
+            return "public"
+        if path in AUTHENTICATED_POST_PATHS:
+            return "authenticated"
+        if path in ADMIN_POST_PATHS:
+            return "admin"
+    return None
 
 
 class HttpApplication(Protocol):
@@ -116,10 +154,19 @@ def handler_factory(
 
         def _require_user(self, *, admin: bool = False) -> SystemUser | None:
             user = service.auth.authenticate(self._token())
+            request_path = urlparse(self.path).path
             if user is None:
                 self._error(401, "请先登录")
                 return None
             if admin and user.role != "admin":
+                log_event(
+                    LOGGER,
+                    logging.WARNING,
+                    "http.request_denied",
+                    path=request_path,
+                    reason="insufficient_role",
+                    required_access="admin",
+                )
                 self._error(403, "当前账号无权访问该功能")
                 return None
             return user
@@ -130,37 +177,22 @@ def handler_factory(
             try:
                 operation()
             except Exception:
-                LOGGER.exception(
+                log_event(
+                    LOGGER,
+                    logging.ERROR,
                     "http.request_failed",
-                    extra={
-                        "event_name": "http.request_failed",
-                        "event_fields": {
-                            "method": method,
-                            "path": urlparse(self.path).path,
-                        },
-                    },
+                    exc_info=True,
+                    method=method,
+                    path=urlparse(self.path).path,
                 )
                 self._error(500, "服务器处理请求失败")
 
-        def _dispatch_get(self) -> None:
-            parsed_url = urlparse(self.path)
-            path = parsed_url.path
-            static_asset = STATIC_ASSETS.get(path)
-            if static_asset is not None:
-                self._static(*static_asset)
-                return
-            if path == "/api/auth/me":
-                user = self._require_user()
-                if user is not None:
-                    self._json(200, {"user": user_payload(user)})
-                return
-            admin_only = path in {"/api/showcase/catalog", "/api/users"}
-            if self._require_user(admin=admin_only) is None:
-                return
+        def _handle_get_read(self, path: str) -> None:
             if path == "/api/dashboard":
                 self._json(200, service.dashboard_summary())
-            elif path == "/api/showcase/catalog":
-                parameters = parse_qs(parsed_url.query)
+        def _handle_get_admin(self, path: str, query: str) -> None:
+            if path == "/api/showcase/catalog":
+                parameters = parse_qs(query)
                 try:
                     self._json(
                         200,
@@ -173,16 +205,7 @@ def handler_factory(
                     self._error(400, str(exc))
             elif path == "/api/users":
                 self._json(200, {"items": service.auth.list_users()})
-            else:
-                self._error(404, "接口不存在")
-
-        def _dispatch_post(self) -> None:
-            path = urlparse(self.path).path
-            try:
-                body = self._read_json()
-            except ValueError as exc:
-                self._error(400, str(exc))
-                return
+        def _handle_post_auth(self, path: str, body: dict[str, object]) -> None:
             if path == "/api/auth/login":
                 try:
                     token, user = service.auth.login(
@@ -196,82 +219,115 @@ def handler_factory(
                 except ValueError as exc:
                     self._error(401, str(exc))
                 return
-            if path == "/api/auth/logout":
-                service.auth.logout(self._token())
+            service.auth.logout(self._token())
+            self._json(
+                200,
+                {"ok": True},
+                headers={
+                    "Set-Cookie": (
+                        f"{SESSION_COOKIE}=; Path=/; HttpOnly; "
+                        "SameSite=Strict; Max-Age=0"
+                    )
+                },
+            )
+        def _handle_post_read(self, path: str, body: dict[str, object]) -> None:
+            if path == "/api/profile":
+                if body.get("phone") is None:
+                    raise ValueError("缺少来电号码")
+                profile = service.lookup_profile(body["phone"])
+                self._json(200, {"found": profile is not None, "profile": profile})
+            elif path == "/api/advice":
+                if body.get("phone") is None:
+                    raise ValueError("缺少来电号码")
+                self._json(200, service.generate_advice(body["phone"]))
+            elif path == "/api/history":
                 self._json(
                     200,
-                    {"ok": True},
-                    headers={
-                        "Set-Cookie": (
-                            f"{SESSION_COOKIE}=; Path=/; HttpOnly; "
-                            "SameSite=Strict; Max-Age=0"
+                    service.history_page(
+                        page=body.get("page", 1),
+                        page_size=body.get("page_size", 10),
+                        phone=body.get("phone"),
+                    ),
+                )
+            elif path == "/api/history/detail":
+                detail = service.history_detail(body.get("business_id"))
+                self._json(200, {"found": detail is not None, "detail": detail})
+        def _handle_post_admin(self, path: str, body: dict[str, object]) -> None:
+            if path == "/api/showcase":
+                self._json(
+                    200,
+                    service.profile_showcase(profile_key=body.get("profile_key")),
+                )
+            elif path == "/api/users/create":
+                self._json(
+                    200,
+                    {
+                        "user": service.auth.create_user(
+                            username=body.get("username"),
+                            display_name=body.get("display_name"),
+                            password=body.get("password"),
+                            role=body.get("role"),
                         )
                     },
                 )
+            elif path == "/api/users/update":
+                self._json(
+                    200,
+                    {
+                        "user": service.auth.update_user(
+                            user_id=body.get("user_id"),
+                            display_name=body.get("display_name"),
+                            role=body.get("role"),
+                            is_active=body.get("is_active"),
+                            password=body.get("password"),
+                        )
+                    },
+                )
+        def _dispatch_get(self) -> None:
+            parsed_url = urlparse(self.path)
+            path = parsed_url.path
+            access = route_access_policy("GET", path)
+            if access is None:
+                if self._require_user() is None:
+                    return
+                self._error(404, "接口不存在")
                 return
-            admin_only = path in {
-                "/api/showcase",
-                "/api/users/create",
-                "/api/users/update",
-            }
-            if self._require_user(admin=admin_only) is None:
+            static_asset = STATIC_ASSETS.get(path)
+            if static_asset is not None:
+                self._static(*static_asset)
+                return
+            user = self._require_user(admin=access == "admin")
+            if user is None:
+                return
+            if path == "/api/auth/me":
+                self._json(200, {"user": user_payload(user)})
+            elif access == "authenticated":
+                self._handle_get_read(path)
+            else:
+                self._handle_get_admin(path, parsed_url.query)
+        def _dispatch_post(self) -> None:
+            path = urlparse(self.path).path
+            try:
+                body = self._read_json()
+            except ValueError as exc:
+                self._error(400, str(exc))
+                return
+            access = route_access_policy("POST", path)
+            if access is None:
+                if self._require_user() is None:
+                    return
+                self._error(404, "接口不存在")
+                return
+            if access == "public":
+                self._handle_post_auth(path, body)
+                return
+            if self._require_user(admin=access == "admin") is None:
                 return
             try:
-                if path == "/api/profile":
-                    if body.get("phone") is None:
-                        raise ValueError("缺少来电号码")
-                    profile = service.lookup_profile(body["phone"])
-                    self._json(200, {"found": profile is not None, "profile": profile})
-                elif path == "/api/advice":
-                    if body.get("phone") is None:
-                        raise ValueError("缺少来电号码")
-                    self._json(200, service.generate_advice(body["phone"]))
-                elif path == "/api/history":
-                    self._json(
-                        200,
-                        service.history_page(
-                            page=body.get("page", 1),
-                            page_size=body.get("page_size", 10),
-                            phone=body.get("phone"),
-                        ),
-                    )
-                elif path == "/api/history/detail":
-                    detail = service.history_detail(body.get("business_id"))
-                    self._json(200, {"found": detail is not None, "detail": detail})
-                elif path == "/api/showcase":
-                    self._json(
-                        200,
-                        service.profile_showcase(
-                            profile_key=body.get("profile_key"),
-                        ),
-                    )
-                elif path == "/api/users/create":
-                    self._json(
-                        200,
-                        {
-                            "user": service.auth.create_user(
-                                username=body.get("username"),
-                                display_name=body.get("display_name"),
-                                password=body.get("password"),
-                                role=body.get("role"),
-                            )
-                        },
-                    )
-                elif path == "/api/users/update":
-                    self._json(
-                        200,
-                        {
-                            "user": service.auth.update_user(
-                                user_id=body.get("user_id"),
-                                display_name=body.get("display_name"),
-                                role=body.get("role"),
-                                is_active=body.get("is_active"),
-                                password=body.get("password"),
-                            )
-                        },
-                    )
+                if access == "authenticated":
+                    self._handle_post_read(path, body)
                 else:
-                    self._error(404, "接口不存在")
+                    self._handle_post_admin(path, body)
             except ValueError as exc:
                 self._error(400, str(exc))
 

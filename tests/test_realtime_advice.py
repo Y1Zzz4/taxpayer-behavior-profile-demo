@@ -124,12 +124,46 @@ def test_realtime_advice_timeout_allows_normal_model_latency_variation() -> None
 
 def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
     html = (PROJECT_ROOT / "web/index.html").read_text(encoding="utf-8")
+    stylesheet = (PROJECT_ROOT / "web/styles.css").read_text(encoding="utf-8")
+    dashboard_script = (PROJECT_ROOT / "web/dashboard-ui.js").read_text(
+        encoding="utf-8"
+    )
+    history_script = (PROJECT_ROOT / "web/history-ui.js").read_text(
+        encoding="utf-8"
+    )
+    workbench_script = (PROJECT_ROOT / "web/workbench-ui.js").read_text(
+        encoding="utf-8"
+    )
+    user_management_script = (PROJECT_ROOT / "web/user-management-ui.js").read_text(
+        encoding="utf-8"
+    )
+    showcase_script = (PROJECT_ROOT / "web/showcase-ui.js").read_text(encoding="utf-8")
+    showcase_graph_script = (PROJECT_ROOT / "web/showcase-graph-ui.js").read_text(
+        encoding="utf-8"
+    )
     script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
-    page = html + script
+    page = (
+        html
+        + stylesheet
+        + dashboard_script
+        + history_script
+        + workbench_script
+        + user_management_script
+        + showcase_script
+        + showcase_graph_script
+        + script
+    )
 
-    # The browser must exercise the same JavaScript that this contract checks.
+    # The browser must exercise the same resources that this contract checks.
     # A previous text/plain copy in index.html made stale UI assertions pass
     # even though that implementation was never executed.
+    assert html.count('<link rel="stylesheet" href="/styles.css">') == 1
+    assert html.count('<script src="/dashboard-ui.js"></script>') == 1
+    assert html.count('<script src="/history-ui.js"></script>') == 1
+    assert html.count('<script src="/workbench-ui.js"></script>') == 1
+    assert html.count('<script src="/user-management-ui.js"></script>') == 1
+    assert html.count('<script src="/showcase-ui.js"></script>') == 1
+    assert html.count('<script src="/showcase-graph-ui.js"></script>') == 1
     assert html.count('<script src="/app.js"></script>') == 1
     assert 'type="text/plain"' not in html
 
@@ -232,12 +266,12 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
     assert "label: mode.focus" not in page
     assert "kind: 'mode', group: zone.group" not in page
     assert "edges.push([groupRoot, id])" not in page
-    assert "proficiency:{label:'业务专业度', y:-215,z:65}" in script
-    assert "information_delivery:{label:'表达方式',y:-210,z:65" in script
-    assert "emotion:{label:'近期情绪状态',y:0,z:85}" in script
-    assert "emotion_response:{label:'情绪响应',y:0,z:85" in script
-    assert "facts:{label:'历史服务事实',y:160,z:-105}" in script
-    assert "matter_continuity:{label:'业务应对',y:160,z:-105" in script
+    assert "proficiency:{label:'业务专业度', y:-215,z:65}" in showcase_graph_script
+    assert "information_delivery:{label:'表达方式',y:-210,z:65" in showcase_graph_script
+    assert "emotion:{label:'近期情绪状态',y:0,z:85}" in showcase_graph_script
+    assert "emotion_response:{label:'情绪响应',y:0,z:85" in showcase_graph_script
+    assert "facts:{label:'历史服务事实',y:160,z:-105}" in showcase_graph_script
+    assert "matter_continuity:{label:'业务应对',y:160,z:-105" in showcase_graph_script
     assert '<span class="panel-icon">' not in page
     assert '<h2>服务画像分类方法</h2>' not in page
     assert "requestAnimationFrame" in page
@@ -247,11 +281,11 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
     assert "item.label" in page
     assert "增量画像推演" not in page
     assert "四项公开事实" not in page
-    assert "const show=showLabels&&" in script
+    assert "const show=showLabels&&" in showcase_graph_script
 
 
 def test_history_issue_narrative_normalizes_source_sentence_marks() -> None:
-    script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "web/workbench-ui.js").read_text(encoding="utf-8")
 
     # Individual model/manual clauses are normalized before they are joined,
     # preventing combinations such as “；。” when a reason already has “。”.
