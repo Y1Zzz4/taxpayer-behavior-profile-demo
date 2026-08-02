@@ -85,12 +85,79 @@
   if (!values.length) { target.append(el('div', 'empty-chart', empty)); return; }
   const list = el('div', 'rate-bar-list'); values.forEach(item => { const rate = Math.max(0, Math.min(100, Number(item[rateKey] || 0))); const row = el('div', 'rate-bar-row'); const fill = el('i', 'rate-bar-fill'); fill.style.width = `${rate}%`; const track = el('div', 'rate-bar-track'); track.append(fill); row.append(el('strong', '', text(item.label)), track, el('span', '', `${rate}%`)); list.append(row); }); target.append(list);
 }
+  function resolutionRateItem(item, level) {
+    const label = text(item?.label, '未识别主体');
+    const hasRate = item?.resolved_rate !== null && item?.resolved_rate !== undefined;
+    const rate = hasRate
+      ? Math.max(0, Math.min(100, Number(item.resolved_rate)))
+      : 0;
+    const itemNode = el('article', `resolution-rate-item ${level}${hasRate ? '' : ' unknown'}`);
+    itemNode.setAttribute('role', 'listitem');
+    const head = el('div', 'resolution-rate-head');
+    head.append(
+      el('strong', 'resolution-subject-name', label),
+      el('strong', 'resolution-rate-value', hasRate ? `${rate}%` : '—'),
+    );
+    const track = el('div', 'resolution-rate-track');
+    track.setAttribute(
+      'aria-label',
+      hasRate ? `${label}已直接解决率 ${rate}%` : `${label}暂无已判定记录`,
+    );
+    if (hasRate) {
+      track.setAttribute('role', 'meter');
+      track.setAttribute('aria-valuemin', '0');
+      track.setAttribute('aria-valuemax', '100');
+      track.setAttribute('aria-valuenow', String(rate));
+    } else {
+      track.setAttribute('role', 'img');
+    }
+    const fill = el('i', 'resolution-rate-fill');
+    fill.style.width = `${rate}%`;
+    track.append(fill);
+    itemNode.append(head, track);
+    return itemNode;
+  }
+
   function renderCallerResolutionComparison(target, rows, enterpriseRows = [], empty = '暂无已判定咨询主体记录') {
-  target.replaceChildren(); const values = rows || [];
-  if (!values.length || !values.some(item => item.resolved_rate !== null && item.resolved_rate !== undefined)) { target.append(el('div', 'empty-chart', empty)); return; }
-  const board = el('div', 'resolution-comparison-board'); const primary = el('section', 'resolution-primary-section'); const primaryHead = el('div', 'resolution-section-head'); primaryHead.append(el('strong', '', '一级咨询主体'), el('span', '', '已直接解决率')); const primaryPlot = el('div', 'resolution-primary-plot'); const primaryGrid = el('div', 'resolution-primary-grid'); [100, 75, 50, 25, 0].forEach(rate => primaryGrid.append(el('span', '', `${rate}%`))); const primaryColumns = el('div', 'resolution-primary-columns'); values.forEach((item, index) => { const hasRate = item.resolved_rate !== null && item.resolved_rate !== undefined; const rate = hasRate ? Math.max(0, Math.min(100, Number(item.resolved_rate))) : 0; const column = el('article', `resolution-primary-column ${index === 0 ? 'personal' : 'enterprise'}${hasRate ? '' : ' unknown'}`); const value = el('span', 'resolution-primary-value', hasRate ? `${rate}%` : '—'); const track = el('div', 'resolution-primary-column-track'); const fill = el('i'); fill.style.height = `${rate}%`; track.append(fill); column.append(value, track, el('strong', '', text(item.label))); primaryColumns.append(column); }); primaryPlot.append(primaryGrid, primaryColumns); primary.append(primaryHead, primaryPlot);
-  const identities = el('section', 'resolution-identity-section'); const identityHead = el('div', 'resolution-section-head'); identityHead.append(el('strong', '', '企业二级身份'), el('span', '', '仅统计已识别身份')); const identityList = el('div', 'resolution-identity-list'); (enterpriseRows || []).forEach(item => { const hasRate = item.resolved_rate !== null && item.resolved_rate !== undefined; const rate = hasRate ? Math.max(0, Math.min(100, Number(item.resolved_rate))) : 0; const row = el('div', `resolution-identity-row${hasRate ? '' : ' unknown'}`); const track = el('div', 'resolution-identity-track'); const fill = el('i'); fill.style.width = `${rate}%`; track.append(fill); row.append(el('strong', '', text(item.label)), track, el('span', '', hasRate ? `${rate}%` : '—')); identityList.append(row); }); if (!identityList.childElementCount) identityList.append(el('div', 'empty-chart compact', '暂无已识别且已判定的企业二级身份记录')); identities.append(identityHead, identityList); board.append(primary, identities); target.append(board);
-}
+    target.replaceChildren();
+    const values = Array.isArray(rows) ? rows : [];
+    const identityValues = Array.isArray(enterpriseRows) ? enterpriseRows : [];
+    if (!values.some(item => item?.resolved_rate !== null && item?.resolved_rate !== undefined)) {
+      target.append(el('div', 'empty-chart', empty));
+      return;
+    }
+
+    const board = el('div', 'resolution-comparison-board');
+    const primary = el('section', 'resolution-tier resolution-primary-section');
+    const primaryHead = el('div', 'resolution-section-head');
+    primaryHead.append(
+      el('h3', '', '一级咨询主体'),
+      el('span', '', '已直接解决率'),
+    );
+    const primaryGrid = el('div', 'resolution-rate-grid resolution-primary-grid');
+    primaryGrid.setAttribute('role', 'list');
+    primaryGrid.setAttribute('aria-label', '一级咨询主体解决率');
+    values.forEach(item => primaryGrid.append(resolutionRateItem(item, 'primary')));
+    primary.append(primaryHead, primaryGrid);
+
+    const identities = el('section', 'resolution-tier resolution-identity-section');
+    const identityHead = el('div', 'resolution-section-head');
+    identityHead.append(
+      el('h3', '', '企业二级身份'),
+      el('span', '', '仅展示已识别身份'),
+    );
+    const identityGrid = el('div', 'resolution-rate-grid resolution-identity-grid');
+    identityGrid.setAttribute('role', 'list');
+    identityGrid.setAttribute('aria-label', '企业二级身份解决率');
+    identityValues.forEach(item => identityGrid.append(resolutionRateItem(item, 'identity')));
+    if (!identityValues.length) {
+      identityGrid.append(el('div', 'resolution-identity-empty', '暂无已识别的企业二级身份记录'));
+    }
+    identities.append(identityHead, identityGrid);
+
+    board.append(primary, identities);
+    target.append(board);
+  }
   function renderVerticalRateBars(target, rows, rateKey, empty = '暂无可展示数据', large = false) {
   target.replaceChildren(); const values = rows || [];
   if (!values.length) { target.append(el('div', 'empty-chart', empty)); return; }
