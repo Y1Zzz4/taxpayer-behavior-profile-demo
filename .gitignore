@@ -22,8 +22,8 @@ venv/
 .vscode/
 .idea/
 .DS_Store
-.refactor-plan.md
-.project-improvement-notes.md
+.refactor-plan-branch-developtoolstyle.md
+.project-improvement-branch-main.md
 
 # Sensitive source data and generated artifacts
 data/raw/*
@@ -40,3 +40,9 @@ data/cache/*
 *.sqlite
 *.sqlite3
 *.log
+
+# Browser test dependencies and generated artifacts
+node_modules/
+playwright-report/
+test-results/
+blob-report/
