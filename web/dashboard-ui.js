@@ -85,8 +85,8 @@
   if (!values.length) { target.append(el('div', 'empty-chart', empty)); return; }
   const list = el('div', 'rate-bar-list'); values.forEach(item => { const rate = Math.max(0, Math.min(100, Number(item[rateKey] || 0))); const row = el('div', 'rate-bar-row'); const fill = el('i', 'rate-bar-fill'); fill.style.width = `${rate}%`; const track = el('div', 'rate-bar-track'); track.append(fill); row.append(el('strong', '', text(item.label)), track, el('span', '', `${rate}%`)); list.append(row); }); target.append(list);
 }
-  const primaryResolutionColors = ['#4f74c8', '#d1843c'];
-  const identityResolutionColor = '#2d9b8b';
+  const primaryResolutionColors = ['#4f74c8', '#2f9b72'];
+  const identityResolutionColor = '#b86112';
 
   function rateInfo(item) {
     const label = text(item?.label, '未识别主体');
@@ -171,7 +171,11 @@
     primaryBars.setAttribute('role', 'list');
     primaryBars.setAttribute('aria-label', '一级咨询主体解决率竖向柱状图');
     values.forEach((item, index) => primaryBars.append(primaryResolutionBar(item, index)));
-    primary.append(primaryHead, primaryBars, el('div', 'resolution-primary-baseline'));
+    const primaryPlot = el('div', 'resolution-primary-plot');
+    const primaryAxis = el('div', 'resolution-primary-axis');
+    [100, 75, 50, 25, 0].forEach(rate => primaryAxis.append(el('span', '', `${rate}%`)));
+    primaryPlot.append(primaryAxis, primaryBars);
+    primary.append(primaryHead, primaryPlot);
 
     const identities = el('section', 'resolution-tier resolution-identity-section');
     const identityHead = el('div', 'resolution-section-head');

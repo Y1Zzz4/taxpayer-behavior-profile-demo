@@ -66,7 +66,7 @@ const dashboardPayload = {
   },
 };
 
-test('不同咨询主体解决率使用克制双柱和四行横向进度布局', async ({page}) => {
+test('不同咨询主体解决率使用带刻度的渐变双柱和四行横向进度布局', async ({page}) => {
   await page.route('**/api/dashboard', route => route.fulfill({json: dashboardPayload}));
   await signInAsAdministrator(page);
   await page.locator('[data-page="dashboard"]').click();
@@ -83,7 +83,13 @@ test('不同咨询主体解决率使用克制双柱和四行横向进度布局',
   );
   await expect(chart.locator('.resolution-primary-bars')).toHaveCount(1);
   await expect(chart.locator('.resolution-primary-bar')).toHaveCount(2);
-  await expect(chart.locator('.resolution-primary-baseline')).toBeVisible();
+  await expect(chart.locator('.resolution-primary-axis span')).toHaveText([
+    '100%',
+    '75%',
+    '50%',
+    '25%',
+    '0%',
+  ]);
 
   const identityLabels = await chart
     .locator('.resolution-identity-bars .resolution-subject-name')
@@ -95,13 +101,33 @@ test('不同咨询主体解决率使用克制双柱和四行横向进度布局',
   expect(identityBoxes[1].y).toBeGreaterThan(identityBoxes[0].y);
   expect(identityBoxes[2].y).toBeGreaterThan(identityBoxes[1].y);
   expect(identityBoxes[3].y).toBeGreaterThan(identityBoxes[2].y);
-  const identityColors = await identityItems.evaluateAll(items => items.map(item =>
-    getComputedStyle(item.querySelector('.resolution-rate-fill')).backgroundColor,
-  ));
-  expect(new Set(identityColors).size).toBe(1);
-  expect(await chart.locator('.resolution-primary-fill').first().evaluate(
-    node => getComputedStyle(node).backgroundImage,
-  )).toBe('none');
+  await expect(personal.locator('.resolution-primary-value')).toHaveCSS(
+    'color',
+    'rgb(79, 116, 200)',
+  );
+  const enterprise = chart.locator('.resolution-primary-bar', {hasText: '企业'});
+  await expect(enterprise.locator('.resolution-primary-value')).toHaveCSS(
+    'color',
+    'rgb(47, 155, 114)',
+  );
+  for (const fill of await chart.locator('.resolution-primary-fill').all()) {
+    expect(await fill.evaluate(node => getComputedStyle(node).backgroundImage))
+      .toContain('linear-gradient');
+  }
+  const identityTracks = chart.locator('.resolution-rate-item.identity .resolution-rate-track');
+  await expect(identityTracks.first()).toHaveCSS('background-color', 'rgb(238, 234, 226)');
+  await expect(identityTracks.first()).toHaveCSS('border-radius', '999px');
+  const identityFillImages = await chart
+    .locator('.resolution-rate-item.identity .resolution-rate-fill')
+    .evaluateAll(nodes => nodes.map(node => getComputedStyle(node).backgroundImage));
+  expect(new Set(identityFillImages).size).toBe(1);
+  expect(identityFillImages[0]).toContain('linear-gradient');
+  const firstIdentityRate = chart
+    .locator('.resolution-rate-item.identity .resolution-rate-value')
+    .first();
+  await expect(firstIdentityRate).toHaveCSS('color', 'rgb(184, 97, 18)');
+  await expect(firstIdentityRate).toHaveCSS('text-align', 'right');
+  await expect(firstIdentityRate).toHaveCSS('font-weight', '800');
   expect(await chart.locator('.resolution-primary-value').first().evaluate(
     node => getComputedStyle(node).borderTopWidth,
   )).toBe('0px');
