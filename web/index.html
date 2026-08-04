@@ -887,11 +887,6 @@
     .strategy-card span { display: block; color: #667085; font-size: 10px; }
     .strategy-card strong { display: block; margin-top: 5px; color: #1d2939; font-size: 13px; }
     .strategy-card p { margin: 6px 0 0; color: #667085; font-size: 11px; line-height: 1.55; }
-    .caller-history-overlay { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(16,24,40,.46); }
-    .caller-history-panel { width: min(1180px, 100%); max-height: min(760px, calc(100vh - 56px)); display: flex; flex-direction: column; margin: 0; box-shadow: 0 20px 56px rgba(16,24,40,.24); }
-    .caller-history-panel .panel-head { flex: 0 0 auto; }
-    .caller-history-panel .panel-body { min-height: 0; overflow: auto; }
-    .caller-history-close { margin-left: 4px; color: #667085; background: transparent; }
     .caller-history-list { max-height: 500px; overflow: auto; border: 1px solid #eaecf0; border-radius: 6px; }
     .caller-history-header { position: sticky; z-index: 1; top: 0; display: grid; grid-template-columns: 150px minmax(230px, 2fr) minmax(180px, 1fr) auto; gap: 14px; padding: 9px 14px; color: #667085; background: #f9fafb; border-bottom: 1px solid #eaecf0; font-size: 10px; font-weight: 700; }
     .caller-history-row { display: grid; grid-template-columns: 150px minmax(230px, 2fr) minmax(180px, 1fr) auto; gap: 14px; align-items: center; padding: 12px 14px; border-bottom: 1px solid #eaecf0; }
@@ -905,8 +900,6 @@
     .caller-history-content { min-width: 0; }
     .caller-history-content strong { display: block; overflow: hidden; color: #1d2939; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
     .caller-history-content p { display: -webkit-box; overflow: hidden; margin: 4px 0 0; color: #667085; font-size: 11px; line-height: 1.5; line-clamp: 2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-    .caller-history-facts { display: flex; flex-wrap: wrap; gap: 4px; }
-    .caller-history-facts span { padding: 2px 5px; color: #475467; background: #f2f4f7; border-radius: 3px; font-size: 10px; }
     .rate-bar-list { display: grid; gap: 14px; padding: 4px 0; }
     .rate-bar-row { display: grid; grid-template-columns: minmax(92px, 1fr) minmax(140px, 2.6fr) 46px; gap: 10px; align-items: center; }
     .rate-bar-row strong { overflow: hidden; color: #344054; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -976,8 +969,7 @@
       .hotspot-section + .hotspot-section, .distribution-grid > section + section { padding-top: 14px; padding-left: 0; border-top: 1px solid #eaecf0; border-left: 0; }
       .caller-history-row { grid-template-columns: 1fr auto; gap: 8px 12px; }
       .caller-history-header { display: none; }
-      .caller-history-content, .caller-history-facts { grid-column: 1 / -1; }
-      .caller-history-overlay { padding: 12px; }
+      .caller-history-content { grid-column: 1 / -1; }
       .resolution-comparison-board { grid-template-columns: 1fr; }
       .resolution-identity-section { border-top: 1px solid #e4e9f0; border-left: 0; }
     }
@@ -1115,8 +1107,12 @@
               </article>
 
               <article class="advice-panel precall-advice">
+                <div class="precall-advice-bar">
+                  <h3 class="precall-advice-title">系统辅助建议</h3>
+                  <div id="advice-modes" class="precall-mode-list" aria-label="组合接待策略"></div>
+                  <span id="advice-badge" class="badge hidden"></span>
+                </div>
                 <div id="advice" class="placeholder">历史信息调取后，系统将生成本次接待建议。</div>
-                <span id="advice-badge" class="badge hidden"></span>
               </article>
               <span id="overview-range" class="precall-range">近5个工作日</span>
             </section>
@@ -1140,7 +1136,7 @@
                   <small id="followup-context-meta">请从下方问题轨迹选择一项</small>
                 </div>
                 <div class="current-question-field">
-                  <span id="current-question-label">本次新诉求</span>
+                  <label id="current-question-label" for="current-question">本次新诉求</label>
                   <textarea id="current-question" class="current-question-value" rows="3" placeholder="等待通话内容识别本次问题"></textarea>
                 </div>
                 <div class="question-meta">
@@ -1191,26 +1187,18 @@
               </article>
             </section>
 
-            <section class="workspace-history" aria-label="未解决问题衔接与全部历史">
+            <section class="workspace-history" aria-labelledby="trajectory-title">
               <div class="history-tab-head">
-                <div class="history-tabs" role="tablist" aria-label="历史记录视图">
-                  <button id="trajectory-tab" class="history-tab active" type="button" role="tab" aria-selected="true" aria-controls="trajectory-pane">问题轨迹</button>
-                  <button id="all-calls-tab" class="history-tab" type="button" role="tab" aria-selected="false" aria-controls="caller-history-overlay">全部来电</button>
+                <div class="history-title-block">
+                  <h2 id="trajectory-title">问题轨迹</h2>
+                  <small>逐通来电记录与问题状态</small>
                 </div>
                 <span id="caller-history-summary" class="panel-head-note">—</span>
                 <button id="history-collapse-toggle" class="history-collapse-toggle" type="button" aria-expanded="true">收起记录</button>
-                <button id="view-current-history" class="button secondary compact hidden" type="button">查看全部来电信息</button>
               </div>
-              <div id="trajectory-pane" class="history-tab-pane" role="tabpanel" aria-labelledby="trajectory-tab">
+              <div id="trajectory-pane" class="history-tab-pane" aria-labelledby="trajectory-title">
                 <div id="trajectory-filters" class="trajectory-filters" aria-label="问题轨迹筛选"></div>
                 <div id="profile" class="trajectory-content placeholder">接入来电后查看该号码的问题轨迹。</div>
-              </div>
-              <div id="caller-history-overlay" class="history-tab-pane hidden" role="tabpanel" aria-labelledby="all-calls-tab">
-                <div class="caller-history-inline-head">
-                  <h3 id="caller-history-title">该号码全部历史来电</h3>
-                  <button id="caller-history-close" class="caller-history-close hidden" type="button" aria-label="关闭全部来电信息">×</button>
-                </div>
-                <div id="caller-history"></div>
               </div>
             </section>
           </div>

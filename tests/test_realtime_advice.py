@@ -148,10 +148,9 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
         "需求类别与未直接解决率",
         "历史来电记录",
         "画像推演中心",
-        "未解决问题衔接",
+        "问题轨迹",
         "重复诉求",
         "存在联系相关部门或人员且未解决",
-        "该号码全部历史来电",
         "组合接待策略",
         "总体接待建议",
         "整体画像逻辑",
@@ -203,8 +202,6 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
         "人工登记与原始信息",
         "重点分析信息",
         "advice.advice_summary",
-        "查看全部来电信息",
-        "caller-history-overlay",
         "上一页",
         "下一页",
         "用户与权限",
@@ -285,21 +282,19 @@ def test_workbench_uses_session_inbox_and_issue_centered_history_views() -> None
         "interaction-summary",
         "history-collapse-toggle",
         "坐席交互",
-        "trajectory-tab",
-        "all-calls-tab",
+        "trajectory-title",
         "问题轨迹",
-        "全部来电",
     ):
         assert required in html
     assert 'id="agent-note"' not in html
     assert '<textarea id="current-question"' in html
     for required in (
-        "trajectoryGroups",
+        "renderTrajectoryCalls",
+        "appendTrajectoryTags",
         "上次来电信息",
-        "重复咨询",
+        "重复诉求",
         "未直接解决",
         "工单",
-        "后续追问",
         "renderSessionList",
         "setWorkspaceView",
         "setProcessingMode",
@@ -312,3 +307,45 @@ def test_workbench_uses_session_inbox_and_issue_centered_history_views() -> None
         "completedAt",
     ):
         assert required in script
+
+
+def test_workbench_uses_consistent_issue_labels() -> None:
+    script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
+
+    assert "全部来电" in script
+    assert "历史未解决" not in script
+    assert "重复咨询" not in script
+    assert "后续追问" not in script
+
+
+def test_followup_question_is_editable_and_drives_knowledge_search() -> None:
+    script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
+
+    assert "跟进检索问题 · 可修改" in script
+    assert "session.followupQuestion = field.value.trim()" in script
+    assert "session.followupQuestion || session.followupIssue?.question" in script
+    assert "session.followupQuestion || '请从下方问题轨迹选择一项进行跟进'" not in script
+
+
+def test_reception_advice_has_a_fixed_visible_title() -> None:
+    html = (PROJECT_ROOT / "web/index.html").read_text(encoding="utf-8")
+    css = (PROJECT_ROOT / "web/workbench.css").read_text(encoding="utf-8")
+
+    assert "系统辅助建议" in html
+    assert "precall-advice-bar" in html
+    assert "position: absolute; z-index: 3; top: 9px" not in css
+
+
+def test_problem_trajectory_is_the_only_per_call_history_view() -> None:
+    html = (PROJECT_ROOT / "web/index.html").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "web/app.js").read_text(encoding="utf-8")
+
+    assert 'id="trajectory-title"' in html
+    assert 'id="all-calls-tab"' not in html
+    assert 'id="caller-history-overlay"' not in html
+    assert 'id="caller-history"' not in html
+    assert "setHistoryTab" not in script
+    assert "renderCallerHistory" not in script
+    assert "trajectoryGroups" not in script
+    assert "renderTrajectoryCalls" in script
+    assert "appendTrajectoryTags" in script
