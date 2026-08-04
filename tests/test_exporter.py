@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 from openpyxl import load_workbook
 
 from taxpayer_profile.application.dashboard_service import DashboardService
+from taxpayer_profile.application.web_dto import frequent_then_unresolved_rate_rows
 from taxpayer_profile.application.history_service import HistoryService
 from taxpayer_profile.application.profile_showcase_service import ProfileShowcaseService
 from taxpayer_profile.application.web_dto import unresolved_rate_rows
@@ -227,6 +228,34 @@ def test_profile_rule_workbooks_are_self_contained_and_cover_derivations(
     )
     assert "宏观接待建议" in guidance_text
     assert "号码级" not in guidance_text
+
+
+def test_topic_distribution_selects_unresolved_top_five_from_ten_most_frequent() -> None:
+    counts = Counter({
+        "专题01": 30,
+        "专题02": 29,
+        "专题03": 28,
+        "专题04": 27,
+        "专题05": 26,
+        "专题06": 25,
+        "专题07": 24,
+        "专题08": 23,
+        "专题09": 22,
+        "专题10": 21,
+        "低频高未解决": 2,
+    })
+    resolution = {
+        label: Counter({"resolved": value - index, "unresolved": index})
+        for index, (label, value) in enumerate(counts.items(), start=1)
+    }
+    resolution["低频高未解决"] = Counter({"unresolved": 2})
+
+    rows = frequent_then_unresolved_rate_rows(counts, resolution)
+
+    assert [row["label"] for row in rows] == [
+        "专题10", "专题09", "专题08", "专题07", "专题06"
+    ]
+    assert "低频高未解决" not in {row["label"] for row in rows}
 
 
 def test_web_dashboard_and_history_are_read_only_and_mask_phone(

@@ -266,11 +266,11 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
     assert "label: mode.focus" not in page
     assert "kind: 'mode', group: zone.group" not in page
     assert "edges.push([groupRoot, id])" not in page
-    assert "proficiency:{label:'业务专业度', y:-215,z:65}" in showcase_graph_script
+    assert "proficiency:{label:'业务专业度', y:-210,z:0}" in showcase_graph_script
     assert "information_delivery:{label:'表达方式',y:-210,z:65" in showcase_graph_script
-    assert "emotion:{label:'近期情绪状态',y:0,z:85}" in showcase_graph_script
+    assert "emotion:{label:'近期情绪状态',y:0,z:0}" in showcase_graph_script
     assert "emotion_response:{label:'情绪响应',y:0,z:85" in showcase_graph_script
-    assert "facts:{label:'历史服务事实',y:160,z:-105}" in showcase_graph_script
+    assert "facts:{label:'历史服务事实',y:210,z:0}" in showcase_graph_script
     assert "matter_continuity:{label:'业务应对',y:160,z:-105" in showcase_graph_script
     assert '<span class="panel-icon">' not in page
     assert '<h2>服务画像分类方法</h2>' not in page
@@ -282,6 +282,8 @@ def test_web_ui_prioritizes_12366_summary_and_explainable_derivation() -> None:
     assert "增量画像推演" not in page
     assert "四项公开事实" not in page
     assert "const show=showLabels&&" in showcase_graph_script
+    assert "if(node.kind==='dimension')" in showcase_graph_script
+    assert "ascent=Math.max" not in showcase_graph_script
 
 
 def test_history_issue_narrative_normalizes_source_sentence_marks() -> None:

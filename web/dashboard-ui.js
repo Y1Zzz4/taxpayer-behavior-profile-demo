@@ -85,19 +85,52 @@
   if (!values.length) { target.append(el('div', 'empty-chart', empty)); return; }
   const list = el('div', 'rate-bar-list'); values.forEach(item => { const rate = Math.max(0, Math.min(100, Number(item[rateKey] || 0))); const row = el('div', 'rate-bar-row'); const fill = el('i', 'rate-bar-fill'); fill.style.width = `${rate}%`; const track = el('div', 'rate-bar-track'); track.append(fill); row.append(el('strong', '', text(item.label)), track, el('span', '', `${rate}%`)); list.append(row); }); target.append(list);
 }
-  function resolutionRateItem(item, level) {
+  const primaryResolutionColors = ['#4f74c8', '#d1843c'];
+  const identityResolutionColor = '#2d9b8b';
+
+  function rateInfo(item) {
     const label = text(item?.label, '未识别主体');
     const hasRate = item?.resolved_rate !== null && item?.resolved_rate !== undefined;
     const rate = hasRate
       ? Math.max(0, Math.min(100, Number(item.resolved_rate)))
       : 0;
-    const itemNode = el('article', `resolution-rate-item ${level}${hasRate ? '' : ' unknown'}`);
+    return {label, hasRate, rate};
+  }
+
+  function primaryResolutionBar(item, index) {
+    const {label, hasRate, rate} = rateInfo(item);
+    const itemNode = el('article', `resolution-primary-bar${hasRate ? '' : ' unknown'}`);
     itemNode.setAttribute('role', 'listitem');
-    const head = el('div', 'resolution-rate-head');
-    head.append(
-      el('strong', 'resolution-subject-name', label),
-      el('strong', 'resolution-rate-value', hasRate ? `${rate}%` : '—'),
+    itemNode.classList.add(index === 0 ? 'personal' : 'enterprise');
+    itemNode.style.setProperty('--resolution-color', primaryResolutionColors[index % primaryResolutionColors.length]);
+    const value = el('strong', 'resolution-primary-value', hasRate ? `${rate}%` : '—');
+    const track = el('div', 'resolution-primary-meter');
+    track.setAttribute(
+      'aria-label',
+      hasRate ? `${label}已直接解决率 ${rate}%` : `${label}暂无已判定记录`,
     );
+    if (hasRate) {
+      track.setAttribute('role', 'meter');
+      track.setAttribute('aria-valuemin', '0');
+      track.setAttribute('aria-valuemax', '100');
+      track.setAttribute('aria-valuenow', String(rate));
+    } else {
+      track.setAttribute('role', 'img');
+    }
+    const fill = el('i', 'resolution-primary-fill');
+    fill.style.height = `${rate}%`;
+    track.append(fill);
+    itemNode.append(value, track, el('strong', 'resolution-primary-label', label));
+    return itemNode;
+  }
+
+  function identityResolutionBar(item) {
+    const {label, hasRate, rate} = rateInfo(item);
+    const itemNode = el('article', `resolution-rate-item identity${hasRate ? '' : ' unknown'}`);
+    itemNode.setAttribute('role', 'listitem');
+    itemNode.style.setProperty('--resolution-color', identityResolutionColor);
+    const name = el('strong', 'resolution-subject-name', label);
+    const value = el('strong', 'resolution-rate-value', hasRate ? `${rate}%` : '—');
     const track = el('div', 'resolution-rate-track');
     track.setAttribute(
       'aria-label',
@@ -114,7 +147,7 @@
     const fill = el('i', 'resolution-rate-fill');
     fill.style.width = `${rate}%`;
     track.append(fill);
-    itemNode.append(head, track);
+    itemNode.append(name, track, value);
     return itemNode;
   }
 
@@ -134,11 +167,11 @@
       el('h3', '', '一级咨询主体'),
       el('span', '', '已直接解决率'),
     );
-    const primaryGrid = el('div', 'resolution-rate-grid resolution-primary-grid');
-    primaryGrid.setAttribute('role', 'list');
-    primaryGrid.setAttribute('aria-label', '一级咨询主体解决率');
-    values.forEach(item => primaryGrid.append(resolutionRateItem(item, 'primary')));
-    primary.append(primaryHead, primaryGrid);
+    const primaryBars = el('div', 'resolution-primary-bars');
+    primaryBars.setAttribute('role', 'list');
+    primaryBars.setAttribute('aria-label', '一级咨询主体解决率竖向柱状图');
+    values.forEach((item, index) => primaryBars.append(primaryResolutionBar(item, index)));
+    primary.append(primaryHead, primaryBars, el('div', 'resolution-primary-baseline'));
 
     const identities = el('section', 'resolution-tier resolution-identity-section');
     const identityHead = el('div', 'resolution-section-head');
@@ -146,10 +179,10 @@
       el('h3', '', '企业二级身份'),
       el('span', '', '仅展示已识别身份'),
     );
-    const identityGrid = el('div', 'resolution-rate-grid resolution-identity-grid');
+    const identityGrid = el('div', 'resolution-identity-bars');
     identityGrid.setAttribute('role', 'list');
     identityGrid.setAttribute('aria-label', '企业二级身份解决率');
-    identityValues.forEach(item => identityGrid.append(resolutionRateItem(item, 'identity')));
+    identityValues.forEach(item => identityGrid.append(identityResolutionBar(item)));
     if (!identityValues.length) {
       identityGrid.append(el('div', 'resolution-identity-empty', '暂无已识别的企业二级身份记录'));
     }
@@ -176,9 +209,44 @@
   const list = el('div', 'rate-distribution-list'); values.forEach(item => { const itemWrap = el('section', 'rate-distribution-item'); itemWrap.append(rateDistributionRow(item)); const childrenRows = (item.children || []).filter(hasPositiveRate); if (drilldown && childrenRows.length) { const toggle = el('button', 'topic-drill-toggle', '展开二级专题'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', 'false'); const children = el('div', 'rate-child-list hidden'); childrenRows.forEach(child => children.append(rateDistributionRow(child))); toggle.addEventListener('click', () => { const expanded = toggle.getAttribute('aria-expanded') === 'true'; toggle.setAttribute('aria-expanded', String(!expanded)); toggle.textContent = expanded ? '展开二级专题' : '收起二级专题'; children.classList.toggle('hidden', expanded); }); itemWrap.append(toggle, children); } list.append(itemWrap); }); target.append(list);
 }
   function renderHotspots(target, groups) {
-  target.replaceChildren(); const labels = [['all', '全量未解决热点问题 Top5'], ['personal', '个人咨询未解决热点问题 Top5'], ['enterprise', '企业咨询未解决热点问题 Top5']];
-  labels.forEach(([key, title]) => { const section = el('section', 'hotspot-section'); section.append(el('h3', '', title)); const list = el('ol', 'hotspot-list'); const rows = (groups?.[key] || []).filter(item => String(item.label || '').trim()); rows.length ? rows.forEach(item => list.append(el('li', '', String(item.label).trim()))) : list.append(el('li', 'empty', '暂无可展示的未直接解决问题')); section.append(list); target.append(section); });
-}
+    target.replaceChildren();
+    const labels = [['all', '总体热点'], ['personal', '个人主体热点'], ['enterprise', '企业主体热点']];
+    labels.forEach(([key, title]) => {
+      const rows = (groups?.[key] || []).filter(item => String(item.label || '').trim());
+      const section = el('section', 'hotspot-priority-section');
+      const head = el('div', 'hotspot-priority-head');
+      head.append(el('h3', '', title));
+      const list = el('ol', 'hotspot-priority-list');
+      const max = Math.max(...rows.map(item => Number(item.value || 0)), 1);
+      if (!rows.length) {
+        list.append(el('li', 'hotspot-priority-empty', '暂无可展示的未直接解决问题'));
+      } else {
+        rows.forEach((item, index) => {
+          const priority = index === 0
+            ? {label: '高优先', className: 'high'}
+            : {label: '重点', className: 'important'};
+          const row = el('li', `hotspot-priority-item ${priority.className}`);
+          const itemHead = el('div', 'hotspot-priority-item-head');
+          const rank = el('span', 'hotspot-rank', String(index + 1).padStart(2, '0'));
+          const copy = el('div', 'hotspot-priority-copy');
+          const label = text(item.label, '未形成明确问题');
+          const fill = el('i', 'hotspot-priority-fill');
+          const relativeHeat = Math.max(8, Number(item.value || 0) / max * 100);
+          fill.style.width = `${relativeHeat}%`;
+          const track = el('div', 'hotspot-priority-track');
+          track.setAttribute('role', 'img');
+          track.setAttribute('aria-label', `${label}，相对热度 ${Math.round(relativeHeat)}%`);
+          track.append(fill);
+          copy.append(el('strong', '', label));
+          itemHead.append(rank, copy, el('span', 'hotspot-priority-level', priority.label));
+          row.append(itemHead, track);
+          list.append(row);
+        });
+      }
+      section.append(head, list);
+      target.append(section);
+    });
+  }
   function dashboardIcon(name) {
   const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
   const paths = {

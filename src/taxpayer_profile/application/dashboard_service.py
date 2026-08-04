@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from taxpayer_profile.application.web_dto import (
     counter_rows,
     district_unit_label,
+    frequent_then_unresolved_rate_rows,
     resolution_rows,
     resolution_state,
     secondary_labels_for_topic,
@@ -185,9 +186,10 @@ class DashboardService:
                         exclude_unclassified=True,
                     ),
                 }
-                for row in unresolved_rate_rows(
+                for row in frequent_then_unresolved_rate_rows(
                     topics,
                     topic_resolution,
+                    frequency_limit=10,
                     limit=5,
                     exclude_other=True,
                     exclude_unclassified=True,
@@ -246,9 +248,10 @@ class DashboardService:
                         exclude_unclassified=True,
                         ),
                     }
-                    for row in unresolved_rate_rows(
+                    for row in frequent_then_unresolved_rate_rows(
                         topics,
                         topic_resolution,
+                        frequency_limit=10,
                         limit=5,
                         exclude_other=True,
                         exclude_unclassified=True,

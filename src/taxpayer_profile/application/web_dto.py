@@ -136,6 +136,47 @@ def unresolved_rate_rows(
     )[:limit]
 
 
+def frequent_then_unresolved_rate_rows(
+    counter: Counter[str],
+    resolution: dict[str, Counter[str]],
+    *,
+    frequency_limit: int = 10,
+    limit: int = 5,
+    exclude_other: bool = False,
+    exclude_unclassified: bool = False,
+) -> list[dict[str, object]]:
+    """Rank unresolved rates only after selecting the most frequent categories."""
+
+    def excluded(label: str) -> bool:
+        normalized = label.strip().strip("[](){}'\" ").lower()
+        if exclude_other and normalized in {"其他", "其它", "其他类", "其它类"}:
+            return True
+        return exclude_unclassified and normalized in {
+            "暂未分类",
+            "未分类",
+            "二级专题待识别",
+            "待识别",
+            "未提取出标签",
+            "标签未提取",
+            "未提取标签",
+            "问题待归类",
+        }
+
+    frequent = Counter(
+        dict(
+            sorted(
+                (
+                    (label, value)
+                    for label, value in counter.items()
+                    if not excluded(label)
+                ),
+                key=lambda item: (-item[1], item[0]),
+            )[:frequency_limit]
+        )
+    )
+    return unresolved_rate_rows(frequent, resolution, limit=limit)
+
+
 def split_labels(value: str | None, *, fallback: str) -> list[str]:
     labels = [
         part.strip()
