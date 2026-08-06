@@ -89,3 +89,60 @@ test('减弱动效偏好下图谱默认不自动旋转', async ({page}) => {
   await page.locator('[data-page="showcase"]').click();
   await expect(page.getByRole('button', {name: '继续旋转'})).toBeVisible();
 });
+
+test('三个画像类别共享相近空间区域且类别内部保持错落', async ({page}) => {
+  const categoryLabels = [
+    '专业', '了解', '小白',
+    '平稳', '焦虑', '不满',
+    '对坐席不满', '历史工单', '存在联系相关部门或人',
+    '异常中断', '等待推诿', '近五个工作日未命中',
+  ];
+  await page.addInitScript((labels) => {
+    window.__graphCategoryPoints = {};
+    const contextPrototype = window.CanvasRenderingContext2D.prototype;
+    const originalArc = contextPrototype.arc;
+    const originalFillText = contextPrototype.fillText;
+    let lastArc = null;
+    contextPrototype.arc = function(x, y, radius, ...rest) {
+      lastArc = {x, y, radius};
+      return originalArc.call(this, x, y, radius, ...rest);
+    };
+    contextPrototype.fillText = function(value, ...rest) {
+      const label = String(value);
+      if (lastArc && labels.includes(label)) {
+        window.__graphCategoryPoints[label] = {...lastArc};
+      }
+      return originalFillText.call(this, value, ...rest);
+    };
+  }, categoryLabels);
+  await page.emulateMedia({reducedMotion: 'reduce'});
+  await signInAsAdministrator(page);
+  await page.locator('[data-page="showcase"]').click();
+  await expect(page.locator('.knowledge-graph-canvas')).toBeVisible();
+
+  await expect.poll(() => page.evaluate(
+    labels => labels.every(label => window.__graphCategoryPoints[label]),
+    categoryLabels,
+  )).toBe(true);
+  const points = await page.evaluate(() => window.__graphCategoryPoints);
+  const groups = [
+    ['专业', '了解', '小白'],
+    ['平稳', '焦虑', '不满'],
+    ['对坐席不满', '历史工单', '存在联系相关部门或人', '异常中断', '等待推诿', '近五个工作日未命中'],
+  ];
+  const regions = groups.map(labels => {
+    const groupPoints = labels.map(label => points[label]);
+    const xs = groupPoints.map(point => point.x);
+    const ys = groupPoints.map(point => point.y).sort((a, b) => a - b);
+    const yGaps = ys.slice(1).map((value, index) => value - ys[index]);
+    expect(Math.min(...yGaps)).toBeGreaterThan(16);
+    return {
+      centerX: (Math.min(...xs) + Math.max(...xs)) / 2,
+      width: Math.max(...xs) - Math.min(...xs),
+    };
+  });
+  expect(Math.max(...regions.map(region => region.centerX))
+    - Math.min(...regions.map(region => region.centerX))).toBeLessThan(45);
+  expect(Math.max(...regions.map(region => region.width))
+    - Math.min(...regions.map(region => region.width))).toBeLessThan(20);
+});
